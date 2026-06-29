@@ -37,7 +37,12 @@ trailing slashes** on these paths.
 and Python 3.10+ (the engine ships its own — see step 3).
 
 - **Windows:** install **Visual Studio** with the *"Desktop development with
-  C++"* workload, and **CMake** (anywhere, as long as it's on `PATH`).
+  C++"* workload, and **CMake** (anywhere, as long as it's on `PATH`). Also
+  install the **[Microsoft Visual C++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe)** —
+  the engine's bundled Python needs it, and without it the first `o3de` command
+  fails while creating the Python venv (a crash with no error detail). Note that
+  a working *system* Python on your `PATH` does **not** satisfy this; the engine
+  always uses its own bundled interpreter.
 - **Linux (Ubuntu):** install clang + the system libraries. The exact,
   verified apt list is in [`BUILDING_LINUX.md`](./BUILDING_LINUX.md).
 
