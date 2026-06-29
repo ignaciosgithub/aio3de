@@ -61,7 +61,11 @@ namespace AZ
             {
                 const uint32_t initialArgs[DrawIndexedIndirectArgCount] = { m_indexCountPerInstance, 0, 0, 0, 0 };
                 RPI::CommonBufferDescriptor desc;
-                desc.m_poolType = RPI::CommonBufferPoolType::ReadWrite;
+                // Indirect pool gives the buffer the Indirect bind flag (in addition to ShaderReadWrite)
+                // so the compute shader can accumulate instanceCount into it AND it can be consumed by a
+                // DrawIndexedIndirect call in GpuFrustumCullDrawPass. The ReadWrite pool omits the Indirect
+                // bind flag, so it cannot serve as an indirect-argument buffer.
+                desc.m_poolType = RPI::CommonBufferPoolType::Indirect;
                 desc.m_bufferName = "GpuFrustumCull.DrawIndirectArgs";
                 desc.m_elementSize = sizeof(uint32_t);
                 desc.m_byteCount = sizeof(initialArgs);

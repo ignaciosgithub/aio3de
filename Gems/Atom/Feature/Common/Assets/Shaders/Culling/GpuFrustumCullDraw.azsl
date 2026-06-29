@@ -1,0 +1,80 @@
+/*
+ * Copyright (c) Contributors to the Open 3D Engine Project.
+ * For complete copyright and license terms please see the LICENSE at the root of this distribution.
+ *
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
+ *
+ */
+
+// GPU-driven indirect draw consumer.
+//
+// This shader is the second half of the GPU-driven culling pipeline. The
+// GpuFrustumCull compute pass classifies per-instance bounding spheres against
+// the view frustum, compacts the surviving instance indices into
+// m_visibleInstanceIndices, and accumulates the survivor count into element [1]
+// of a DrawIndexedIndirect arguments buffer. A single DrawIndexedIndirect then
+// renders exactly instanceCount survivors, so the CPU never walks the
+// per-instance visibility list.
+//
+// SV_InstanceID here is the indirect instance id in [0, survivingInstanceCount).
+// It indexes the compacted list to recover the original instance index, which in
+// turn indexes the per-instance data (world center + uniform scale) and color.
+// A unit-cube vertex stream is transformed by that per-instance placement, so a
+// correct run draws one cube per surviving instance at its world position.
+
+#include <Atom/Features/SrgSemantics.azsli>
+
+ShaderResourceGroup PassSrg : SRG_PerPass
+{
+    // Compacted list of visible instance indices written by GpuFrustumCull.
+    // Bound by GpuFrustumCullDrawPass from the "VisibleInstanceIndices" pass input slot.
+    StructuredBuffer<uint> m_visibleInstanceIndices;
+
+    // Per-instance placement: xyz = world-space center, w = uniform scale.
+    StructuredBuffer<float4> m_instanceData;
+
+    // Per-instance flat color (rgb) used to make survivors visually distinct.
+    StructuredBuffer<float4> m_instanceColors;
+
+    // View world-to-clip matrix, set from the pass's view each frame.
+    float4x4 m_worldToClip;
+}
+
+struct VSInput
+{
+    float3 m_position : POSITION;
+    uint m_instanceId : SV_InstanceID;
+};
+
+struct VSOutput
+{
+    float4 m_position : SV_Position;
+    float4 m_color : COLOR0;
+};
+
+VSOutput MainVS(VSInput input)
+{
+    VSOutput output;
+
+    // Recover the original instance index from the compacted survivor list.
+    const uint instanceIndex = PassSrg::m_visibleInstanceIndices[input.m_instanceId];
+
+    const float4 placement = PassSrg::m_instanceData[instanceIndex];
+    const float3 worldPosition = input.m_position * placement.w + placement.xyz;
+
+    output.m_position = mul(PassSrg::m_worldToClip, float4(worldPosition, 1.0));
+    output.m_color = PassSrg::m_instanceColors[instanceIndex];
+    return output;
+}
+
+struct PSOutput
+{
+    float4 m_color : SV_Target0;
+};
+
+PSOutput MainPS(VSOutput input)
+{
+    PSOutput output;
+    output.m_color = input.m_color;
+    return output;
+}
