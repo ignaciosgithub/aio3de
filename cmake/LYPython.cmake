@@ -96,6 +96,28 @@ function(ly_setup_python_venv)
         unset(ENV{PYTHONPATH})
         set(ENV{PYTHONNOUSERSITE} 1)
 
+        # Probe the bundled interpreter before trying to create the venv. On Windows the embeddable
+        # CPython we ship requires the Microsoft Visual C++ Redistributable; when it is missing the
+        # interpreter crashes on launch with no output, which otherwise surfaces as a confusing
+        # "Error creating a venv (exit code unknown error)" with an empty log. Catch that here and
+        # tell the user what to actually install.
+        set(LY_BUNDLED_PYTHON "${PYTHON_PACKAGES_ROOT_PATH}/${LY_PYTHON_PACKAGE_NAME}/${LY_PYTHON_BIN_PATH}/${LY_PYTHON_EXECUTABLE}")
+        execute_process(COMMAND "${LY_BUNDLED_PYTHON}" --version
+                        OUTPUT_VARIABLE python_probe_output
+                        ERROR_VARIABLE python_probe_output
+                        RESULT_VARIABLE python_probe_result)
+        if (NOT python_probe_result EQUAL 0)
+            message(FATAL_ERROR
+                "The bundled O3DE Python interpreter failed to run:\n"
+                "  ${LY_BUNDLED_PYTHON}\n"
+                "  result: ${python_probe_result}\n${python_probe_output}\n"
+                "This is the bundled interpreter crashing on launch, not a venv or package problem. "
+                "On Windows this almost always means the Microsoft Visual C++ Redistributable is "
+                "missing (the embeddable Python needs vcruntime140.dll). Install the x64 "
+                "redistributable from https://aka.ms/vs/17/release/vc_redist.x64.exe and retry. "
+                "On Linux/macOS, ensure the package extracted correctly and is executable.")
+        endif()
+
         # Run the install venv command, but skip the pip setup because we may need to manually create 
         # a link to the shared library within the created virtual environment before proceeding with
         # the pip install command.
