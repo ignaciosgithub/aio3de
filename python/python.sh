@@ -91,31 +91,58 @@ else
     PYTHON_VENV_PYTHON=$PYTHON_VENV/bin/python
 fi
 
-if [ ! -f $PYTHON_VENV_PYTHON ]
-then
-    echo "Python has not been downloaded/configured yet."
-    echo "Try running $DIR/get_python.sh first."
-    exit 1
-fi
-
-# Determine the current package from where the current venv was initiated from
 PYTHON_VENV_HASH_FILE=$PYTHON_VENV/.hash
-if [ ! -f $PYTHON_VENV_HASH_FILE ]
-then
-    echo "Python has not been downloaded/configured yet."
-    echo "Try running $DIR/get_python.sh first."
-    exit 1
-fi
-PYTHON_VENV_HASH=$(cat $PYTHON_VENV_HASH_FILE)
 
-# Calculate the expected hash from the current python package
-CURRENT_PYTHON_PACKAGE_HASH=$(cmake -P $DIR/get_python_package_hash.cmake $DIR/.. $PAL $ARCH)
+# Returns 0 if the per-engine venv exists and matches the current Python 3rd Party package,
+# otherwise non-zero (meaning Python still needs to be downloaded/configured or updated).
+o3de_python_env_ready ()
+{
+    [ -f "$PYTHON_VENV_PYTHON" ] || return 1
+    [ -f "$PYTHON_VENV_HASH_FILE" ] || return 1
+    local venv_hash current_hash
+    venv_hash=$(cat "$PYTHON_VENV_HASH_FILE")
+    current_hash=$(cmake -P $DIR/get_python_package_hash.cmake $DIR/.. $PAL $ARCH)
+    [ "$venv_hash" == "$current_hash" ] || return 1
+    return 0
+}
 
-if [ "$PYTHON_VENV_HASH" != "$CURRENT_PYTHON_PACKAGE_HASH" ]
+if ! o3de_python_env_ready
 then
-    echo "Python has been updated since the last time the python command was invoked."
-    echo "Run $DIR/get_python.sh to update."
-    exit 1
+    # O3DE uses its own pinned Python runtime (a downloaded 3rd Party package), not the system
+    # Python, so when this per-engine venv is missing or out of date it must be (re)created by
+    # get_python.sh. Do that automatically so first-time setup "just works". Guards:
+    #   O3DE_AUTO_PYTHON_SETUP=0   -> opt out (e.g. CI that manages Python itself)
+    #   O3DE_PYTHON_BOOTSTRAPPING  -> set while get_python.sh runs (which re-invokes this script),
+    #                                 preventing infinite recursion.
+    if [ "$O3DE_AUTO_PYTHON_SETUP" == "0" ] || [ -n "$O3DE_PYTHON_BOOTSTRAPPING" ]
+    then
+        echo "Python has not been set up completely for O3DE."
+        echo "Run $DIR/get_python.sh to set up Python for O3DE."
+        exit 1
+    fi
+
+    echo ""
+    echo "Setting up O3DE's Python environment automatically (this can take a few minutes the first time)..."
+    echo "  - To do this manually instead, run: $DIR/get_python.sh"
+    echo "  - To disable automatic setup, set the environment variable O3DE_AUTO_PYTHON_SETUP=0"
+    echo ""
+
+    export O3DE_PYTHON_BOOTSTRAPPING=1
+    "$DIR/get_python.sh"
+    get_python_result=$?
+    unset O3DE_PYTHON_BOOTSTRAPPING
+
+    if [ $get_python_result -ne 0 ]
+    then
+        echo "ERROR: Automatic Python setup failed (get_python.sh returned $get_python_result). See the log above."
+        exit $get_python_result
+    fi
+
+    if ! o3de_python_env_ready
+    then
+        echo "ERROR: O3DE's Python environment is still not valid after running get_python.sh."
+        exit 1
+    fi
 fi
 
 # Activate the venv environment
