@@ -8,10 +8,13 @@
 
 #include <AzCore/Task/TaskGraph.h>
 #include <AzCore/Task/TaskExecutor.h>
+#include <AzCore/Task/Algorithms.h>
 #include <AzCore/Memory/PoolAllocator.h>
 
 #include <AzCore/UnitTest/TestTypes.h>
 
+#include <AzCore/std/parallel/atomic.h>
+#include <cmath>
 #include <random>
 
 using AZ::TaskDescriptor;
@@ -624,6 +627,114 @@ namespace UnitTest
 
         EXPECT_EQ(3 | 0b100000, x);
     }
+
+    using ParallelForTestFixture = TaskGraphTestFixture;
+
+    TEST_F(ParallelForTestFixture, ParallelFor_VisitsEachIndexExactlyOnce)
+    {
+        constexpr int count = 10000;
+        AZStd::vector<int> visits(count, 0);
+
+        // Each index is owned by exactly one iteration, so writing to visits[index] is race-free.
+        AZ::ParallelFor(0, count, [&visits](int index) { ++visits[index]; });
+
+        for (int i = 0; i < count; ++i)
+        {
+            EXPECT_EQ(visits[i], 1) << "index " << i << " was visited " << visits[i] << " times";
+        }
+    }
+
+    TEST_F(ParallelForTestFixture, ParallelFor_ConcurrentAccumulationIsCorrect)
+    {
+        constexpr int count = 50000;
+        AZStd::atomic<int64_t> sum{ 0 };
+
+        AZ::ParallelFor(0, count, [&sum](int index) { sum.fetch_add(index, AZStd::memory_order_relaxed); });
+
+        const int64_t expected = (static_cast<int64_t>(count) - 1) * count / 2;
+        EXPECT_EQ(sum.load(), expected);
+    }
+
+    TEST_F(ParallelForTestFixture, ParallelFor_EmptyRangeDoesNothing)
+    {
+        AZStd::atomic<int> calls{ 0 };
+        AZ::ParallelFor(5, 5, [&calls](int) { calls.fetch_add(1); });
+        AZ::ParallelFor(10, 3, [&calls](int) { calls.fetch_add(1); });
+        EXPECT_EQ(calls.load(), 0);
+    }
+
+    TEST_F(ParallelForTestFixture, ParallelFor_SingleElementRange)
+    {
+        AZStd::atomic<int> calls{ 0 };
+        int seen = -1;
+        AZ::ParallelFor(7, 8, [&](int index)
+            {
+                seen = index;
+                calls.fetch_add(1);
+            });
+        EXPECT_EQ(calls.load(), 1);
+        EXPECT_EQ(seen, 7);
+    }
+
+    TEST_F(ParallelForTestFixture, ParallelForEachChunk_CoversFullRangeContiguouslyAndOnce)
+    {
+        constexpr int count = 12345;
+        AZStd::vector<int> visits(count, 0);
+        AZStd::atomic<int> chunkCount{ 0 };
+
+        AZ::ParallelForEachChunk(0, count, [&](int chunkBegin, int chunkEnd)
+            {
+                EXPECT_LE(chunkBegin, chunkEnd);
+                chunkCount.fetch_add(1);
+                for (int i = chunkBegin; i < chunkEnd; ++i)
+                {
+                    ++visits[i];
+                }
+            });
+
+        EXPECT_GE(chunkCount.load(), 1);
+        for (int i = 0; i < count; ++i)
+        {
+            EXPECT_EQ(visits[i], 1) << "index " << i;
+        }
+    }
+
+    TEST_F(ParallelForTestFixture, ParallelFor_RespectsMaxChunks)
+    {
+        constexpr int count = 1000;
+        AZStd::atomic<int> chunkCount{ 0 };
+        AZStd::vector<int> visits(count, 0);
+
+        AZ::ParallelForEachChunk(
+            0, count,
+            [&](int chunkBegin, int chunkEnd)
+            {
+                chunkCount.fetch_add(1);
+                for (int i = chunkBegin; i < chunkEnd; ++i)
+                {
+                    ++visits[i];
+                }
+            },
+            AZ::DefaultParallelForDescriptor,
+            /*maxChunks*/ 3);
+
+        EXPECT_LE(chunkCount.load(), 3);
+        for (int i = 0; i < count; ++i)
+        {
+            EXPECT_EQ(visits[i], 1);
+        }
+    }
+
+    TEST_F(ParallelForTestFixture, ParallelFor_SupportsUnsignedIndexType)
+    {
+        constexpr size_t count = 4096;
+        AZStd::atomic<uint64_t> sum{ 0 };
+
+        AZ::ParallelFor(size_t{ 0 }, count, [&sum](size_t index) { sum.fetch_add(index, AZStd::memory_order_relaxed); });
+
+        const uint64_t expected = (static_cast<uint64_t>(count) - 1) * count / 2;
+        EXPECT_EQ(sum.load(), expected);
+    }
 } // namespace UnitTest
 
 #if defined(HAVE_BENCHMARK)
@@ -739,5 +850,129 @@ namespace Benchmark
             ev.Wait();
         }
     }
+
+    // Representative data-oriented (SoA) workload: integrate a large array of particle transforms,
+    // then renormalize the resulting orientation vector. This mirrors the kind of per-frame,
+    // high-count component update B-4 targets and is used to compare a serial loop against
+    // AZ::ParallelFor across worker threads.
+    class ParallelForBenchmarkFixture : public ::benchmark::Fixture
+    {
+    public:
+        void SetUp(const benchmark::State& state) override
+        {
+            internalSetUp(state);
+        }
+        void SetUp(benchmark::State& state) override
+        {
+            internalSetUp(state);
+        }
+        void TearDown(const benchmark::State&) override
+        {
+            internalTearDown();
+        }
+        void TearDown(benchmark::State&) override
+        {
+            internalTearDown();
+        }
+
+        void IntegrateRange(size_t begin, size_t end)
+        {
+            constexpr float dt = 1.0f / 60.0f;
+            for (size_t i = begin; i < end; ++i)
+            {
+                m_posX[i] += m_velX[i] * dt;
+                m_posY[i] += m_velY[i] * dt;
+                m_posZ[i] += m_velZ[i] * dt;
+
+                float length = std::sqrt(m_posX[i] * m_posX[i] + m_posY[i] * m_posY[i] + m_posZ[i] * m_posZ[i]) + 1e-6f;
+                const float invLength = 1.0f / length;
+                m_dirX[i] = m_posX[i] * invLength;
+                m_dirY[i] = m_posY[i] * invLength;
+                m_dirZ[i] = m_posZ[i] * invLength;
+            }
+        }
+
+    protected:
+        // Raw arrays managed entirely within SetUp/TearDown (mirroring TaskGraphBenchmarkFixture):
+        // this keeps every SystemAllocator-backed object's lifetime strictly inside the benchmark
+        // run, avoiding allocator-environment teardown ordering issues.
+        void internalSetUp(const benchmark::State& state)
+        {
+            m_executor = new TaskExecutor;
+            TaskExecutor::SetInstance(m_executor);
+
+            m_count = static_cast<size_t>(state.range(0));
+            m_posX = new float[m_count];
+            m_posY = new float[m_count];
+            m_posZ = new float[m_count];
+            m_velX = new float[m_count];
+            m_velY = new float[m_count];
+            m_velZ = new float[m_count];
+            m_dirX = new float[m_count];
+            m_dirY = new float[m_count];
+            m_dirZ = new float[m_count];
+            for (size_t i = 0; i < m_count; ++i)
+            {
+                m_posX[i] = static_cast<float>(i % 13);
+                m_posY[i] = static_cast<float>(i % 7) + 1.0f;
+                m_posZ[i] = static_cast<float>(i % 5);
+                m_velX[i] = 1.0f;
+                m_velY[i] = -0.5f;
+                m_velZ[i] = 0.25f;
+                m_dirX[i] = 0.0f;
+                m_dirY[i] = 0.0f;
+                m_dirZ[i] = 0.0f;
+            }
+        }
+
+        void internalTearDown()
+        {
+            delete[] m_posX;
+            delete[] m_posY;
+            delete[] m_posZ;
+            delete[] m_velX;
+            delete[] m_velY;
+            delete[] m_velZ;
+            delete[] m_dirX;
+            delete[] m_dirY;
+            delete[] m_dirZ;
+            delete m_executor;
+            TaskExecutor::SetInstance(nullptr);
+        }
+
+        TaskExecutor* m_executor = nullptr;
+        size_t m_count = 0;
+        float* m_posX = nullptr;
+        float* m_posY = nullptr;
+        float* m_posZ = nullptr;
+        float* m_velX = nullptr;
+        float* m_velY = nullptr;
+        float* m_velZ = nullptr;
+        float* m_dirX = nullptr;
+        float* m_dirY = nullptr;
+        float* m_dirZ = nullptr;
+    };
+
+    BENCHMARK_DEFINE_F(ParallelForBenchmarkFixture, IntegrateSerial)(benchmark::State& state)
+    {
+        const size_t count = static_cast<size_t>(state.range(0));
+        for ([[maybe_unused]] auto _ : state)
+        {
+            IntegrateRange(0, count);
+            benchmark::DoNotOptimize(m_dirX);
+        }
+    }
+    BENCHMARK_REGISTER_F(ParallelForBenchmarkFixture, IntegrateSerial)->Arg(1 << 12)->Arg(1 << 16)->Arg(1 << 20);
+
+    BENCHMARK_DEFINE_F(ParallelForBenchmarkFixture, IntegrateParallel)(benchmark::State& state)
+    {
+        const size_t count = static_cast<size_t>(state.range(0));
+        for ([[maybe_unused]] auto _ : state)
+        {
+            AZ::ParallelForEachChunk(size_t{ 0 }, count, [this](size_t begin, size_t end) { IntegrateRange(begin, end); });
+            benchmark::DoNotOptimize(m_dirX);
+        }
+    }
+    BENCHMARK_REGISTER_F(ParallelForBenchmarkFixture, IntegrateParallel)->Arg(1 << 12)->Arg(1 << 16)->Arg(1 << 20);
 } // namespace Benchmark
 #endif

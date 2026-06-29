@@ -712,6 +712,8 @@ set(FILES
     Statistics/StatisticsManager.h
     StringFunc/StringFunc.cpp
     StringFunc/StringFunc.h
+    Task/Algorithms.h
+    Task/Algorithms.inl
     Task/Internal/Task.cpp
     Task/Internal/Task.inl
     Task/Internal/Task.h
