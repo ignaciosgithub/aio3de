@@ -99,10 +99,62 @@ def test_check_third_party_missing_dir_warns(monkeypatch):
 def test_check_engine_registration(tmp_path):
     engine_path = tmp_path / 'engine'
     engine_path.mkdir()
-    with patch.object(hub.manifest, 'get_manifest_engines', return_value=[str(engine_path)]):
+
+    class FakeManifest:
+        def __init__(self, engines):
+            self._engines = engines
+
+        def get_manifest_engines(self):
+            return self._engines
+
+    with patch.object(hub, '_try_import_manifest', return_value=FakeManifest([str(engine_path)])):
         assert hub.check_engine_registration(engine_path).severity == hub.OK
-    with patch.object(hub.manifest, 'get_manifest_engines', return_value=[]):
+    with patch.object(hub, '_try_import_manifest', return_value=FakeManifest([])):
         assert hub.check_engine_registration(engine_path).severity == hub.WARN
+
+
+def test_check_engine_registration_warns_when_manifest_unavailable(tmp_path):
+    # Pre-bootstrap: the manifest module (and its venv-only deps) cannot be imported yet.
+    with patch.object(hub, '_try_import_manifest', return_value=None):
+        result = hub.check_engine_registration(tmp_path)
+    assert result.severity == hub.WARN
+    assert 'bootstrapped' in result.detail
+
+
+def test_get_third_party_path_fallback_without_manifest(monkeypatch):
+    monkeypatch.delenv('LY_3RDPARTY_PATH', raising=False)
+    with patch.object(hub, '_try_import_manifest', return_value=None):
+        path = hub.get_third_party_path()
+    assert path.name == '3rdParty'
+
+
+def test_engine_path_fallback_points_at_repo_root():
+    # hub.py lives at <engine>/scripts/o3de/o3de/hub.py
+    fallback = hub.engine_path_fallback()
+    assert (fallback / 'scripts' / 'o3de' / 'o3de' / 'hub.py').is_file()
+
+
+def test_windows_checks_are_none_off_windows():
+    with patch.object(hub.sys, 'platform', 'linux'):
+        assert hub.check_windows_vcredist() is None
+        assert hub.check_windows_code_integrity() is None
+
+
+def test_check_windows_code_integrity_enforced_is_fail():
+    completed = type('C', (), {'stdout': '2\n', 'stderr': ''})()
+    with patch.object(hub.sys, 'platform', 'win32'), \
+         patch('subprocess.run', return_value=completed):
+        result = hub.check_windows_code_integrity()
+    assert result.severity == hub.FAIL
+    assert 'Smart App Control' in result.hint
+
+
+def test_check_windows_code_integrity_not_enforced_is_ok():
+    completed = type('C', (), {'stdout': '0\n', 'stderr': ''})()
+    with patch.object(hub.sys, 'platform', 'win32'), \
+         patch('subprocess.run', return_value=completed):
+        result = hub.check_windows_code_integrity()
+    assert result.severity == hub.OK
 
 
 def test_print_checks_returns_nonzero_only_on_failure(capsys):
