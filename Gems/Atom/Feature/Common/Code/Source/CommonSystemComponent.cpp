@@ -95,6 +95,7 @@
 #include <CoreLights/LightCullingTilePreparePass.h>
 #include <CoreLights/LightCullingPass.h>
 #include <Culling/GpuFrustumCullPass.h>
+#include <RayTracing/RayTracingBvhPass.h>
 #include <Shadows/FullscreenShadowPass.h>
 #include <CoreLights/LightCullingRemap.h>
 #include <Decals/DecalTextureArrayFeatureProcessor.h>
@@ -245,6 +246,7 @@ namespace AZ
             passSystem->AddPassCreator(Name("LightCullingRemapPass"), &LightCullingRemap::Create);
             passSystem->AddPassCreator(Name("LightCullingTilePreparePass"), &LightCullingTilePreparePass::Create);
             passSystem->AddPassCreator(Name("GpuFrustumCullPass"), &GpuFrustumCullPass::Create);
+            passSystem->AddPassCreator(Name("RayTracingBvhPass"), &RayTracingBvhPass::Create);
             passSystem->AddPassCreator(Name("BlendColorGradingLutsPass"), &BlendColorGradingLutsPass::Create);
             passSystem->AddPassCreator(Name("HDRColorGradingPass"), &HDRColorGradingPass::Create);
             passSystem->AddPassCreator(Name("FullscreenShadowPass"), &FullscreenShadowPass::Create);

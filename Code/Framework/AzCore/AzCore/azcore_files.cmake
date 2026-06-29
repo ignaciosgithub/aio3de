@@ -377,6 +377,8 @@ set(FILES
     Math/Random.h
     Math/Ray.cpp
     Math/Ray.h
+    Math/RayTracingBvh.cpp
+    Math/RayTracingBvh.h
     Math/Sfmt.cpp
     Math/Sfmt.h
     Math/ShapeIntersection.cpp

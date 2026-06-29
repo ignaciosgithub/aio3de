@@ -1,0 +1,111 @@
+/*
+ * Copyright (c) Contributors to the Open 3D Engine Project.
+ * For complete copyright and license terms please see the LICENSE at the root of this distribution.
+ *
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
+ *
+ */
+
+// Hardware-agnostic BVH ray-tracing math, shared by the compute traversal shader.
+//
+// These helpers are a line-for-line mirror of the CPU reference implementation in
+// AzCore/Math/RayTracingBvh.cpp (RayTracingBvhInternal::IntersectRayAabb /
+// IntersectRayTriangle and the stackless traversal in IntersectClosest). They use only
+// plain compute + structured buffers, with NO dependency on DXR / VK_KHR_ray_tracing or
+// RT cores, so the same shader runs on every RHI backend (Vulkan, DX12, Metal, Null).
+
+#pragma once
+
+// Fixed traversal stack depth, identical to RayTracingBvhInternal::StackSize on the CPU.
+#define BVH_STACK_SIZE 64
+
+// Matches AZ::BvhNodePacked (32 bytes): interior node has triangleCount == 0 and leftFirst is
+// the left child index (right child = leftFirst + 1); leaf has triangleCount > 0 and leftFirst is
+// the offset of its first triangle in the ordered-triangle / primitive-index buffers.
+struct BvhNode
+{
+    float3 aabbMin;
+    uint leftFirst;
+    float3 aabbMax;
+    uint triangleCount;
+};
+
+// Closest-hit result. hit != 0 means a triangle was hit within tMax.
+struct BvhRayHit
+{
+    float t;
+    float u;
+    float v;
+    uint primitiveId;
+    uint hit;
+};
+
+// Slab test. invDir may contain +/-inf for axis-aligned rays; the min/max ordering handles it.
+// Mirrors RayTracingBvhInternal::IntersectRayAabb.
+bool IntersectRayAabb(float3 origin, float3 invDir, float3 aabbMin, float3 aabbMax, float tMax)
+{
+    float tNear = 0.0f;
+    float tFar = tMax;
+    [unroll]
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        const float inv = invDir[axis];
+        float t0 = (aabbMin[axis] - origin[axis]) * inv;
+        float t1 = (aabbMax[axis] - origin[axis]) * inv;
+        if (t0 > t1)
+        {
+            const float tmp = t0;
+            t0 = t1;
+            t1 = tmp;
+        }
+        tNear = t0 > tNear ? t0 : tNear;
+        tFar = t1 < tFar ? t1 : tFar;
+        if (tNear > tFar)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Moller-Trumbore, two-sided. Mirrors RayTracingBvhInternal::IntersectRayTriangle.
+bool IntersectRayTriangle(
+    float3 origin, float3 direction, float3 v0, float3 v1, float3 v2, float tMax,
+    out float outT, out float outU, out float outV)
+{
+    const float epsilon = 1e-8f;
+    outT = 0.0f;
+    outU = 0.0f;
+    outV = 0.0f;
+
+    const float3 edge1 = v1 - v0;
+    const float3 edge2 = v2 - v0;
+    const float3 pvec = cross(direction, edge2);
+    const float det = dot(edge1, pvec);
+    if (det > -epsilon && det < epsilon)
+    {
+        return false;
+    }
+    const float invDet = 1.0f / det;
+    const float3 tvec = origin - v0;
+    const float u = dot(tvec, pvec) * invDet;
+    if (u < 0.0f || u > 1.0f)
+    {
+        return false;
+    }
+    const float3 qvec = cross(tvec, edge1);
+    const float v = dot(direction, qvec) * invDet;
+    if (v < 0.0f || (u + v) > 1.0f)
+    {
+        return false;
+    }
+    const float t = dot(edge2, qvec) * invDet;
+    if (t <= epsilon || t > tMax)
+    {
+        return false;
+    }
+    outT = t;
+    outU = u;
+    outV = v;
+    return true;
+}
