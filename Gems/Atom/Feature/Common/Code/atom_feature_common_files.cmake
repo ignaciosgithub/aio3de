@@ -58,6 +58,8 @@ set(FILES
     Source/CoreLights/LightCullingRemap.cpp
     Source/CoreLights/LightCullingRemap.h
     Source/CoreLights/LightCullingConstants.h
+    Source/Culling/GpuFrustumCullPass.cpp
+    Source/Culling/GpuFrustumCullPass.h
     Source/CoreLights/LtcCommon.h
     Source/CoreLights/LtcCommon.cpp
     Source/CoreLights/PointLightFeatureProcessor.h
