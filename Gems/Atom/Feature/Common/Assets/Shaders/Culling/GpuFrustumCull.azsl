@@ -1,0 +1,71 @@
+/*
+ * Copyright (c) Contributors to the Open 3D Engine Project.
+ * For complete copyright and license terms please see the LICENSE at the root of this distribution.
+ *
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
+ *
+ */
+
+// GPU-driven broad-phase culling.
+//
+// Each thread tests one instance's bounding sphere against the view frustum and,
+// if visible, appends its instance index to a compacted list while bumping the
+// instance count of an indirect draw-arguments buffer. A single DrawIndexedIndirect
+// (or DrawIndirect) afterwards renders exactly the surviving instances, so the CPU
+// never walks the per-instance visibility list. This is the GPU analogue of the
+// SoA+SIMD CPU kernel AZ::FrustumClassifySpheres.
+
+#include <Atom/Features/SrgSemantics.azsli>
+#include "FrustumCull.azsli"
+
+// DrawIndexedIndirect arguments are 5 x uint, matching RHI::DrawIndexedIndirect /
+// D3D12_DRAW_INDEXED_ARGUMENTS / VkDrawIndexedIndirectCommand:
+//   [0] indexCountPerInstance
+//   [1] instanceCount        <- atomically accumulated here
+//   [2] startIndexLocation
+//   [3] baseVertexLocation
+//   [4] startInstanceLocation
+#define DRAW_INDEXED_INDIRECT_INSTANCE_COUNT_OFFSET 1
+
+ShaderResourceGroup PassSrg : SRG_PerPass
+{
+    // Per-instance bounding spheres: xyz = world-space center, w = radius.
+    StructuredBuffer<float4> m_instanceSpheres;
+
+    // Compacted output: indices (into the instance arrays) of instances that survived culling.
+    RWStructuredBuffer<uint> m_visibleInstanceIndices;
+
+    // Indirect draw arguments (single DrawIndexedIndirect command). Element [1] is the
+    // instance count; it must be reset to 0 before this pass runs each frame.
+    RWStructuredBuffer<uint> m_drawIndirectArgs;
+
+    // Six frustum planes, float4(nx, ny, nz, d), pre-transformed into the instance space.
+    float4 m_frustumPlanes[FRUSTUM_PLANE_COUNT];
+
+    // Total number of instances to test.
+    uint m_instanceCount;
+}
+
+#define NUM_THREADS 64
+
+[numthreads(NUM_THREADS, 1, 1)]
+void MainCS(uint3 dispatchThreadID : SV_DispatchThreadID)
+{
+    const uint instanceIndex = dispatchThreadID.x;
+    if (instanceIndex >= PassSrg::m_instanceCount)
+    {
+        return;
+    }
+
+    const float4 sphere = PassSrg::m_instanceSpheres[instanceIndex];
+    if (!IsSphereVisible(PassSrg::m_frustumPlanes, sphere.xyz, sphere.w))
+    {
+        return;
+    }
+
+    // Reserve a slot in the compacted list. The returned (pre-increment) instance
+    // count doubles as this instance's write position, giving a stable compaction.
+    uint writeSlot;
+    InterlockedAdd(PassSrg::m_drawIndirectArgs[DRAW_INDEXED_INDIRECT_INSTANCE_COUNT_OFFSET], 1u, writeSlot);
+    PassSrg::m_visibleInstanceIndices[writeSlot] = instanceIndex;
+}

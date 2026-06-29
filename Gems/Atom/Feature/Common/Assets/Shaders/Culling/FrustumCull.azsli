@@ -1,0 +1,49 @@
+/*
+ * Copyright (c) Contributors to the Open 3D Engine Project.
+ * For complete copyright and license terms please see the LICENSE at the root of this distribution.
+ *
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
+ *
+ */
+
+// GPU mirror of AZ::FrustumClassifySpheres (AzCore/Math/FrustumCull.inl).
+// A frustum is six plane equations packed as float4(nx, ny, nz, d), using the
+// same convention as AZ::Plane: signedDistance(p) = dot(normal, p) + d, and a
+// sphere is "exterior" to the frustum when it lies fully behind any single
+// plane (signedDistance < -radius). Keep the test here bit-compatible with the
+// CPU SIMD kernel so the CPU and GPU culling paths agree.
+
+#define FRUSTUM_PLANE_COUNT 6
+
+// IntersectResult codes match AZ::IntersectResult: Interior == 0, Overlaps == 1, Exterior == 2.
+#define FRUSTUM_RESULT_INTERIOR 0u
+#define FRUSTUM_RESULT_OVERLAPS 1u
+#define FRUSTUM_RESULT_EXTERIOR 2u
+
+// Returns the AZ::IntersectResult code for a sphere against the frustum planes.
+uint ClassifySphereAgainstFrustum(float4 planes[FRUSTUM_PLANE_COUNT], float3 center, float radius)
+{
+    bool exterior = false;
+    bool straddle = false;
+
+    [unroll]
+    for (uint planeId = 0; planeId < FRUSTUM_PLANE_COUNT; ++planeId)
+    {
+        const float distance = dot(planes[planeId].xyz, center) + planes[planeId].w;
+        exterior = exterior || (distance < -radius);
+        straddle = straddle || (abs(distance) < radius);
+    }
+
+    // Exterior takes precedence, matching IntersectSphere's early-out on the first plane behind.
+    if (exterior)
+    {
+        return FRUSTUM_RESULT_EXTERIOR;
+    }
+    return straddle ? FRUSTUM_RESULT_OVERLAPS : FRUSTUM_RESULT_INTERIOR;
+}
+
+// Convenience predicate: an entry is drawn unless it is fully exterior to the frustum.
+bool IsSphereVisible(float4 planes[FRUSTUM_PLANE_COUNT], float3 center, float radius)
+{
+    return ClassifySphereAgainstFrustum(planes, center, radius) != FRUSTUM_RESULT_EXTERIOR;
+}

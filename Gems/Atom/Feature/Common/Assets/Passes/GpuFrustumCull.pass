@@ -1,0 +1,37 @@
+{
+    "Type": "JsonSerialization",
+    "Version": 1,
+    "ClassName": "PassAsset",
+    "ClassData": {
+        "PassTemplate": {
+            "Name": "GpuFrustumCullTemplate",
+            "PassClass": "GpuFrustumCullPass",
+            "Slots": [
+                {
+                    "Name": "InstanceSpheres",
+                    "ShaderInputName": "m_instanceSpheres",
+                    "SlotType": "Input",
+                    "ScopeAttachmentUsage": "Shader"
+                },
+                {
+                    "Name": "VisibleInstanceIndices",
+                    "ShaderInputName": "m_visibleInstanceIndices",
+                    "SlotType": "InputOutput",
+                    "ScopeAttachmentUsage": "Shader"
+                },
+                {
+                    "Name": "DrawIndirectArgs",
+                    "ShaderInputName": "m_drawIndirectArgs",
+                    "SlotType": "InputOutput",
+                    "ScopeAttachmentUsage": "Shader"
+                }
+            ],
+            "PassData": {
+                "$type": "ComputePassData",
+                "ShaderAsset": {
+                    "FilePath": "Shaders/Culling/GpuFrustumCull.shader"
+                }
+            }
+        }
+    }
+}
