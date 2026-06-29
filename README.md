@@ -54,77 +54,28 @@ For the latest details and system requirements, refer to [System Requirements](h
 
 ### Quick start engine setup
 
-To set up a project-centric source engine, complete the following steps. For other build options, refer to [Setting up O3DE from GitHub](https://o3de.org/docs/welcome-guide/setup/setup-from-github/) in the documentation.
+Setting up the engine and your first project is five steps that work the same on
+**Windows and Linux**:
 
-1.  Create a writable folder to cache downloadable third-party packages. You can also use this to store other redistributable SDKs.
-    
-1.  Install the following redistributables:
-    - Visual Studio and VC++ redistributable can be installed to any location.
-    - CMake can be installed to any location, as long as it's available in the system path.
+1. **Install prerequisites** — Git + Git LFS, CMake ≥ 3.24, a C++ toolchain
+   (Visual Studio "Desktop development with C++" on Windows; clang + system libs
+   on Linux), and a writable `<3rdParty>` cache folder.
+2. **Check your machine** — `scripts/o3de.sh hub doctor` (`.bat` on Windows)
+   reports exactly what's missing and how to fix it.
+3. **Register the engine** — `scripts/o3de.sh register --this-engine`.
+4. **Create a project** — `scripts/o3de.sh create-project --project-path <project>`.
+5. **Configure and build** the project (project-centric), e.g. on Linux:
+   ```
+   cmake -B <project>/build/linux -S <project> -G "Ninja Multi-Config" -DLY_3RDPARTY_PATH=<3rdParty>
+   cmake --build <project>/build/linux --target <ProjectName>.GameLauncher Editor --config profile
+   ```
 
-1.  Configure the engine source into a solution using this command line, replacing `<your build path>`, `<your source path>`, and `<3rdParty package path>` with the paths you've created:
-    ```
-    cmake -B <your build path> -S <your source path> -G "Visual Studio 16" -DLY_3RDPARTY_PATH=<3rdParty package path>
-    ```
-    
-    Example:
-    ```
-    cmake -B C:\o3de\build\windows -S C:\o3de -G "Visual Studio 16" -DLY_3RDPARTY_PATH=C:\o3de-packages
-    ```
-    
-    > Note:  Do not use trailing slashes for the <3rdParty package path>.
+**Full, digestible walkthrough (both platforms, GUI option, troubleshooting):
+[`docs/aio3de/QUICKSTART.md`](docs/aio3de/QUICKSTART.md).**
 
-1.  Alternatively, you can do this through the CMake GUI:
-    
-    1.  Start `cmake-gui.exe`.
-    1.  Select the local path of the repo under "Where is the source code".
-    1.  Select a path where to build binaries under "Where to build the binaries".
-    1.  Click **Add Entry** and add a cache entry for the <3rdParty package path> folder you created, using the following values:
-        1.  **Name:** LY_3RDPARTY_PATH
-        1.  **Type:** STRING
-        1.  **Value:** `<3rdParty package path>`
-    1.  Click **Configure**.
-    1.  Wait for the key values to populate. Update or add any additional fields that are needed for your project.
-    1.  Click **Generate**.
-    
-1.  Register the engine with this command:
-    ```
-    scripts\o3de.bat register --this-engine
-    ```
-
-1.  The configuration of the solution is complete. You are now ready to create a project and build the engine.
-
-For more details on the steps above, refer to [Setting up O3DE from GitHub](https://o3de.org/docs/welcome-guide/setup/setup-from-github/) in the documentation.
-
-### Setting up new projects and building the engine
-
-1. From the O3DE repo folder, set up a new project using the `o3de create-project` command.
-    ```
-    scripts\o3de.bat create-project --project-path <your new project path>
-    ```
-
-1. Configure a solution for your project.
-    ```
-    cmake -B <your project build path> -S <your new project source path> -G "Visual Studio 16"
-    ```
-
-    Example:
-    ```
-    cmake -B C:\my-project\build\windows -S C:\my-project -G "Visual Studio 16"
-    ```
-    
-    > Note:  Do not use trailing slashes for the <3rdParty cache path>.
-
-1. Build the project, Asset Processor, and Editor to binaries by running this command inside your project:
-    ```
-    cmake --build <your project build path> --target <New Project Name>.GameLauncher Editor --config profile -- /m
-    ```
-    
-    > Note: Your project name used in the build target is the same as the directory name of your project.
-
-This will compile after some time and binaries will be available in the project build path you've specified, under `bin/profile`.
-
-For a complete tutorial on project configuration, see [Creating Projects Using the Command Line Interface](https://o3de.org/docs/welcome-guide/create/creating-projects-using-cli/) in the documentation.
+Use `scripts/o3de.sh hub status` at any time to see which projects map to which
+engine. For the upstream reference see
+[Setting up O3DE from GitHub](https://o3de.org/docs/welcome-guide/setup/setup-from-github/).
 
 ## Code Contributors
 
