@@ -1,0 +1,49 @@
+{
+    "Type": "JsonSerialization",
+    "Version": 1,
+    "ClassName": "PassAsset",
+    "ClassData": {
+        "PassTemplate": {
+            "Name": "RayTracingBvhTraverseTemplate",
+            "PassClass": "RayTracingBvhPass",
+            "Slots": [
+                {
+                    "Name": "Nodes",
+                    "ShaderInputName": "m_nodes",
+                    "SlotType": "Input",
+                    "ScopeAttachmentUsage": "Shader"
+                },
+                {
+                    "Name": "TriangleVertices",
+                    "ShaderInputName": "m_triangleVertices",
+                    "SlotType": "Input",
+                    "ScopeAttachmentUsage": "Shader"
+                },
+                {
+                    "Name": "PrimitiveIndices",
+                    "ShaderInputName": "m_primitiveIndices",
+                    "SlotType": "Input",
+                    "ScopeAttachmentUsage": "Shader"
+                },
+                {
+                    "Name": "Rays",
+                    "ShaderInputName": "m_rays",
+                    "SlotType": "Input",
+                    "ScopeAttachmentUsage": "Shader"
+                },
+                {
+                    "Name": "Hits",
+                    "ShaderInputName": "m_hits",
+                    "SlotType": "InputOutput",
+                    "ScopeAttachmentUsage": "Shader"
+                }
+            ],
+            "PassData": {
+                "$type": "ComputePassData",
+                "ShaderAsset": {
+                    "FilePath": "Shaders/RayTracing/RayTracingBvhTraverse.shader"
+                }
+            }
+        }
+    }
+}

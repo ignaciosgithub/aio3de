@@ -1,0 +1,116 @@
+/*
+ * Copyright (c) Contributors to the Open 3D Engine Project.
+ * For complete copyright and license terms please see the LICENSE at the root of this distribution.
+ *
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
+ *
+ */
+
+// Hardware-agnostic BVH ray traversal.
+//
+// Each thread takes one ray, walks the BVH (built on the CPU by AZ::RayTracingBvh) with a fixed
+// traversal stack, and writes its closest triangle hit. Uses only standard compute + structured
+// buffers, so it runs on any RHI backend regardless of hardware ray-tracing support. The math is
+// the GPU mirror of AzCore/Math/RayTracingBvh.cpp; see RayTracingBvh.azsli.
+
+#include <Atom/Features/SrgSemantics.azsli>
+#include "RayTracingBvh.azsli"
+
+// Input ray: origin + t * direction, hit accepted for 0 < t <= tMax. Matches the C++ upload struct.
+struct BvhRay
+{
+    float3 origin;
+    float tMax;
+    float3 direction;
+    uint pad;
+};
+
+ShaderResourceGroup PassSrg : SRG_PerPass
+{
+    // Flat BVH node array, root at index 0 (AZ::RayTracingBvh::GetNodes()).
+    StructuredBuffer<BvhNode> m_nodes;
+
+    // Triangle vertices in BVH leaf order: 3 float4 per triangle (xyz used, w ignored).
+    // Index triangle s as m_triangleVertices[3*s + 0/1/2] (AZ::RayTracingBvh::GetOrderedTriangles()).
+    StructuredBuffer<float4> m_triangleVertices;
+
+    // Maps an ordered-triangle slot back to the original primitive id (GetPrimitiveIndices()).
+    StructuredBuffer<uint> m_primitiveIndices;
+
+    // Input rays to trace.
+    StructuredBuffer<BvhRay> m_rays;
+
+    // Output: one BvhRayHit per ray.
+    RWStructuredBuffer<BvhRayHit> m_hits;
+
+    // Number of rays / nodes, for bounds.
+    uint m_rayCount;
+    uint m_nodeCount;
+}
+
+#define NUM_THREADS 64
+
+[numthreads(NUM_THREADS, 1, 1)]
+void MainCS(uint3 dispatchThreadID : SV_DispatchThreadID)
+{
+    const uint rayIndex = dispatchThreadID.x;
+    if (rayIndex >= PassSrg::m_rayCount)
+    {
+        return;
+    }
+
+    const BvhRay ray = PassSrg::m_rays[rayIndex];
+
+    BvhRayHit hit;
+    hit.t = ray.tMax;
+    hit.u = 0.0f;
+    hit.v = 0.0f;
+    hit.primitiveId = 0;
+    hit.hit = 0;
+
+    if (PassSrg::m_nodeCount > 0)
+    {
+        const float3 invDir = 1.0f / ray.direction;
+
+        int stack[BVH_STACK_SIZE];
+        int stackPtr = 0;
+        stack[stackPtr++] = 0;
+
+        while (stackPtr > 0)
+        {
+            const BvhNode node = PassSrg::m_nodes[stack[--stackPtr]];
+            if (!IntersectRayAabb(ray.origin, invDir, node.aabbMin, node.aabbMax, hit.t))
+            {
+                continue;
+            }
+
+            if (node.triangleCount > 0)
+            {
+                for (uint i = 0; i < node.triangleCount; ++i)
+                {
+                    const uint slot = node.leftFirst + i;
+                    const float3 v0 = PassSrg::m_triangleVertices[3u * slot + 0u].xyz;
+                    const float3 v1 = PassSrg::m_triangleVertices[3u * slot + 1u].xyz;
+                    const float3 v2 = PassSrg::m_triangleVertices[3u * slot + 2u].xyz;
+
+                    float t, u, v;
+                    if (IntersectRayTriangle(ray.origin, ray.direction, v0, v1, v2, hit.t, t, u, v))
+                    {
+                        hit.t = t;
+                        hit.u = u;
+                        hit.v = v;
+                        hit.primitiveId = PassSrg::m_primitiveIndices[slot];
+                        hit.hit = 1;
+                    }
+                }
+            }
+            else if (stackPtr + 2 <= BVH_STACK_SIZE)
+            {
+                stack[stackPtr++] = int(node.leftFirst);
+                stack[stackPtr++] = int(node.leftFirst) + 1;
+            }
+        }
+    }
+
+    PassSrg::m_hits[rayIndex] = hit;
+}
