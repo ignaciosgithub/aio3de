@@ -7,9 +7,13 @@
  */
 
 #include <AzCore/Math/Frustum.h>
+#include <AzCore/Math/FrustumCull.h>
 #include <AzCore/Math/ShapeIntersection.h>
+#include <AzCore/Task/TaskExecutor.h>
 #include <AzCore/UnitTest/TestTypes.h>
 #include <AZTestShared/Math/MathTestHelpers.h>
+#include <random>
+#include <vector>
 
 namespace UnitTest
 {
@@ -716,5 +720,116 @@ namespace UnitTest
             }
             EXPECT_EQ(onPlaneCount, 3);
         }
+    }
+
+    // Builds a randomized SoA batch of bounding spheres spanning (and overflowing) the frustum,
+    // runs FrustumClassifySpheres, and verifies every result matches the canonical scalar
+    // classification Frustum::IntersectSphere (Interior / Overlaps / Exterior) bit-for-bit.
+    namespace FrustumCullTestHelpers
+    {
+        struct SphereBatch
+        {
+            std::vector<float> m_centerX, m_centerY, m_centerZ, m_radius;
+            AZ::SphereBatchSoA View() const
+            {
+                AZ::SphereBatchSoA soa;
+                soa.m_centerX = m_centerX.data();
+                soa.m_centerY = m_centerY.data();
+                soa.m_centerZ = m_centerZ.data();
+                soa.m_radius = m_radius.data();
+                soa.m_count = m_centerX.size();
+                return soa;
+            }
+        };
+
+        SphereBatch MakeRandomBatch(size_t count, unsigned int seed)
+        {
+            SphereBatch batch;
+            batch.m_centerX.resize(count);
+            batch.m_centerY.resize(count);
+            batch.m_centerZ.resize(count);
+            batch.m_radius.resize(count);
+
+            std::mt19937 rng(seed);
+            // Spread centers well beyond the frustum so the batch contains both visible and culled spheres.
+            std::uniform_real_distribution<float> coord(-150.0f, 150.0f);
+            std::uniform_real_distribution<float> rad(0.1f, 8.0f);
+            for (size_t i = 0; i < count; ++i)
+            {
+                batch.m_centerX[i] = coord(rng);
+                batch.m_centerY[i] = coord(rng);
+                batch.m_centerZ[i] = coord(rng);
+                batch.m_radius[i] = rad(rng);
+            }
+            return batch;
+        }
+
+        void ExpectMatchesScalar(const AZ::Frustum& frustum, const SphereBatch& batch, const AZStd::vector<AZ::IntersectResult>& results)
+        {
+            for (size_t i = 0; i < batch.m_centerX.size(); ++i)
+            {
+                const AZ::Vector3 center(batch.m_centerX[i], batch.m_centerY[i], batch.m_centerZ[i]);
+                const AZ::IntersectResult expected = frustum.IntersectSphere(center, batch.m_radius[i]);
+                EXPECT_EQ(static_cast<int>(results[i]), static_cast<int>(expected)) << "mismatch at sphere index " << i;
+            }
+        }
+    } // namespace FrustumCullTestHelpers
+
+    TEST(MATH_FrustumCull, BatchMatchesScalar_MultipleOfFour)
+    {
+        using namespace FrustumCullTestHelpers;
+        const SphereBatch batch = MakeRandomBatch(1024, 12345);
+        AZStd::vector<AZ::IntersectResult> results(batch.m_centerX.size(), AZ::IntersectResult::Overlaps);
+        AZ::FrustumClassifySpheres(testFrustum2, batch.View(), results.data());
+        ExpectMatchesScalar(testFrustum2, batch, results);
+    }
+
+    TEST(MATH_FrustumCull, BatchMatchesScalar_WithTailRemainder)
+    {
+        using namespace FrustumCullTestHelpers;
+        // 1027 = 256*4 + 3, exercising the scalar tail for the last three spheres.
+        const SphereBatch batch = MakeRandomBatch(1027, 6789);
+        AZStd::vector<AZ::IntersectResult> results(batch.m_centerX.size(), AZ::IntersectResult::Overlaps);
+        AZ::FrustumClassifySpheres(testFrustum1, batch.View(), results.data());
+        ExpectMatchesScalar(testFrustum1, batch, results);
+    }
+
+    TEST(MATH_FrustumCull, EmptyBatchIsNoOp)
+    {
+        AZ::SphereBatchSoA empty;
+        // m_count == 0; the call must not dereference the null pointers.
+        AZ::FrustumClassifySpheres(testFrustum1, empty, nullptr);
+    }
+
+    class FrustumCullParallelFixture : public LeakDetectionFixture
+    {
+    public:
+        void SetUp() override
+        {
+            LeakDetectionFixture::SetUp();
+            m_executor = aznew AZ::TaskExecutor();
+            AZ::TaskExecutor::SetInstance(m_executor);
+        }
+        void TearDown() override
+        {
+            if (&AZ::TaskExecutor::Instance() == m_executor)
+            {
+                AZ::TaskExecutor::SetInstance(nullptr);
+            }
+            delete m_executor;
+            m_executor = nullptr;
+            LeakDetectionFixture::TearDown();
+        }
+        AZ::TaskExecutor* m_executor = nullptr;
+    };
+
+    TEST_F(FrustumCullParallelFixture, ParallelMatchesScalar)
+    {
+        using namespace FrustumCullTestHelpers;
+        const SphereBatch batch = MakeRandomBatch(50000, 24680);
+        AZStd::vector<AZ::IntersectResult> results(batch.m_centerX.size(), AZ::IntersectResult::Overlaps);
+        // Small chunk size forces multiple tasks across worker threads.
+        AZ::FrustumClassifySpheresParallel(testFrustum2, batch.View(), results.data(), 4096);
+        ExpectMatchesScalar(testFrustum2, batch, results);
     }
 } // namespace UnitTest

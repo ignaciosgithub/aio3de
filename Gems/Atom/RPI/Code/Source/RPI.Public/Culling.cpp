@@ -18,11 +18,14 @@
 #include <AzCore/Casting/numeric_cast.h>
 #include <AzCore/Jobs/Job.h>
 #include <AzCore/Jobs/JobFunction.h>
+#include <AzCore/Math/FrustumCull.h>
 #include <AzCore/Math/MatrixUtils.h>
 #include <AzCore/Math/ShapeIntersection.h>
 #include <AzCore/Task/TaskGraph.h>
 #include <AzCore/std/parallel/lock.h>
 #include <AzCore/std/smart_ptr/unique_ptr.h>
+
+#include <vector>
 #include <AzFramework/Visibility/OcclusionBus.h>
 
 #include <Atom_RPI_Traits_Platform.h>
@@ -52,6 +55,13 @@ namespace AZ
 
         // Node work lists using node count
         AZ_CVAR(uint32_t, r_numNodesPerCullingJob, 25, nullptr, AZ::ConsoleFunctorFlags::Null, "Controls amount of nodes to collect for jobs when not using the entry count");
+
+        // SoA + SIMD batched sphere frustum classification (AZ::FrustumClassifySpheres). When enabled, ProcessEntrylist
+        // gathers the bounding spheres of a node's entries into a contiguous SoA buffer and classifies four at a time with
+        // SIMD, instead of testing each sphere one-by-one. Results are bit-for-bit identical to the scalar path; this only
+        // changes how the work is computed. Off by default so behavior is unchanged until profiled on target hardware.
+        AZ_CVAR(bool, r_useBatchedSphereCulling, false, nullptr, AZ::ConsoleFunctorFlags::Null, "Use SoA+SIMD batched bounding-sphere frustum classification in the culling hot path");
+        AZ_CVAR(uint32_t, r_batchedSphereCullingMinEntries, 256, nullptr, AZ::ConsoleFunctorFlags::Null, "Minimum entries in a node work list before the batched SIMD sphere culling path is used (smaller lists stay scalar to avoid the gather overhead)");
 
         // This value dictates the amount to extrude the octree node OBB when doing a frustum intersection test against the camera frustum to help cut draw calls for shadow cascade passes.
         // Default is set to -1 as this is optimization needs to be triggered by the content developer by setting a reasonable non-negative value applicable for their content. 
@@ -285,6 +295,58 @@ namespace AZ
 #endif
             endIdx = (endIdx == -1) ? s32(entries.size()) : endIdx;
 
+            // Optional SoA + SIMD batched bounding-sphere frustum classification (off by default). When the node work list
+            // is large enough, gather the entries' bounding spheres into a contiguous SoA buffer and classify them four at
+            // a time, replacing the per-entry scalar Classify() below. Results are identical to the scalar path; only the
+            // sphere broad-phase is precomputed (the OBB refinement, exclude-frustum and occlusion tests are unchanged).
+            const s32 entryCount = endIdx - startIdx;
+            const IntersectResult* batchedSphereResults = nullptr;
+            if (r_useBatchedSphereCulling && !parentNodeContainedInFrustum && entryCount >= s32(r_batchedSphereCullingMinEntries))
+            {
+                // std::vector (not AZStd) so the per-thread buffers free against global new/delete at thread exit,
+                // independent of AZ allocator teardown order. Reused across calls on the same worker thread.
+                static thread_local std::vector<float> s_centerX, s_centerY, s_centerZ, s_radius;
+                static thread_local std::vector<IntersectResult> s_results;
+                s_centerX.resize(entryCount);
+                s_centerY.resize(entryCount);
+                s_centerZ.resize(entryCount);
+                s_radius.resize(entryCount);
+                s_results.resize(entryCount);
+
+                for (s32 i = startIdx; i < endIdx; ++i)
+                {
+                    const s32 k = i - startIdx;
+                    AzFramework::VisibilityEntry* visibleEntry = entries[i];
+                    if (visibleEntry->m_typeFlags & AzFramework::VisibilityEntry::TYPE_RPI_Cullable ||
+                        visibleEntry->m_typeFlags & AzFramework::VisibilityEntry::TYPE_RPI_VisibleObjectList)
+                    {
+                        const Cullable* c = static_cast<const Cullable*>(visibleEntry->m_userData);
+                        const Vector3 center = c->m_cullData.m_boundingSphere.GetCenter();
+                        s_centerX[k] = center.GetX();
+                        s_centerY[k] = center.GetY();
+                        s_centerZ[k] = center.GetZ();
+                        s_radius[k] = c->m_cullData.m_boundingSphere.GetRadius();
+                    }
+                    else
+                    {
+                        // Non-cullable entry; its slot is never read back below, but keep it well-defined.
+                        s_centerX[k] = 0.0f;
+                        s_centerY[k] = 0.0f;
+                        s_centerZ[k] = 0.0f;
+                        s_radius[k] = 0.0f;
+                    }
+                }
+
+                SphereBatchSoA soa;
+                soa.m_centerX = s_centerX.data();
+                soa.m_centerY = s_centerY.data();
+                soa.m_centerZ = s_centerZ.data();
+                soa.m_radius = s_radius.data();
+                soa.m_count = static_cast<size_t>(entryCount);
+                FrustumClassifySpheres(worklistData->m_frustum, soa, s_results.data());
+                batchedSphereResults = s_results.data();
+            }
+
             for (s32 i = startIdx; i < endIdx; ++i)
             {
                 AzFramework::VisibilityEntry* visibleEntry = entries[i];
@@ -303,7 +365,9 @@ namespace AZ
 
                     if (!parentNodeContainedInFrustum)
                     {
-                        IntersectResult res = ShapeIntersection::Classify(worklistData->m_frustum, c->m_cullData.m_boundingSphere);
+                        IntersectResult res = batchedSphereResults
+                            ? batchedSphereResults[i - startIdx]
+                            : ShapeIntersection::Classify(worklistData->m_frustum, c->m_cullData.m_boundingSphere);
                         bool entryInFrustum = (res != IntersectResult::Exterior) && (res == IntersectResult::Interior || ShapeIntersection::Overlaps(worklistData->m_frustum, c->m_cullData.m_boundingObb));
                         if (!entryInFrustum)
                         {
