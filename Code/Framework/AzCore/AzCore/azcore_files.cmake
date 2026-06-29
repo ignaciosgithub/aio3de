@@ -300,6 +300,8 @@ set(FILES
     Math/Frustum.cpp
     Math/Frustum.h
     Math/Frustum.inl
+    Math/FrustumCull.h
+    Math/FrustumCull.inl
     Math/Geometry2DUtils.cpp
     Math/Geometry2DUtils.h
     Math/Geometry3DUtils.cpp
