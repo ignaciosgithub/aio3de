@@ -60,6 +60,8 @@ set(FILES
     Source/CoreLights/LightCullingConstants.h
     Source/Culling/GpuFrustumCullPass.cpp
     Source/Culling/GpuFrustumCullPass.h
+    Source/Culling/GpuFrustumCullDrawPass.cpp
+    Source/Culling/GpuFrustumCullDrawPass.h
     Source/RayTracing/RayTracingBvhPass.cpp
     Source/RayTracing/RayTracingBvhPass.h
     Source/CoreLights/LtcCommon.h

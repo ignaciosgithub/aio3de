@@ -1,0 +1,28 @@
+{
+    "Type": "JsonSerialization",
+    "Version": 1,
+    "ClassName": "PassAsset",
+    "ClassData": {
+        "PassTemplate": {
+            "Name": "GpuFrustumCullDrawTemplate",
+            "PassClass": "GpuFrustumCullDrawPass",
+            "Slots": [
+                {
+                    "Name": "Output",
+                    "SlotType": "InputOutput",
+                    "ScopeAttachmentUsage": "RenderTarget"
+                },
+                {
+                    "Name": "VisibleInstanceIndices",
+                    "SlotType": "Input",
+                    "ScopeAttachmentUsage": "Shader"
+                },
+                {
+                    "Name": "DrawIndirectArgs",
+                    "SlotType": "Input",
+                    "ScopeAttachmentUsage": "Indirect"
+                }
+            ]
+        }
+    }
+}
