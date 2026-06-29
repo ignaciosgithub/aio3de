@@ -73,6 +73,25 @@ function(GetAssimp)
     set(RESTORE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
     PAL_Assimp_Lift_CxxFlagsWarnings()
 
+    # Assimp's USD importer pulls tinyusdz via a nested FetchContent declared inside Assimp's
+    # own code/CMakeLists.txt. When that nested call runs from within Assimp's add_subdirectory
+    # scope it can be short-circuited (the dependency is reported as already populated) without
+    # ever cloning, leaving the hard-coded "${CMAKE_BINARY_DIR}/_deps/tinyusdz_repo-src" path
+    # empty and breaking the generate step with "Cannot find source file ... ascii-parser.cc".
+    # Declaring and populating tinyusdz_repo here, at the engine level (the same scope every
+    # other O3DE 3rdParty dependency is fetched from, which populates reliably), wins the
+    # first-declaration and guarantees the sources exist at the path Assimp expects before
+    # Assimp's own (now no-op) call is reached.
+    # Keep TINYUSDZ_GIT_TAG in sync with the value in Assimp's code/CMakeLists.txt.
+    set(TINYUSDZ_GIT_TAG "6050eef932f7d2788656d63297aa488fb0961ed1")
+    FetchContent_Declare(
+            tinyusdz_repo
+            GIT_REPOSITORY "https://github.com/lighttransport/tinyusdz"
+            GIT_TAG ${TINYUSDZ_GIT_TAG}
+            EXCLUDE_FROM_ALL
+    )
+    FetchContent_MakeAvailable(tinyusdz_repo)
+
     # the below line is what actualy runs its CMakeList.txt file and executes targets and so on:
     FetchContent_MakeAvailable(assimp)
 
