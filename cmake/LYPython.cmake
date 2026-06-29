@@ -86,6 +86,16 @@ function(ly_setup_python_venv)
     endif()
 
     if (CREATE_NEW_VENV)
+        # O3DE uses its own bundled Python, not the system Python. If a system Python is installed and
+        # exports PYTHONHOME / PYTHONPATH, those leak into the bundled interpreter invoked below and can
+        # make "python -m venv" (and ensurepip) fail in confusing ways. Isolate the environment for the
+        # venv-creation commands - clear PYTHONHOME/PYTHONPATH and disable the per-user site dir - which
+        # mirrors what the python.sh / python.cmd launchers already do for the bundled interpreter at
+        # runtime.
+        unset(ENV{PYTHONHOME})
+        unset(ENV{PYTHONPATH})
+        set(ENV{PYTHONNOUSERSITE} 1)
+
         # Run the install venv command, but skip the pip setup because we may need to manually create 
         # a link to the shared library within the created virtual environment before proceeding with
         # the pip install command.
@@ -93,10 +103,20 @@ function(ly_setup_python_venv)
         execute_process(COMMAND "${PYTHON_PACKAGES_ROOT_PATH}/${LY_PYTHON_PACKAGE_NAME}/${LY_PYTHON_BIN_PATH}/${LY_PYTHON_EXECUTABLE}" -m venv "${PYTHON_VENV_PATH}" --without-pip --clear
                         WORKING_DIRECTORY "${PYTHON_PACKAGES_ROOT_PATH}/${LY_PYTHON_PACKAGE_NAME}/${LY_PYTHON_BIN_PATH}"
                         COMMAND_ECHO STDOUT
+                        OUTPUT_VARIABLE venv_create_output
+                        ERROR_VARIABLE venv_create_output
                         RESULT_VARIABLE command_result)
 
         if (NOT ${command_result} EQUAL 0)
-            message(FATAL_ERROR "Error creating a venv")
+            message(FATAL_ERROR
+                "Error creating a Python venv at ${PYTHON_VENV_PATH} (exit code ${command_result}).\n"
+                "--- python -m venv output ---\n${venv_create_output}\n-----------------------------\n"
+                "Note: this is a venv-creation failure, NOT a package download problem - the Python "
+                "package was found at ${PYTHON_PACKAGES_ROOT_PATH}/${LY_PYTHON_PACKAGE_NAME}. "
+                "Make sure no system PYTHONHOME/PYTHONPATH is interfering and that the venv path above is writable.")
+        endif()
+        if (venv_create_output)
+            message(STATUS "python -m venv output:\n${venv_create_output}")
         endif()
 
         ly_post_python_venv_install(${PYTHON_VENV_PATH})
@@ -107,10 +127,14 @@ function(ly_setup_python_venv)
         execute_process(COMMAND "${PYTHON_VENV_PATH}/${LY_PYTHON_VENV_PYTHON}" -m ensurepip --upgrade --default-pip -v
                         WORKING_DIRECTORY "${PYTHON_VENV_PATH}/${LY_PYTHON_VENV_BIN_PATH}"
                         COMMAND_ECHO STDOUT
+                        OUTPUT_VARIABLE ensurepip_output
+                        ERROR_VARIABLE ensurepip_output
                         RESULT_VARIABLE command_result)
 
         if (NOT ${command_result} EQUAL 0)
-            message(FATAL_ERROR "Error installing pip into venv: ${LY_PIP_ERROR}")
+            message(FATAL_ERROR
+                "Error installing pip into venv at ${PYTHON_VENV_PATH} (exit code ${command_result}).\n"
+                "--- python -m ensurepip output ---\n${ensurepip_output}\n----------------------------------")
         endif()
 
         file(WRITE "${PYTHON_VENV_PATH}/.hash" ${LY_PYTHON_PACKAGE_HASH})
