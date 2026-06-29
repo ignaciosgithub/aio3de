@@ -72,8 +72,12 @@ scripts\o3de.bat register --this-engine
 scripts/o3de.sh register --this-engine
 ```
 
-> The `o3de` CLI uses the engine's bundled Python automatically, so you don't
-> need a separate Python install for these commands.
+> The `o3de` CLI uses the engine's own bundled Python, not your system Python.
+> The **first** `o3de` command on a fresh clone downloads and sets up that
+> Python automatically (a few minutes) before running — no separate `get_python`
+> step needed. Set `O3DE_AUTO_PYTHON_SETUP=0` to opt out and run
+> `python/get_python.bat` (Windows) / `python/get_python.sh` (Linux/macOS)
+> yourself.
 
 ## 4. Create a project
 

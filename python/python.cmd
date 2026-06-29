@@ -50,18 +50,14 @@ IF [%1] EQU [debug] (
     SET PYTHON_VENV_PYTHON=%PYTHON_VENV%\Scripts\python.exe
     SET PYTHON_ARGS=%*
 )
-IF EXIST "%PYTHON_VENV_PYTHON%" GOTO PYTHON_VENV_EXISTS
-ECHO Python has not been setup completely for O3DE. Missing Python venv %PYTHON_VENV_PYTHON%
-ECHO Try running %CMD_DIR%\get_python.bat to setup Python for O3DE.
-exit /b 1
-
-:PYTHON_VENV_EXISTS
+:PYTHON_VENV_VALIDATE
+IF NOT EXIST "%PYTHON_VENV_PYTHON%" GOTO PYTHON_SETUP_REQUIRED
 
 REM If python venv exists, we still need to validate that it is the current version by getting the 
 REM package current package hash from 3rd Party
 FOR /F %%g IN ('cmake -P "%CMD_DIR%\get_python_package_hash.cmake" "%CMD_DIR%\.." Windows') DO SET CURRENT_PACKAGE_HASH=%%g
 IF NOT "%CURRENT_PACKAGE_HASH%" == "" GOTO PACKAGE_HASH_READ
-echo
+echo.
 echo Unable to get current python package hash
 exit /b 1
 
@@ -71,20 +67,13 @@ exit /b 1
 REM Make sure there a .hash file that serves as the marker for the source python package the venv is from
 SET PYTHON_VENV_HASH=%PYTHON_VENV%\.hash
 
-IF EXIST "%PYTHON_VENV_HASH%" GOTO PYTHON_VENV_HASH_EXISTS
-ECHO Python has not been setup completely for O3DE. Missing venv hash %PYTHON_VENV_HASH%
-ECHO Try running %CMD_DIR%\get_python.bat to setup Python for O3DE.
-exit /b 1
-
-:PYTHON_VENV_HASH_EXISTS
+IF NOT EXIST "%PYTHON_VENV_HASH%" GOTO PYTHON_SETUP_REQUIRED
 
 REM Read in the .hash from the venv to see if we need to update the version of python
 SET /p VENV_PACKAGE_HASH=<"%PYTHON_VENV_HASH%"
 
 IF "%VENV_PACKAGE_HASH%" == "%CURRENT_PACKAGE_HASH%" GOTO PYTHON_VENV_MATCHES
-ECHO Python needs to be updated against the current version.
-ECHO Try running %CMD_DIR%\get_python.bat to update Python for O3DE.
-exit /b 1
+GOTO PYTHON_SETUP_REQUIRED
 
 :PYTHON_VENV_MATCHES
 REM Execute the python call from the arguments within the python venv environment
@@ -97,3 +86,44 @@ SET PYTHON_RESULT=%ERRORLEVEL%
 call "%PYTHON_VENV_DEACTIVATE%"
 
 exit /B %PYTHON_RESULT%
+
+:PYTHON_SETUP_REQUIRED
+REM O3DE uses its own pinned Python runtime (a downloaded 3rd Party package), not the system
+REM Python, so when the per-engine venv above is missing or out of date it must be (re)created by
+REM get_python.bat. Do that automatically here so first-time setup "just works". Guards:
+REM   O3DE_AUTO_PYTHON_SETUP=0   -> opt out (e.g. CI that manages Python itself)
+REM   O3DE_PYTHON_BOOTSTRAPPING  -> set while get_python.bat runs (which re-invokes this script),
+REM                                 preventing infinite recursion.
+REM   O3DE_PYTHON_SETUP_RETRIED  -> set after one auto-setup attempt so we do not loop forever.
+IF "%O3DE_AUTO_PYTHON_SETUP%" == "0" GOTO PYTHON_SETUP_MANUAL
+IF DEFINED O3DE_PYTHON_BOOTSTRAPPING GOTO PYTHON_SETUP_MANUAL
+IF DEFINED O3DE_PYTHON_SETUP_RETRIED GOTO PYTHON_SETUP_FAILED
+
+ECHO.
+ECHO Setting up O3DE's Python environment automatically (this can take a few minutes the first time)...
+ECHO   - To do this manually instead, run: %CMD_DIR%\get_python.bat
+ECHO   - To disable automatic setup, set the environment variable O3DE_AUTO_PYTHON_SETUP=0
+ECHO.
+
+SET O3DE_PYTHON_BOOTSTRAPPING=1
+CALL "%CMD_DIR%\get_python.bat"
+SET GET_PYTHON_RESULT=%ERRORLEVEL%
+SET O3DE_PYTHON_BOOTSTRAPPING=
+
+IF NOT "%GET_PYTHON_RESULT%" == "0" (
+    ECHO ERROR: Automatic Python setup failed ^(get_python.bat returned %GET_PYTHON_RESULT%^). See the log above.
+    exit /b %GET_PYTHON_RESULT%
+)
+
+REM Re-validate now that Python should be set up.
+SET O3DE_PYTHON_SETUP_RETRIED=1
+GOTO PYTHON_VENV_VALIDATE
+
+:PYTHON_SETUP_FAILED
+ECHO ERROR: O3DE's Python environment is still not valid after running get_python.bat.
+exit /b 1
+
+:PYTHON_SETUP_MANUAL
+ECHO Python has not been set up completely for O3DE.
+ECHO Run "%CMD_DIR%\get_python.bat" to set up Python for O3DE.
+exit /b 1
