@@ -123,4 +123,11 @@ ly_add_pytest(
     EXCLUDE_TEST_RUN_TARGET_FROM_IDE
 )
 
+ly_add_pytest(
+    NAME o3de_hub_gui
+    PATH ${CMAKE_CURRENT_LIST_DIR}/test_o3de_hub_gui.py
+    TEST_SUITE smoke
+    EXCLUDE_TEST_RUN_TARGET_FROM_IDE
+)
+
 add_subdirectory(ExportScripts)

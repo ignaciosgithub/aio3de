@@ -26,10 +26,15 @@ import shutil
 import subprocess
 import sys
 
-from o3de import manifest, compatibility, utils
-
+# NOTE: the o3de manifest/compatibility/utils modules pull in third-party packages (packaging,
+# resolvelib) that only exist inside the engine's bundled venv. The build-prerequisite "doctor"
+# checks below are deliberately stdlib-only so this module can be imported and run by a *system*
+# Python before that venv exists (e.g. from the pre-build GUI hub). Anything that needs the
+# manifest is imported lazily inside the function that uses it and degrades gracefully if the
+# engine tooling has not been bootstrapped yet.
+LOG_FORMAT = '[%(levelname)s] %(name)s: %(message)s'
 logger = logging.getLogger('o3de.hub')
-logging.basicConfig(format=utils.LOG_FORMAT)
+logging.basicConfig(format=LOG_FORMAT)
 
 # Result severities, ordered so the worst one can drive the process exit code.
 OK = 'OK'
@@ -53,6 +58,26 @@ class CheckResult:
         self.severity = severity
         self.detail = detail
         self.hint = hint
+
+
+def _try_import_manifest():
+    """Imports o3de.manifest lazily, returning None if the engine venv (its deps) is not ready yet.
+
+    The manifest module pulls in third-party packages that only exist inside the bundled venv, so
+    importing it can fail when the doctor runs under a system Python before bootstrap. Callers treat
+    a None result as "engine tooling not bootstrapped yet" rather than crashing.
+    """
+    try:
+        from o3de import manifest
+        return manifest
+    except ImportError:
+        return None
+
+
+def engine_path_fallback() -> pathlib.Path:
+    """Best-effort engine root when the manifest module is unavailable: this file lives at
+    <engine>/scripts/o3de/o3de/hub.py, so the engine root is four parents up."""
+    return pathlib.Path(__file__).resolve().parents[3]
 
 
 def _run_version_command(executable: str, args: list) -> str or None:
@@ -171,6 +196,9 @@ def get_third_party_path() -> pathlib.Path or None:
     env_path = os.environ.get('LY_3RDPARTY_PATH')
     if env_path:
         return pathlib.Path(env_path)
+    manifest = _try_import_manifest()
+    if manifest is None:
+        return pathlib.Path.home() / '.o3de' / '3rdParty'
     default_path = manifest.get_o3de_folder() / '3rdParty'
     return default_path
 
@@ -198,6 +226,10 @@ def check_disk_space(engine_path: pathlib.Path) -> CheckResult:
 
 
 def check_engine_registration(engine_path: pathlib.Path) -> CheckResult:
+    manifest = _try_import_manifest()
+    if manifest is None:
+        return CheckResult('Engine registration', WARN, 'engine tooling not bootstrapped yet',
+                           'Run any "scripts/o3de" command first to set up the bundled Python, then re-check.')
     registered = [pathlib.Path(p).resolve() for p in manifest.get_manifest_engines()]
     if pathlib.Path(engine_path).resolve() in registered:
         return CheckResult('Engine registration', OK, 'this engine is registered')
@@ -225,6 +257,52 @@ def check_linux_runtime_libraries() -> list:
     return results
 
 
+VC_REDIST_URL = 'https://aka.ms/vs/17/release/vc_redist.x64.exe'
+
+
+def check_windows_vcredist() -> CheckResult or None:
+    """Windows-only: the engine's bundled (embeddable) Python needs the MSVC runtime (vcruntime140.dll).
+    When it is missing, the bundled python.exe crashes on launch and venv creation fails cryptically."""
+    if not sys.platform.startswith('win'):
+        return None
+    import ctypes
+    for dll in ('vcruntime140.dll', 'vcruntime140_1.dll'):
+        handle = ctypes.windll.kernel32.LoadLibraryW(dll)
+        if handle:
+            return CheckResult('VC++ redistributable', OK, f'{dll} present')
+    return CheckResult('VC++ redistributable', FAIL, 'vcruntime140.dll not found',
+                       f'The bundled Python needs the MSVC runtime. Install the x64 redistributable: {VC_REDIST_URL}')
+
+
+def check_windows_code_integrity() -> CheckResult or None:
+    """Windows-only: detect an enforced user-mode code-integrity policy (Smart App Control / WDAC /
+    Device Guard). When enforced it blocks the *unsigned* bundled python.exe (and the engine binaries
+    you build), surfacing as 'blocked by your organization's Device Guard policy' / a silent crash."""
+    if not sys.platform.startswith('win'):
+        return None
+    # User-mode Code Integrity (UMCI) enforcement: 2 == enforced.
+    enforced = False
+    try:
+        import subprocess as _sp
+        completed = _sp.run(
+            ['powershell', '-NoProfile', '-Command',
+             '(Get-CimInstance -Namespace root/Microsoft/Windows/DeviceGuard '
+             '-ClassName Win32_DeviceGuard).UsermodeCodeIntegrityPolicyEnforcementStatus'],
+            capture_output=True, text=True, timeout=20)
+        value = (completed.stdout or '').strip()
+        enforced = value == '2'
+    except (OSError, subprocess.SubprocessError, ValueError):
+        enforced = False
+    if enforced:
+        return CheckResult(
+            'Code integrity policy', FAIL,
+            'user-mode code integrity is ENFORCED (Smart App Control / WDAC / Device Guard)',
+            'This blocks the unsigned bundled Python and the engine binaries you build. Turn off '
+            '"Smart App Control" (Windows Security > App & browser control > Smart App Control settings). '
+            'Note this switch is one-way and needs a Windows reinstall to re-enable.')
+    return CheckResult('Code integrity policy', OK, 'not enforced (unsigned binaries allowed)')
+
+
 def run_doctor(engine_path: pathlib.Path) -> list:
     checks = [
         check_python(),
@@ -238,6 +316,9 @@ def run_doctor(engine_path: pathlib.Path) -> list:
         check_engine_registration(engine_path),
     ]
     checks.extend(check_linux_runtime_libraries())
+    for windows_check in (check_windows_vcredist(), check_windows_code_integrity()):
+        if windows_check is not None:
+            checks.append(windows_check)
     return checks
 
 
@@ -258,8 +339,19 @@ def _print_checks(checks: list) -> int:
     return 1 if worst == FAIL else 0
 
 
+def _resolve_engine_path(explicit_path) -> pathlib.Path:
+    if explicit_path:
+        return pathlib.Path(explicit_path)
+    manifest = _try_import_manifest()
+    if manifest is not None:
+        resolved = manifest.get_this_engine_path()
+        if resolved:
+            return pathlib.Path(resolved)
+    return engine_path_fallback()
+
+
 def _run_doctor(args) -> int:
-    engine_path = pathlib.Path(args.engine_path) if args.engine_path else manifest.get_this_engine_path()
+    engine_path = _resolve_engine_path(args.engine_path)
     print(f'Engine: {engine_path}\n')
     print('Build prerequisites:')
     return _print_checks(run_doctor(engine_path))
@@ -267,6 +359,7 @@ def _run_doctor(args) -> int:
 
 def _project_engine_summary(project_path: pathlib.Path) -> dict:
     """Collects the engine-separation facts for a single project."""
+    from o3de import manifest, compatibility
     project_json = manifest.get_project_json_data(project_path=project_path) or {}
     requested_engine = project_json.get('engine', '')
     resolved_engine = compatibility.get_most_compatible_project_engine_path(
@@ -283,6 +376,7 @@ def _project_engine_summary(project_path: pathlib.Path) -> dict:
 
 
 def _run_status(args) -> int:
+    from o3de import manifest
     this_engine = manifest.get_this_engine_path()
     this_engine_json = manifest.get_engine_json_data(engine_path=this_engine) or {}
     print('This engine:')

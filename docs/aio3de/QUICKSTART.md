@@ -12,6 +12,22 @@ The whole flow is five steps:
 4. [Create a project](#4-create-a-project)
 5. [Build it](#5-build-it)
 
+> **Prefer a GUI?** Steps 2–4 are also available as a small desktop window that
+> runs on **Windows and Linux** before you've built anything (it uses your
+> *system* Python, so it works on a fresh clone):
+>
+> ```bash
+> # Windows
+> scripts\o3de_hub.bat
+> # Linux / macOS
+> scripts/o3de_hub.sh
+> ```
+>
+> It shows the preflight checks as green/red rows (with one-click fix links,
+> including the Windows Smart App Control / VC++ gotchas below) and lets you
+> create a project with an explicit **name** + location, so you never end up with
+> an accidental "Default Project". The CLI steps below do exactly the same thing.
+
 > **Mental model:** the **engine** is the source tree you cloned. A **project**
 > is a separate folder that *points at* an engine. You register the engine once,
 > then create as many projects as you like against it. `o3de hub status` shows
@@ -43,6 +59,14 @@ and Python 3.10+ (the engine ships its own — see step 3).
   fails while creating the Python venv (a crash with no error detail). Note that
   a working *system* Python on your `PATH` does **not** satisfy this; the engine
   always uses its own bundled interpreter.
+- **Windows — Smart App Control / Device Guard:** if a command fails with
+  *"blocked by your organization's Device Guard policy"* (or the bundled
+  `python.exe` crashes on launch with no detail), Windows is blocking *unsigned*
+  executables. Turn off **Smart App Control** (Windows Security → *App & browser
+  control* → *Smart App Control settings* → **Off**). This is required to run the
+  bundled Python **and the engine binaries you build**. Note the switch is
+  one-way: re-enabling it needs a Windows reinstall. This is a personal-machine
+  default in Windows 11 — it is not literally an employer policy.
 - **Linux (Ubuntu):** install clang + the system libraries. The exact,
   verified apt list is in [`BUILDING_LINUX.md`](./BUILDING_LINUX.md).
 
@@ -62,9 +86,11 @@ scripts/o3de.sh hub doctor
 
 It reports `OK` / `WARN` / `FAIL` for Python, CMake (against the version this
 engine actually requires), your C++ compiler, Ninja, Git, Git LFS, the
-third-party path, free disk space, engine registration, and (on Linux) the
-runtime libraries the Editor needs — each with a one-line fix. Resolve any
-`FAIL` before continuing; `WARN`s are advisory.
+third-party path, free disk space, engine registration, on **Windows** the VC++
+redistributable and whether a code-integrity policy (Smart App Control / Device
+Guard) is blocking unsigned binaries, and on **Linux** the runtime libraries the
+Editor needs — each with a one-line fix. Resolve any `FAIL` before continuing;
+`WARN`s are advisory.
 
 ## 3. Register the engine
 
