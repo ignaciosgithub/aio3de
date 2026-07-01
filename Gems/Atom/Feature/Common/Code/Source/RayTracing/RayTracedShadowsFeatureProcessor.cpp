@@ -108,13 +108,20 @@ namespace AZ::Render
 
     void RayTracedShadowsFeatureProcessor::UpdateOccluderGeometry(RayTracedShadowsFullscreenPass* pass)
     {
+        if (pass->IsRebuildInFlight())
+        {
+            return; // Retry next Simulate once the background build finishes.
+        }
+
         AZStd::vector<AZ::BvhTriangle> triangles;
         if (auto* meshFeatureProcessor = GetParentScene()->GetFeatureProcessor<MeshFeatureProcessor>())
         {
             meshFeatureProcessor->GetWorldTriangles(triangles, r_rayTracedShadowsMaxTriangles);
         }
-        pass->SetOccluderGeometry(triangles);
-        m_geometryUploaded = true;
+        if (pass->SetOccluderGeometry(AZStd::move(triangles)))
+        {
+            m_geometryUploaded = true;
+        }
     }
 
     void RayTracedShadowsFeatureProcessor::UpdateShadowParams(RayTracedShadowsFullscreenPass* pass)
@@ -159,9 +166,13 @@ namespace AZ::Render
             return;
         }
 
-        if (!m_geometryUploaded || r_rayTracedShadowsRebuild)
+        if (r_rayTracedShadowsRebuild)
         {
             r_rayTracedShadowsRebuild = false;
+            m_geometryUploaded = false;
+        }
+        if (!m_geometryUploaded)
+        {
             UpdateOccluderGeometry(pass);
         }
 
