@@ -1,0 +1,43 @@
+{
+    "Type": "JsonSerialization",
+    "Version": 1,
+    "ClassName": "PassAsset",
+    "ClassData": {
+        "PassTemplate": {
+            "Name": "RayTracedShadowsTemplate",
+            "PassClass": "RayTracedShadowsPass",
+            "Slots": [
+                {
+                    "Name": "Nodes",
+                    "ShaderInputName": "m_nodes",
+                    "SlotType": "Input",
+                    "ScopeAttachmentUsage": "Shader"
+                },
+                {
+                    "Name": "TriangleVertices",
+                    "ShaderInputName": "m_triangleVertices",
+                    "SlotType": "Input",
+                    "ScopeAttachmentUsage": "Shader"
+                },
+                {
+                    "Name": "Samples",
+                    "ShaderInputName": "m_samples",
+                    "SlotType": "Input",
+                    "ScopeAttachmentUsage": "Shader"
+                },
+                {
+                    "Name": "Visibility",
+                    "ShaderInputName": "m_visibility",
+                    "SlotType": "InputOutput",
+                    "ScopeAttachmentUsage": "Shader"
+                }
+            ],
+            "PassData": {
+                "$type": "ComputePassData",
+                "ShaderAsset": {
+                    "FilePath": "Shaders/RayTracing/RayTracedShadows.shader"
+                }
+            }
+        }
+    }
+}

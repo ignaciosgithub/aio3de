@@ -64,6 +64,8 @@ set(FILES
     Source/Culling/GpuFrustumCullDrawPass.h
     Source/RayTracing/RayTracingBvhPass.cpp
     Source/RayTracing/RayTracingBvhPass.h
+    Source/RayTracing/RayTracedShadowsPass.cpp
+    Source/RayTracing/RayTracedShadowsPass.h
     Source/CoreLights/LtcCommon.h
     Source/CoreLights/LtcCommon.cpp
     Source/CoreLights/PointLightFeatureProcessor.h

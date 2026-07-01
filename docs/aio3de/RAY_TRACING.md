@@ -105,3 +105,81 @@ on real hardware.
   objects created — it is a plain compute dispatch, which is the whole point.
 - Scale ray count and triangle count; watch the compute dispatch time. Compare against the
   hardware-RT path (where available) to quantify the portability-vs-throughput trade-off.
+
+---
+
+# Increment 2: hard ray-traced shadows (first concrete consumer)
+
+Increment 1 shipped the portable BVH core + traversal. Increment 2 is the first **concrete effect**
+built on it: **hard ray-traced shadows**. For each shaded surface sample it casts a single occlusion
+ray toward the light and early-outs on the first occluder (`IntersectAny`), producing a binary
+visibility (1 = lit, 0 = shadowed). Like everything above it is hardware-agnostic (plain compute +
+structured buffers, no DXR / `VK_KHR_ray_tracing`), and **opt-in** — registered with the pass system
+but in no default pipeline, so nothing changes by default.
+
+## Components
+
+| Layer | File | Role |
+| --- | --- | --- |
+| CPU core (reference) | `Code/Framework/AzCore/AzCore/Math/RayTracedShadows.{h,cpp}` | `ComputeShadowVisibility` (single sample) + `ComputeDirectionalShadowVisibility` (batch); offsets the ray origin by a normal bias and calls `RayTracingBvh::IntersectAny`. |
+| CPU tests | `Code/Framework/AzCore/Tests/Math/RayTracedShadowsTests.cpp` | 5 tests incl. brute-force equivalence over a random scene. |
+| GPU shader | `Gems/Atom/Feature/Common/Assets/Shaders/RayTracing/RayTracedShadows.azsl` + `.shader` | One thread per surface sample; any-hit BVH walk mirroring the CPU core; writes visibility. |
+| Pass template | `Gems/Atom/Feature/Common/Assets/Passes/RayTracedShadows.pass` | `RayTracedShadowsTemplate`, 4 buffer slots. |
+| Pass (C++) | `Gems/Atom/Feature/Common/Code/Source/RayTracing/RayTracedShadowsPass.{h,cpp}` | `RPI::ComputePass`; builds the BVH over occluders, uploads samples + params, dispatches one thread per sample, exports the visibility buffer. |
+
+## Data flow
+
+```
+occluder triangles (CPU) ─ RayTracingBvh::Build ─► nodes[] + orderedTriangles[] (3×float4/tri)
+surface samples[] (position, normal) ───────────────────────────────────────┐
+ShadowRayParams { toLight, maxDistance, normalBias } ────────────────────────┤
+                                                                             ▼
+   RayTracedShadows.azsl  [numthreads(64,1,1)]  one thread per sample
+        origin    = position + normal * normalBias      (avoid self-shadow acne)
+        direction = normalize(toLight)
+        occluded  = any-hit BVH walk in (0, maxDistance]   (early-out, IntersectAny)
+                                                                             ▼
+   visibility[]  (float: 1 = lit, 0 = shadowed)  ── consumed by the lighting pass
+```
+
+`maxDistance` is large for a directional light and the distance-to-light for a point/spot light;
+`normalBias` offsets the origin off the surface so a sample cannot shadow itself.
+
+## CPU/GPU correctness
+
+Same discipline as increment 1: the CPU `RayTracedShadows` is the reference and is fully unit-tested
+headless; the AZSL shader mirrors it and is `azslc`-verified.
+
+- `RayTracedShadowsTests.cpp` (5 tests, all passing headless):
+  - empty occluder scene is fully lit;
+  - an occluder between surface and light casts a shadow (shadowed under, lit beside);
+  - an occluder beyond `maxDistance` does **not** shadow;
+  - `normalBias` prevents self-shadow acne on the occluder itself;
+  - **`BatchMatchesBruteForceOcclusion`**: 600 samples × 40 random quads, asserting
+    `ComputeDirectionalShadowVisibility` equals a brute-force linear-scan occlusion test.
+- `RayTracedShadows.azsl`'s any-hit walk reuses `RayTracingBvh.azsli`'s `IntersectRayAabb` /
+  `IntersectRayTriangle` and mirrors `RayTracingBvh::IntersectAny` (same fixed stack, same early-out).
+- Shader compile-verified with the engine's `azslc` (`--semantic` clean, `numthreads(64,1,1)`, SRG
+  layout parsed: 4 buffers + `m_toLight` / `m_maxDistance` / `m_normalBias` / `m_sampleCount` /
+  `m_nodeCount`).
+
+## Wiring it into a pipeline
+
+1. Add `RayTracedShadowsTemplate` as a pass to a render pipeline `.pass` (registered as
+   `RayTracedShadowsPass`, in no default pipeline).
+2. From the consuming feature processor:
+   ```cpp
+   auto* pass = /* find the RayTracedShadowsPass instance */;
+   pass->SetOccluderGeometry(occluderTriangles);   // builds the BVH + uploads node/triangle buffers
+   pass->SetSamples(surfaceSamples);               // world position + normal per shaded sample
+   pass->SetShadowParams({ toLight, maxDistance, normalBias });
+   // after the dispatch, read pass->GetVisibilityBuffer() in the lighting pass
+   ```
+3. Multiply the light's contribution by the per-sample visibility in the lighting/composite pass.
+
+## Honest caveat
+
+Same as increment 1: GPU frame-time is profiled on real hardware; here the CPU reference is fully
+tested and the shader is `azslc`-verified. Only hard (single-ray) shadows are implemented — soft
+shadows / penumbra (multiple rays or cone sampling) and the silhouette-edge occluder optimization are
+future increments.

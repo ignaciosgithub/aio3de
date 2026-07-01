@@ -379,6 +379,8 @@ set(FILES
     Math/Ray.h
     Math/RayTracingBvh.cpp
     Math/RayTracingBvh.h
+    Math/RayTracedShadows.cpp
+    Math/RayTracedShadows.h
     Math/Sfmt.cpp
     Math/Sfmt.h
     Math/ShapeIntersection.cpp
