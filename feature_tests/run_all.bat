@@ -86,11 +86,12 @@ if "%FAILED%"=="0" ( exit /b 0 ) else ( exit /b 1 )
 
 :: ---------------------------------------------------------------------------
 :run_functional
+set "FILTER=%~2"
 echo.>> "%REPORT%"
 echo [FUNCTIONALITY] %~1                                        >> "%REPORT%"
-echo   filter: %~2                                              >> "%REPORT%"
+echo   filter: !FILTER!                                          >> "%REPORT%"
 echo Running functionality: %~1
-"%RUNNER%" "%TESTLIB%" AzRunUnitTests --gtest_filter=%~2 >> "%REPORT%" 2>&1
+"%RUNNER%" "%TESTLIB%" AzRunUnitTests "--gtest_filter=%~2" >> "%REPORT%" 2>&1
 if errorlevel 1 (
     echo   -^> FAILED                                            >> "%REPORT%"
     echo   -^> FAILED: %~1
@@ -102,10 +103,11 @@ if errorlevel 1 (
 exit /b 0
 
 :run_bench
+set "FILTER=%~2"
 echo.>> "%REPORT%"
 echo [BENCHMARK] %~1                                            >> "%REPORT%"
-echo   filter: %~2                                              >> "%REPORT%"
+echo   filter: !FILTER!                                          >> "%REPORT%"
 echo Running benchmarks: %~1 (this takes a minute)...
-"%RUNNER%" "%TESTLIB%" AzRunBenchmarks --benchmark_filter=%~2 --benchmark_min_time=0.1 >> "%REPORT%" 2>&1
+"%RUNNER%" "%TESTLIB%" AzRunBenchmarks "--benchmark_filter=%~2" --benchmark_min_time=0.1 >> "%REPORT%" 2>&1
 echo   -^> benchmark output captured                            >> "%REPORT%"
 exit /b 0
