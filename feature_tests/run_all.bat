@@ -71,7 +71,7 @@ echo ============================================================>> "%REPORT%"
 if "%FAILED%"=="0" (
     echo RESULT: all functionality suites PASSED                >> "%REPORT%"
 ) else (
-    echo RESULT: %FAILED% functionality suite(s) FAILED          >> "%REPORT%"
+    echo RESULT: %FAILED% functionality suites FAILED            >> "%REPORT%"
 )
 
 type "%REPORT%"
