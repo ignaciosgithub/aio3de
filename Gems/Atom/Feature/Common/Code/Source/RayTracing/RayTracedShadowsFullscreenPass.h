@@ -13,6 +13,8 @@
 #include <AzCore/Math/Vector4.h>
 #include <AzCore/Memory/SystemAllocator.h>
 #include <AzCore/std/containers/vector.h>
+#include <AzCore/std/parallel/atomic.h>
+#include <AzCore/std/smart_ptr/shared_ptr.h>
 
 #include <Atom/RHI.Reflect/ShaderInputNameIndex.h>
 
@@ -46,9 +48,14 @@ namespace AZ
 
             static RPI::Ptr<RayTracedShadowsFullscreenPass> Create(const RPI::PassDescriptor& descriptor);
 
-            //! Builds the BVH over the occluder \p triangles (world space) and marks the GPU
-            //! geometry buffers dirty.
-            void SetOccluderGeometry(const AZStd::vector<AZ::BvhTriangle>& triangles);
+            //! Kicks off an asynchronous BVH build over the occluder \p triangles (world space)
+            //! on a background job; the result is swapped in (and the GPU buffers re-created) at
+            //! the start of the first frame after the build finishes, so rebuilds never stall
+            //! the frame. Returns false (and does nothing) if a build is already in flight.
+            bool SetOccluderGeometry(AZStd::vector<AZ::BvhTriangle>&& triangles);
+
+            //! True while a background BVH build kicked off by SetOccluderGeometry is running.
+            bool IsRebuildInFlight() const;
 
             //! Sets the shadow-ray parameters (direction toward the light, max distance, ray bias).
             void SetShadowParams(const AZ::ShadowRayParams& params);
@@ -64,6 +71,18 @@ namespace AZ
 
         private:
             void CreateBuffers();
+
+            //! Result of a background BVH build, shared between the pass and the job so the
+            //! job stays safe even if the pass is destroyed before it finishes.
+            struct PendingBvhBuild
+            {
+                AZStd::vector<AZ::BvhTriangle> m_triangles;
+                AZ::RayTracingBvh m_bvh;
+                AZStd::vector<AZ::Vector4> m_packedVertices;
+                AZStd::atomic_bool m_ready{ false };
+            };
+
+            AZStd::shared_ptr<PendingBvhBuild> m_pendingBuild;
 
             AZ::RayTracingBvh m_bvh;
 

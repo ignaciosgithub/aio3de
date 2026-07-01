@@ -11,6 +11,8 @@
 #include <Atom/RPI.Public/Buffer/BufferSystemInterface.h>
 #include <Atom/RPI.Public/Buffer/Buffer.h>
 
+#include <AzCore/Jobs/JobFunction.h>
+
 namespace AZ
 {
     namespace Render
@@ -25,23 +27,46 @@ namespace AZ
         {
         }
 
-        void RayTracedShadowsFullscreenPass::SetOccluderGeometry(const AZStd::vector<AZ::BvhTriangle>& triangles)
+        bool RayTracedShadowsFullscreenPass::IsRebuildInFlight() const
         {
-            m_bvh.Build(triangles);
+            return m_pendingBuild && !m_pendingBuild->m_ready.load(AZStd::memory_order_acquire);
+        }
 
-            // Pack the ordered triangles as 3 float4 per triangle (xyz used), matching the shader's
-            // m_triangleVertices indexing (3 * slot + 0/1/2).
-            const AZStd::vector<AZ::BvhTriangle>& ordered = m_bvh.GetOrderedTriangles();
-            m_triangleVertices.clear();
-            m_triangleVertices.reserve(ordered.size() * 3);
-            for (const AZ::BvhTriangle& tri : ordered)
+        bool RayTracedShadowsFullscreenPass::SetOccluderGeometry(AZStd::vector<AZ::BvhTriangle>&& triangles)
+        {
+            if (IsRebuildInFlight())
             {
-                m_triangleVertices.emplace_back(tri.m_v0.GetX(), tri.m_v0.GetY(), tri.m_v0.GetZ(), 0.0f);
-                m_triangleVertices.emplace_back(tri.m_v1.GetX(), tri.m_v1.GetY(), tri.m_v1.GetZ(), 0.0f);
-                m_triangleVertices.emplace_back(tri.m_v2.GetX(), tri.m_v2.GetY(), tri.m_v2.GetZ(), 0.0f);
+                return false;
             }
 
-            m_buffersDirty = true;
+            auto pending = AZStd::make_shared<PendingBvhBuild>();
+            pending->m_triangles = AZStd::move(triangles);
+            m_pendingBuild = pending;
+
+            // The job captures only the shared pending state (not the pass), so it stays safe
+            // even if the pass is destroyed before the build finishes.
+            auto* job = AZ::CreateJobFunction(
+                [pending]()
+                {
+                    pending->m_bvh.Build(pending->m_triangles);
+
+                    // Pack the ordered triangles as 3 float4 per triangle (xyz used), matching the
+                    // shader's m_triangleVertices indexing (3 * slot + 0/1/2).
+                    const AZStd::vector<AZ::BvhTriangle>& ordered = pending->m_bvh.GetOrderedTriangles();
+                    pending->m_packedVertices.reserve(ordered.size() * 3);
+                    for (const AZ::BvhTriangle& tri : ordered)
+                    {
+                        pending->m_packedVertices.emplace_back(tri.m_v0.GetX(), tri.m_v0.GetY(), tri.m_v0.GetZ(), 0.0f);
+                        pending->m_packedVertices.emplace_back(tri.m_v1.GetX(), tri.m_v1.GetY(), tri.m_v1.GetZ(), 0.0f);
+                        pending->m_packedVertices.emplace_back(tri.m_v2.GetX(), tri.m_v2.GetY(), tri.m_v2.GetZ(), 0.0f);
+                    }
+
+                    pending->m_ready.store(true, AZStd::memory_order_release);
+                },
+                true); // auto-delete
+            job->Start();
+
+            return true;
         }
 
         void RayTracedShadowsFullscreenPass::SetShadowParams(const AZ::ShadowRayParams& params)
@@ -83,6 +108,15 @@ namespace AZ
 
         void RayTracedShadowsFullscreenPass::FrameBeginInternal(FramePrepareParams params)
         {
+            // Swap in a finished background BVH build, if any.
+            if (m_pendingBuild && m_pendingBuild->m_ready.load(AZStd::memory_order_acquire))
+            {
+                m_bvh = AZStd::move(m_pendingBuild->m_bvh);
+                m_triangleVertices = AZStd::move(m_pendingBuild->m_packedVertices);
+                m_pendingBuild.reset();
+                m_buffersDirty = true;
+            }
+
             if (!m_nodesBuffer || m_buffersDirty)
             {
                 CreateBuffers();
