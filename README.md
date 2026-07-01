@@ -6,6 +6,13 @@ O3DE (Open 3D Engine) is an open-source, real-time, multi-platform 3D engine tha
 
 I personally believe this is the most ambitious AI project for non-profit being developed. Through a 4-year cycle of updates and fixes, I expect the engine to become one of the most popular options for game development by the end of it.
 
+### Focus areas
+
+- **Optimized development workflow** — fast and intuitive development, from onboarding to iteration.
+- **Built-in core features** — more gems that reproduce the basic features found in most games, such as a save system and pathfinding across surfaces and volumes.
+- **AI for NPCs** — NPC behaviour that can be programmed, but also — unlike most modern engines — deep integration with machine-learning models that can be created, trained, optimized, and used in engine through a Python backend. Complex NPC behaviour can rely on neural network models rather than strict behaviour trees, including importing existing open-source models.
+- **Cross-platform support with performance in mind** — a customized approach to performant software based on how the target platform is structured.
+
 ## Contribute
 For information about contributing to Open 3D Engine, visit [https://o3de.org/docs/contributing/](https://o3de.org/docs/contributing/).
 
