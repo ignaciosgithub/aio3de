@@ -256,6 +256,19 @@ namespace AZ
             uint32_t GetLightCount() const override { return m_lightBufferHandler.GetElementCount(); }
             ShadowProperty& GetShadowProperty(LightHandle handle) { return m_shadowProperties.GetData(handle.GetIndex()); }
 
+            //! Returns the direction the first directional light in the scene shines toward,
+            //! or a zero vector if there is no directional light.
+            Vector3 GetFirstLightDirection() const
+            {
+                const auto& lights = m_lightData.GetDataVector();
+                if (lights.empty())
+                {
+                    return Vector3::CreateZero();
+                }
+                const auto& direction = lights.front().m_direction;
+                return Vector3(direction[0], direction[1], direction[2]);
+            }
+
         private:
 
             // This is currently fixed, but could be exposed to allow for user configuration

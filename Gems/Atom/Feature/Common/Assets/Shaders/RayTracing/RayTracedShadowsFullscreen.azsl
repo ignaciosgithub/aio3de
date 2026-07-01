@@ -1,0 +1,129 @@
+/*
+ * Copyright (c) Contributors to the Open 3D Engine Project.
+ * For complete copyright and license terms please see the LICENSE at the root of this distribution.
+ *
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
+ *
+ */
+
+// Fullscreen hardware-agnostic hard ray-traced shadows.
+//
+// For every pixel: reconstruct the world position from the depth buffer, cast a single occlusion
+// ray toward the directional light against the software BVH (built on the CPU by
+// AZ::RayTracingBvh), and darken the pixel if occluded. The output is multiplicatively blended
+// onto the lighting target (Zero/ColorSource), so a lit pixel is untouched and a shadowed pixel is
+// scaled by the shadow factor. Uses only a standard pixel shader + structured buffers, with NO
+// dependency on DXR / VK_KHR_ray_tracing or RT cores, so it runs on every RHI backend.
+
+#include <Atom/Features/SrgSemantics.azsli>
+#include <viewsrg_all.srgi>
+
+#include <Atom/Features/PostProcessing/FullscreenPixelInfo.azsli>
+#include <Atom/Features/PostProcessing/FullscreenVertex.azsli>
+
+#include "RayTracingBvh.azsli"
+
+ShaderResourceGroup PassSrg : SRG_PerPass
+{
+    // Occluder BVH (AZ::RayTracingBvh::GetNodes()).
+    StructuredBuffer<BvhNode> m_nodes;
+
+    // Occluder triangle vertices in BVH leaf order: 3 float4 per triangle, xyz used
+    // (AZ::RayTracingBvh::GetOrderedTriangles()).
+    StructuredBuffer<float4> m_triangleVertices;
+
+    // Scene depth (reversed depth: 0 = far plane / nothing rendered).
+    Texture2D<float> m_depth;
+
+    // Direction from surface toward the light (normalized on the CPU).
+    float3 m_toLight;
+    // Maximum occlusion-ray distance.
+    float m_maxDistance;
+    // Offset of the ray origin along the ray to avoid self-shadow acne.
+    float m_rayBias;
+    // Multiplier applied to shadowed pixels (0 = black, 1 = no visible shadow).
+    float m_shadowFactor;
+    // Number of BVH nodes; 0 disables traversal.
+    uint m_nodeCount;
+}
+
+// Any-hit BVH walk: returns true if any occluder triangle is hit in (0, tMax]. Mirrors
+// RayTracingBvh::IntersectAny (early-out on the first hit).
+bool TraverseAnyHit(float3 origin, float3 direction, float tMax)
+{
+    if (PassSrg::m_nodeCount == 0)
+    {
+        return false;
+    }
+
+    const float3 invDir = 1.0f / direction;
+
+    int stack[BVH_STACK_SIZE];
+    int stackPtr = 0;
+    stack[stackPtr++] = 0;
+
+    while (stackPtr > 0)
+    {
+        const BvhNode node = PassSrg::m_nodes[stack[--stackPtr]];
+        if (!IntersectRayAabb(origin, invDir, node.aabbMin, node.aabbMax, tMax))
+        {
+            continue;
+        }
+
+        if (node.triangleCount > 0)
+        {
+            for (uint i = 0; i < node.triangleCount; ++i)
+            {
+                const uint slot = node.leftFirst + i;
+                const float3 v0 = PassSrg::m_triangleVertices[3u * slot + 0u].xyz;
+                const float3 v1 = PassSrg::m_triangleVertices[3u * slot + 1u].xyz;
+                const float3 v2 = PassSrg::m_triangleVertices[3u * slot + 2u].xyz;
+
+                float t, u, v;
+                if (IntersectRayTriangle(origin, direction, v0, v1, v2, tMax, t, u, v))
+                {
+                    return true;
+                }
+            }
+        }
+        else if (stackPtr + 2 <= BVH_STACK_SIZE)
+        {
+            stack[stackPtr++] = int(node.leftFirst);
+            stack[stackPtr++] = int(node.leftFirst) + 1;
+        }
+    }
+
+    return false;
+}
+
+PSOutput MainPS(VSOutput IN)
+{
+    PSOutput OUT;
+    OUT.m_color = float4(1.0f, 1.0f, 1.0f, 1.0f);
+
+    const int2 pixel = int2(IN.m_position.xy);
+    const float depth = PassSrg::m_depth.Load(int3(pixel, 0)).r;
+
+    // Reversed depth: 0 means nothing was rendered here (sky) - leave it untouched.
+    if (depth <= 0.0f)
+    {
+        return OUT;
+    }
+
+    // Reconstruct the world position from the depth buffer.
+    const float2 uv = IN.m_texCoord;
+    const float2 ndc = float2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
+    float4 worldPos = mul(ViewSrg::m_viewProjectionInverseMatrix, float4(ndc, depth, 1.0f));
+    worldPos /= worldPos.w;
+
+    const float3 direction = normalize(PassSrg::m_toLight);
+    const float3 origin = worldPos.xyz + direction * PassSrg::m_rayBias;
+
+    if (TraverseAnyHit(origin, direction, PassSrg::m_maxDistance))
+    {
+        const float factor = PassSrg::m_shadowFactor;
+        OUT.m_color.rgb = float3(factor, factor, factor);
+    }
+
+    return OUT;
+}

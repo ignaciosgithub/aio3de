@@ -283,6 +283,28 @@
                     ]
                 },
                 {
+                    // Hardware-agnostic fullscreen ray-traced shadows, toggled at runtime by the r_rayTracedShadows cvar
+                    "Name": "RayTracedShadowsFullscreenPass",
+                    "TemplateName": "RayTracedShadowsFullscreenTemplate",
+                    "Enabled": false,
+                    "Connections": [
+                        {
+                            "LocalSlot": "InputDepth",
+                            "AttachmentRef": {
+                                "Pass": "DepthPrePass",
+                                "Attachment": "Depth"
+                            }
+                        },
+                        {
+                            "LocalSlot": "RenderTargetInputOutput",
+                            "AttachmentRef": {
+                                "Pass": "TransparentPass",
+                                "Attachment": "InputOutput"
+                            }
+                        }
+                    ]
+                },
+                {
                     "Name": "DeferredFogPass",
                     "TemplateName": "DeferredFogPassTemplate",
                     "Enabled": false,

@@ -19,6 +19,7 @@
 #include <Atom/RPI.Public/Shader/ShaderSystemInterface.h>
 #include <AtomCore/std/parallel/concurrency_checker.h>
 #include <AzCore/Asset/AssetCommon.h>
+#include <AzCore/Math/RayTracingBvh.h>
 #include <AzCore/Component/TickBus.h>
 #include <AzCore/Console/Console.h>
 #include <AzFramework/Asset/AssetCatalogBus.h>
@@ -294,6 +295,11 @@ namespace AZ
 
             // called when reflection probes are modified in the editor so that meshes can re-evaluate their probes
             void UpdateMeshReflectionProbes();
+
+            //! Collects the world-space triangles (LOD 0) of every loaded model in the scene into
+            //! \p outTriangles, stopping once \p maxTriangles is reached (0 = unlimited). Used by
+            //! RayTracedShadowsFeatureProcessor to build the occluder BVH for ray-traced shadows.
+            void GetWorldTriangles(AZStd::vector<AZ::BvhTriangle>& outTriangles, uint32_t maxTriangles = 0);
 
             void ReportShaderOptionFlags(const AZ::ConsoleCommandContainer& arguments);
 
