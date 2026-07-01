@@ -34,6 +34,9 @@
 #include <Atom/RHI/RHIUtils.h>
 #include <Atom/RHI/XRRenderingInterface.h>
 
+#include <Atom/RPI.Public/Shader/Shader.h>
+
+#include <AzCore/Console/IConsole.h>
 #include <AzCore/Interface/Interface.h>
 #include <AzCore/Time/ITime.h>
 
@@ -41,6 +44,16 @@
 
 AZ_DEFINE_BUDGET(AzRender);
 AZ_DEFINE_BUDGET(RPI);
+
+AZ_CVAR(
+    float,
+    r_psoCacheAutoSaveIntervalSeconds,
+    0.0f,
+    nullptr,
+    AZ::ConsoleFunctorFlags::Null,
+    "If > 0, automatically saves the PSO caches (pipeline libraries) of all live shaders to disk every N seconds, so "
+    "pipeline states compiled during play survive a crash. 0 (default) saves only at shutdown / via r_savePsoCache. "
+    "Requires r_enablePsoCaching.");
 
 // This will cause the RPI System to print out global state (like the current pass hierarchy) when an assert is hit
 // This is useful for rendering engineers debugging a crash in the RPI/RHI layers
@@ -277,6 +290,17 @@ namespace AZ
             AssetInitBus::Broadcast(&AssetInitBus::Events::PostLoadInit);
 
             m_currentSimulationTime = GetCurrentTime();
+
+            // Periodically persist the PSO caches so pipeline states compiled during play are
+            // precompiled at load on the next run even if this session doesn't shut down cleanly.
+            if (const float interval = r_psoCacheAutoSaveIntervalSeconds; interval > 0.0f)
+            {
+                if (m_currentSimulationTime - m_lastPsoCacheSaveTime >= interval)
+                {
+                    m_lastPsoCacheSaveTime = m_currentSimulationTime;
+                    Shader::SaveAllPipelineLibraries();
+                }
+            }
 
             for (auto& scene : m_scenes)
             {

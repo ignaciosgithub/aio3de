@@ -18,10 +18,12 @@ AZ_CVAR(bool, r_gpuMarkersMergeGroups, false, nullptr, AZ::ConsoleFunctorFlags::
 AZ_CVAR(
     bool,
     r_enablePsoCaching,
-    false,
+    true,
     nullptr,
     AZ::ConsoleFunctorFlags::DontReplicate,
-    "If true the active RHI backend will try to write out PSO cache (as long as it is able to). By default it is false.");
+    "If true the active RHI backend will try to write out PSO cache (as long as it is able to). The cache is written at "
+    "shutdown (and via the r_savePsoCache command) and loaded on the next run, so pipeline states compiled during play are "
+    "precompiled at load from then on.");
 
 
 namespace AZ::RHI

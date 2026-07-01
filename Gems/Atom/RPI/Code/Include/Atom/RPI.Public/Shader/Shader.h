@@ -68,6 +68,12 @@ namespace AZ
             //! Same as above, but uses the default supervariant 
             static Data::Instance<Shader> FindOrCreate(const Data::Asset<ShaderAsset>& shaderAsset);
 
+            //! Serializes the pipeline library of every live shader instance to disk (see
+            //! r_enablePsoCaching), so pipeline states compiled so far are precompiled at load
+            //! on the next run without requiring a clean shutdown. Exposed as the
+            //! r_savePsoCache console command.
+            static void SaveAllPipelineLibraries();
+
             ~Shader();
             AZ_DISABLE_COPY_MOVE(Shader);
 
