@@ -1,0 +1,120 @@
+/*
+ * Copyright (c) Contributors to the Open 3D Engine Project.
+ * For complete copyright and license terms please see the LICENSE at the root of this distribution.
+ *
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
+ *
+ */
+
+// Hardware-agnostic hard ray-traced shadows.
+//
+// Each thread takes one shaded surface sample (world position + normal), casts a single occlusion
+// ray toward the light against the software BVH (built on the CPU by AZ::RayTracingBvh), and writes
+// visibility (1 = lit, 0 = shadowed). The any-hit traversal is the GPU mirror of
+// AZ::ComputeShadowVisibility / RayTracingBvh::IntersectAny (AzCore/Math/RayTracedShadows.cpp and
+// RayTracingBvh.cpp): it stops at the first occluder. Uses only standard compute + structured
+// buffers, so it runs on any RHI backend with NO dependency on DXR / VK_KHR_ray_tracing or RT cores.
+
+#include <Atom/Features/SrgSemantics.azsli>
+#include "RayTracingBvh.azsli"
+
+// One shaded surface point. Matches the C++ upload struct (2 x float4 = 32 bytes); .xyz used.
+struct ShadowSampleGpu
+{
+    float4 position;
+    float4 normal;
+};
+
+ShaderResourceGroup PassSrg : SRG_PerPass
+{
+    // Occluder BVH (AZ::RayTracingBvh::GetNodes()).
+    StructuredBuffer<BvhNode> m_nodes;
+
+    // Occluder triangle vertices in BVH leaf order: 3 float4 per triangle, xyz used
+    // (AZ::RayTracingBvh::GetOrderedTriangles()).
+    StructuredBuffer<float4> m_triangleVertices;
+
+    // Shaded surface samples to test for shadowing.
+    StructuredBuffer<ShadowSampleGpu> m_samples;
+
+    // Output: one visibility value per sample (1 = lit, 0 = shadowed).
+    RWStructuredBuffer<float> m_visibility;
+
+    // Direction from surface toward the light (normalized on the CPU).
+    float3 m_toLight;
+    // Maximum occlusion-ray distance.
+    float m_maxDistance;
+    // Surface offset along the normal to avoid self-shadow acne.
+    float m_normalBias;
+    // Number of samples / BVH nodes, for bounds.
+    uint m_sampleCount;
+    uint m_nodeCount;
+}
+
+#define NUM_THREADS 64
+
+// Any-hit BVH walk: returns true if any occluder triangle is hit in (0, tMax]. Mirrors
+// RayTracingBvh::IntersectAny (early-out on the first hit).
+bool TraverseAnyHit(float3 origin, float3 direction, float tMax)
+{
+    if (PassSrg::m_nodeCount == 0)
+    {
+        return false;
+    }
+
+    const float3 invDir = 1.0f / direction;
+
+    int stack[BVH_STACK_SIZE];
+    int stackPtr = 0;
+    stack[stackPtr++] = 0;
+
+    while (stackPtr > 0)
+    {
+        const BvhNode node = PassSrg::m_nodes[stack[--stackPtr]];
+        if (!IntersectRayAabb(origin, invDir, node.aabbMin, node.aabbMax, tMax))
+        {
+            continue;
+        }
+
+        if (node.triangleCount > 0)
+        {
+            for (uint i = 0; i < node.triangleCount; ++i)
+            {
+                const uint slot = node.leftFirst + i;
+                const float3 v0 = PassSrg::m_triangleVertices[3u * slot + 0u].xyz;
+                const float3 v1 = PassSrg::m_triangleVertices[3u * slot + 1u].xyz;
+                const float3 v2 = PassSrg::m_triangleVertices[3u * slot + 2u].xyz;
+
+                float t, u, v;
+                if (IntersectRayTriangle(origin, direction, v0, v1, v2, tMax, t, u, v))
+                {
+                    return true;
+                }
+            }
+        }
+        else if (stackPtr + 2 <= BVH_STACK_SIZE)
+        {
+            stack[stackPtr++] = int(node.leftFirst);
+            stack[stackPtr++] = int(node.leftFirst) + 1;
+        }
+    }
+
+    return false;
+}
+
+[numthreads(NUM_THREADS, 1, 1)]
+void MainCS(uint3 dispatchThreadID : SV_DispatchThreadID)
+{
+    const uint sampleIndex = dispatchThreadID.x;
+    if (sampleIndex >= PassSrg::m_sampleCount)
+    {
+        return;
+    }
+
+    const ShadowSampleGpu s = PassSrg::m_samples[sampleIndex];
+    const float3 origin = s.position.xyz + s.normal.xyz * PassSrg::m_normalBias;
+    const float3 direction = normalize(PassSrg::m_toLight);
+
+    const bool occluded = TraverseAnyHit(origin, direction, PassSrg::m_maxDistance);
+    PassSrg::m_visibility[sampleIndex] = occluded ? 0.0f : 1.0f;
+}

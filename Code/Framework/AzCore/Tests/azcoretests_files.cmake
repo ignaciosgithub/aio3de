@@ -119,6 +119,7 @@ set(FILES
     Math/FrustumTests.cpp
     Math/FrustumPerformanceTests.cpp
     Math/RayTracingBvhTests.cpp
+    Math/RayTracedShadowsTests.cpp
     Math/Geometry3DUtilsTests.cpp
     Math/HemisphereTests.cpp
     Math/IntersectionPerformanceTests.cpp
