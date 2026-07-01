@@ -257,6 +257,10 @@
                 "Path": "Passes/DeferredFog.pass"
             },
             {
+                "Name": "RayTracedShadowsFullscreenTemplate",
+                "Path": "Passes/RayTracedShadowsFullscreen.pass"
+            },
+            {
                 "Name": "SubsurfaceScatteringPassTemplate",
                 "Path": "Passes/SubsurfaceScattering.pass"
             },

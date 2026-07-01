@@ -104,6 +104,7 @@ set(FILES
     Passes/DebugOverlayParent.pass
     Passes/DebugRayTracingPass.pass
     Passes/DeferredFog.pass
+    Passes/RayTracedShadowsFullscreen.pass
     Passes/Depth.pass
     Passes/DepthCheckerboard.pass
     Passes/DepthDownsample.pass
@@ -677,6 +678,9 @@ set(FILES
     Shaders/Reflections/ReflectionScreenSpaceTrace.shader
     Shaders/SceneMaterialSrg.azsl
     Shaders/SceneMaterialSrg.shader
+    Shaders/RayTracing/RayTracedShadowsFullscreen.azsl
+    Shaders/RayTracing/RayTracedShadowsFullscreen.shader
+    Shaders/RayTracing/RayTracingBvh.azsli
     Shaders/ScreenSpace/DeferredFog.azsl
     Shaders/ScreenSpace/DeferredFog.shader
     Shaders/ScreenSpace/MobileDeferredFog.shader

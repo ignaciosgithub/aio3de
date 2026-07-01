@@ -98,6 +98,8 @@
 #include <Culling/GpuFrustumCullDrawPass.h>
 #include <RayTracing/RayTracingBvhPass.h>
 #include <RayTracing/RayTracedShadowsPass.h>
+#include <RayTracing/RayTracedShadowsFullscreenPass.h>
+#include <RayTracing/RayTracedShadowsFeatureProcessor.h>
 #include <Shadows/FullscreenShadowPass.h>
 #include <CoreLights/LightCullingRemap.h>
 #include <Decals/DecalTextureArrayFeatureProcessor.h>
@@ -146,6 +148,7 @@ namespace AZ
             DecalTextureArrayFeatureProcessor::Reflect(context);
             SMAAFeatureProcessor::Reflect(context);
             SilhouetteFeatureProcessor::Reflect(context);
+            RayTracedShadowsFeatureProcessor::Reflect(context);
             PostProcessFeatureProcessor::Reflect(context);
             ImGuiPassData::Reflect(context);
             RayTracingPassData::Reflect(context);
@@ -225,6 +228,7 @@ namespace AZ
                 AZ::RPI::FeatureProcessorFactory::Get()->RegisterFeatureProcessorWithInterface<OcclusionCullingPlaneFeatureProcessor, OcclusionCullingPlaneFeatureProcessorInterface>();
                 AZ::RPI::FeatureProcessorFactory::Get()->RegisterFeatureProcessor<SplashScreenFeatureProcessor>();
                 AZ::RPI::FeatureProcessorFactory::Get()->RegisterFeatureProcessor<SilhouetteFeatureProcessor>();
+                AZ::RPI::FeatureProcessorFactory::Get()->RegisterFeatureProcessor<RayTracedShadowsFeatureProcessor>();
             }
 
             AZ::RPI::FeatureProcessorFactory::Get()->RegisterFeatureProcessorWithInterface<AuxGeomFeatureProcessor, RPI::AuxGeomFeatureProcessorInterface>();
@@ -251,6 +255,7 @@ namespace AZ
             passSystem->AddPassCreator(Name("GpuFrustumCullDrawPass"), &GpuFrustumCullDrawPass::Create);
             passSystem->AddPassCreator(Name("RayTracingBvhPass"), &RayTracingBvhPass::Create);
             passSystem->AddPassCreator(Name("RayTracedShadowsPass"), &RayTracedShadowsPass::Create);
+            passSystem->AddPassCreator(Name("RayTracedShadowsFullscreenPass"), &RayTracedShadowsFullscreenPass::Create);
             passSystem->AddPassCreator(Name("BlendColorGradingLutsPass"), &BlendColorGradingLutsPass::Create);
             passSystem->AddPassCreator(Name("HDRColorGradingPass"), &HDRColorGradingPass::Create);
             passSystem->AddPassCreator(Name("FullscreenShadowPass"), &FullscreenShadowPass::Create);
@@ -378,6 +383,7 @@ namespace AZ
                 AZ::RPI::FeatureProcessorFactory::Get()->UnregisterFeatureProcessor<RenderDebugFeatureProcessor>();
                 AZ::RPI::FeatureProcessorFactory::Get()->UnregisterFeatureProcessor<SplashScreenFeatureProcessor>();
                 AZ::RPI::FeatureProcessorFactory::Get()->UnregisterFeatureProcessor<SilhouetteFeatureProcessor>();
+                AZ::RPI::FeatureProcessorFactory::Get()->UnregisterFeatureProcessor<RayTracedShadowsFeatureProcessor>();
             }
 
             AZ::RPI::FeatureProcessorFactory::Get()->UnregisterFeatureProcessor<MeshFeatureProcessor>();

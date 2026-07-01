@@ -66,6 +66,10 @@ set(FILES
     Source/RayTracing/RayTracingBvhPass.h
     Source/RayTracing/RayTracedShadowsPass.cpp
     Source/RayTracing/RayTracedShadowsPass.h
+    Source/RayTracing/RayTracedShadowsFullscreenPass.cpp
+    Source/RayTracing/RayTracedShadowsFullscreenPass.h
+    Source/RayTracing/RayTracedShadowsFeatureProcessor.cpp
+    Source/RayTracing/RayTracedShadowsFeatureProcessor.h
     Source/CoreLights/LtcCommon.h
     Source/CoreLights/LtcCommon.cpp
     Source/CoreLights/PointLightFeatureProcessor.h

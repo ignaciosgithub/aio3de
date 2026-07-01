@@ -1609,6 +1609,83 @@ namespace AZ
             }
         }
 
+        void MeshFeatureProcessor::GetWorldTriangles(AZStd::vector<AZ::BvhTriangle>& outTriangles, uint32_t maxTriangles)
+        {
+            for (auto& meshInstance : m_modelData)
+            {
+                const Data::Instance<RPI::Model>& model = meshInstance.m_model;
+                if (!model || !model->GetModelAsset() || model->GetModelAsset()->GetLodAssets().empty())
+                {
+                    continue;
+                }
+
+                const Data::Asset<RPI::ModelLodAsset>& lodAsset = model->GetModelAsset()->GetLodAssets().front();
+                if (!lodAsset.IsReady())
+                {
+                    continue;
+                }
+
+                const AZ::Transform transform = m_transformService->GetTransformForId(meshInstance.GetObjectId());
+                const AZ::Vector3 nonUniformScale = m_transformService->GetNonUniformScaleForId(meshInstance.GetObjectId());
+
+                for (const RPI::ModelLodAsset::Mesh& mesh : lodAsset->GetMeshes())
+                {
+                    const AZStd::span<const float> positions =
+                        mesh.GetSemanticBufferTyped<float>(AZ::Name("POSITION"));
+                    if (positions.empty())
+                    {
+                        continue;
+                    }
+
+                    auto readWorldVertex = [&](uint32_t vertexIndex) -> AZ::Vector3
+                    {
+                        const AZ::Vector3 localPosition(
+                            positions[3 * vertexIndex + 0],
+                            positions[3 * vertexIndex + 1],
+                            positions[3 * vertexIndex + 2]);
+                        return transform.TransformPoint(localPosition * nonUniformScale);
+                    };
+
+                    auto appendTriangles = [&](auto indices)
+                    {
+                        const uint32_t vertexCount = static_cast<uint32_t>(positions.size() / 3);
+                        for (size_t i = 0; i + 2 < indices.size(); i += 3)
+                        {
+                            if (maxTriangles > 0 && outTriangles.size() >= maxTriangles)
+                            {
+                                return;
+                            }
+                            const uint32_t i0 = static_cast<uint32_t>(indices[i]);
+                            const uint32_t i1 = static_cast<uint32_t>(indices[i + 1]);
+                            const uint32_t i2 = static_cast<uint32_t>(indices[i + 2]);
+                            if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
+                            {
+                                continue;
+                            }
+                            outTriangles.push_back(
+                                AZ::BvhTriangle{ readWorldVertex(i0), readWorldVertex(i1), readWorldVertex(i2) });
+                        }
+                    };
+
+                    const uint32_t indexElementSize =
+                        mesh.GetIndexBufferAssetView().GetBufferViewDescriptor().m_elementSize;
+                    if (indexElementSize == sizeof(uint16_t))
+                    {
+                        appendTriangles(mesh.GetIndexBufferTyped<uint16_t>());
+                    }
+                    else
+                    {
+                        appendTriangles(mesh.GetIndexBufferTyped<uint32_t>());
+                    }
+
+                    if (maxTriangles > 0 && outTriangles.size() >= maxTriangles)
+                    {
+                        return;
+                    }
+                }
+            }
+        }
+
         void MeshFeatureProcessor::ReportShaderOptionFlags([[maybe_unused]] const AZ::ConsoleCommandContainer& arguments)
         {
             m_reportShaderOptionFlags = true;

@@ -108,8 +108,55 @@ but in no default pipeline, so they never affect a project until you enable them
   (`Assets/Passes/RayTracedShadows.pass`, shader
   `Assets/Shaders/RayTracing/RayTracedShadows.azsl`). The GPU shader mirrors the
   CPU reference this harness verifies, one occlusion ray per surface sample.
+- **Fullscreen ray-traced shadows** (live-toggleable): pass
+  `RayTracedShadowsFullscreenPass`
+  (`Assets/Passes/RayTracedShadowsFullscreen.pass`, shader
+  `Assets/Shaders/RayTracing/RayTracedShadowsFullscreen.azsl`). Wired into the
+  main pipeline **disabled by default** and driven entirely by cvars — no JSON
+  editing needed. See the live A/B workflow below.
 
 To measure GPU-side cost, use the Editor's built-in profiler (**Tools → Profiler**,
 or the ImGui `r_ProfilerSystem` overlay) and compare frame/pass timings with the
 feature's cvar on vs off. GPU frame timing must be read on real hardware — that's
 why it's not part of the CPU harness.
+
+## Live A/B testing GPU features in the Editor
+
+The fullscreen ray-traced shadows pass is built for real-time comparison: it sits
+in the main pipeline disabled, and a feature processor flips it on/off at runtime
+from a console variable, feeding it the actual scene geometry and directional
+light.
+
+Cvars (all live; type in the Editor console `~` while in game mode `Ctrl+G`):
+
+| Cvar | Default | Meaning |
+|------|---------|---------|
+| `r_rayTracedShadows` | `false` | Master toggle for the fullscreen RT shadows pass |
+| `r_rayTracedShadowsFactor` | `0.25` | Brightness multiplier for shadowed pixels (0 = black, 1 = invisible) |
+| `r_rayTracedShadowsMaxDistance` | `10000` | Max occlusion-ray distance (meters) |
+| `r_rayTracedShadowsBias` | `0.02` | Ray-origin offset to avoid self-shadow acne (meters) |
+| `r_rayTracedShadowsMaxTriangles` | `1000000` | Cap on scene triangles gathered into the occluder BVH |
+| `r_rayTracedShadowsRebuild` | `false` | Set `true` once to rebuild the BVH after moving/adding meshes |
+
+Measurement workflow (as close to a live A/B as the engine allows):
+
+1. Open a level with some meshes and a directional light, enter game mode
+   (`Ctrl+G`).
+2. Disable VSync so you can see real frame-time deltas: `vsync_interval 0`
+   (and `r_displayInfo 1` for the frame-time overlay). Let the scene warm up
+   ~30 s so shader/PSO compilation spikes settle.
+3. Open the GPU profiler: press **Home**, then **Atom Tools → Gpu Profiler**.
+   Note the baseline frame time; `RayTracedShadowsFullscreenPass` is absent.
+4. Toggle the feature on: `r_rayTracedShadows 1`. The scene geometry is gathered
+   into a BVH (one-time hitch is normal on big scenes), shadows appear as
+   darkened geometry opposite the light, and the pass shows up in the Gpu
+   Profiler with its per-frame GPU cost.
+5. Compare average (not single-frame) timings on vs off; flip the cvar live as
+   often as you like. `r_rayTracedShadowsFactor 0.0` makes shadows fully black
+   for maximum visual contrast.
+6. If you move or add meshes, `r_rayTracedShadowsRebuild true` refreshes the
+   occluder BVH.
+
+The shadows are hard (binary lit/shadowed, no penumbra) by design — they mirror
+the CPU reference validated by this harness, and run on any GPU/backend (no
+DXR / RT cores required).
