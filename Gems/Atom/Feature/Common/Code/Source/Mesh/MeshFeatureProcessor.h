@@ -301,6 +301,11 @@ namespace AZ
             //! RayTracedShadowsFeatureProcessor to build the occluder BVH for ray-traced shadows.
             void GetWorldTriangles(AZStd::vector<AZ::BvhTriangle>& outTriangles, uint32_t maxTriangles = 0);
 
+            //! Number of mesh instances whose model (LOD 0) is loaded and ready, i.e. the ones
+            //! GetWorldTriangles would gather from. Cheap; usable as a change signal to detect
+            //! meshes being added/removed/streamed in.
+            uint32_t GetReadyModelCount();
+
             void ReportShaderOptionFlags(const AZ::ConsoleCommandContainer& arguments);
 
             // Quick functions to get other relevant feature processors that have already been cached by the MeshFeatureProcessor

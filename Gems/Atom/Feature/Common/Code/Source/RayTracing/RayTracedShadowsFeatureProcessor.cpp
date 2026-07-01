@@ -72,6 +72,32 @@ namespace AZ::Render
         AZ::ConsoleFunctorFlags::Null,
         "Maximum number of scene triangles gathered into the ray-traced shadows occluder BVH.");
 
+    AZ_CVAR(
+        bool,
+        r_rayTracedShadowsPrewarm,
+        true,
+        nullptr,
+        AZ::ConsoleFunctorFlags::Null,
+        "Build the ray-traced shadows occluder BVH in the background at level load, while the pass is "
+        "still disabled, so the first r_rayTracedShadows enable is instant (small extra load-time cost).");
+
+    AZ_CVAR(
+        bool,
+        r_rayTracedShadowsAutoRebuild,
+        true,
+        nullptr,
+        AZ::ConsoleFunctorFlags::Null,
+        "Automatically rebuild the ray-traced shadows occluder BVH (async, no frame hitch) when meshes "
+        "are added to or removed from the scene, instead of requiring r_rayTracedShadowsRebuild.");
+
+    AZ_CVAR(
+        uint32_t,
+        r_rayTracedShadowsAutoRebuildPollFrames,
+        30,
+        nullptr,
+        AZ::ConsoleFunctorFlags::Null,
+        "How often (in frames) the auto-rebuild checks the scene's ready-model count for changes.");
+
     void RayTracedShadowsFeatureProcessor::Reflect(AZ::ReflectContext* context)
     {
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
@@ -84,6 +110,8 @@ namespace AZ::Render
     {
         m_passEnabled = false;
         m_geometryUploaded = false;
+        m_lastReadyModelCount = 0;
+        m_framesUntilModelCountPoll = 0;
     }
 
     void RayTracedShadowsFeatureProcessor::Deactivate()
@@ -161,19 +189,46 @@ namespace AZ::Render
             m_passEnabled = enabled;
         }
 
-        if (!enabled)
-        {
-            return;
-        }
-
         if (r_rayTracedShadowsRebuild)
         {
             r_rayTracedShadowsRebuild = false;
             m_geometryUploaded = false;
         }
-        if (!m_geometryUploaded)
+
+        // Detect meshes being added/removed (or streamed in at level load) via the ready-model
+        // count, polled every few frames; a change invalidates the geometry so it gets rebuilt
+        // asynchronously below.
+        if (enabled || r_rayTracedShadowsPrewarm)
         {
-            UpdateOccluderGeometry(pass);
+            if (m_framesUntilModelCountPoll == 0)
+            {
+                m_framesUntilModelCountPoll = AZStd::max<uint32_t>(1, r_rayTracedShadowsAutoRebuildPollFrames);
+                if (auto* meshFeatureProcessor = GetParentScene()->GetFeatureProcessor<MeshFeatureProcessor>())
+                {
+                    const uint32_t readyModelCount = meshFeatureProcessor->GetReadyModelCount();
+                    if (readyModelCount != m_lastReadyModelCount)
+                    {
+                        m_lastReadyModelCount = readyModelCount;
+                        if (r_rayTracedShadowsAutoRebuild || !m_geometryUploaded)
+                        {
+                            m_geometryUploaded = false;
+                        }
+                    }
+                }
+            }
+            --m_framesUntilModelCountPoll;
+
+            // Gathers + kicks the async BVH build; also runs while the pass is disabled when
+            // prewarm is on, so the first enable doesn't have to build anything.
+            if (!m_geometryUploaded)
+            {
+                UpdateOccluderGeometry(pass);
+            }
+        }
+
+        if (!enabled)
+        {
+            return;
         }
 
         UpdateShadowParams(pass);

@@ -19,6 +19,10 @@ namespace AZ::Render
     //! - Enables/disables the pass at runtime so it can be A/B toggled live from the console.
     //! - Gathers the scene's mesh triangles (world space) from the MeshFeatureProcessor and feeds
     //!   them to the pass as occluder geometry (rebuilt on enable and via r_rayTracedShadowsRebuild).
+    //! - Prewarms the occluder BVH at level load while the pass is still disabled
+    //!   (r_rayTracedShadowsPrewarm) so the first enable is instant, and automatically rebuilds it
+    //!   when meshes are added/removed (r_rayTracedShadowsAutoRebuild), both via the pass's async
+    //!   background build.
     //! - Feeds the first directional light's direction plus the max-distance/bias/factor cvars to
     //!   the pass every frame.
     class RayTracedShadowsFeatureProcessor final
@@ -45,5 +49,7 @@ namespace AZ::Render
 
         bool m_passEnabled = false;
         bool m_geometryUploaded = false;
+        uint32_t m_lastReadyModelCount = 0;
+        uint32_t m_framesUntilModelCountPoll = 0;
     };
 } // namespace AZ::Render
