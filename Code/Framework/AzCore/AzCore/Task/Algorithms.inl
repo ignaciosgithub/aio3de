@@ -55,7 +55,7 @@ namespace AZ
         for (uint32_t chunk = 0; chunk < chunkCount; ++chunk)
         {
             // Distribute the remainder across the first chunks so chunk sizes differ by at most one.
-            const IndexType chunkSize = static_cast<IndexType>(baseChunkSize + (chunk < remainder ? IndexType{ 1 } : IndexType{ 0 }));
+            const IndexType chunkSize = static_cast<IndexType>(baseChunkSize + (static_cast<IndexType>(chunk) < remainder ? IndexType{ 1 } : IndexType{ 0 }));
             const IndexType chunkBegin = cursor;
             const IndexType chunkEnd = static_cast<IndexType>(cursor + chunkSize);
             cursor = chunkEnd;
