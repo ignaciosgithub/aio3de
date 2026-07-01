@@ -136,7 +136,10 @@ Cvars (all live; type in the Editor console `~` while in game mode `Ctrl+G`):
 | `r_rayTracedShadowsMaxDistance` | `10000` | Max occlusion-ray distance (meters) |
 | `r_rayTracedShadowsBias` | `0.02` | Ray-origin offset to avoid self-shadow acne (meters) |
 | `r_rayTracedShadowsMaxTriangles` | `1000000` | Cap on scene triangles gathered into the occluder BVH |
-| `r_rayTracedShadowsRebuild` | `false` | Set `true` once to rebuild the BVH after moving/adding meshes |
+| `r_rayTracedShadowsRebuild` | `false` | Set `true` once to force a BVH rebuild (e.g. after only *moving* meshes) |
+| `r_rayTracedShadowsPrewarm` | `true` | Build the BVH in the background at level load so the first enable is instant |
+| `r_rayTracedShadowsAutoRebuild` | `true` | Auto-rebuild the BVH (async) when meshes are added/removed |
+| `r_rayTracedShadowsAutoRebuildPollFrames` | `30` | How often (frames) the auto-rebuild checks for mesh changes |
 
 Measurement workflow (as close to a live A/B as the engine allows):
 
@@ -148,14 +151,16 @@ Measurement workflow (as close to a live A/B as the engine allows):
 3. Open the GPU profiler: press **Home**, then **Atom Tools → Gpu Profiler**.
    Note the baseline frame time; `RayTracedShadowsFullscreenPass` is absent.
 4. Toggle the feature on: `r_rayTracedShadows 1`. The scene geometry is gathered
-   into a BVH (one-time hitch is normal on big scenes), shadows appear as
-   darkened geometry opposite the light, and the pass shows up in the Gpu
-   Profiler with its per-frame GPU cost.
+   into a BVH on a background job (no frame hitch; with prewarm on it is
+   already built at level load), shadows appear as darkened geometry opposite
+   the light, and the pass shows up in the Gpu Profiler with its per-frame GPU
+   cost.
 5. Compare average (not single-frame) timings on vs off; flip the cvar live as
    often as you like. `r_rayTracedShadowsFactor 0.0` makes shadows fully black
    for maximum visual contrast.
-6. If you move or add meshes, `r_rayTracedShadowsRebuild true` refreshes the
-   occluder BVH.
+6. Adding/removing meshes rebuilds the occluder BVH automatically (async, no
+   hitch). If you only *move* meshes, `r_rayTracedShadowsRebuild true`
+   refreshes it manually.
 
 The shadows are hard (binary lit/shadowed, no penumbra) by design — they mirror
 the CPU reference validated by this harness, and run on any GPU/backend (no

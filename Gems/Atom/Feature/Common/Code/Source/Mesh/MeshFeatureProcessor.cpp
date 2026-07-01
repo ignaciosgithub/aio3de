@@ -1609,6 +1609,24 @@ namespace AZ
             }
         }
 
+        uint32_t MeshFeatureProcessor::GetReadyModelCount()
+        {
+            uint32_t count = 0;
+            for (auto& meshInstance : m_modelData)
+            {
+                const Data::Instance<RPI::Model>& model = meshInstance.m_model;
+                if (!model || !model->GetModelAsset() || model->GetModelAsset()->GetLodAssets().empty())
+                {
+                    continue;
+                }
+                if (model->GetModelAsset()->GetLodAssets().front().IsReady())
+                {
+                    ++count;
+                }
+            }
+            return count;
+        }
+
         void MeshFeatureProcessor::GetWorldTriangles(AZStd::vector<AZ::BvhTriangle>& outTriangles, uint32_t maxTriangles)
         {
             for (auto& meshInstance : m_modelData)
