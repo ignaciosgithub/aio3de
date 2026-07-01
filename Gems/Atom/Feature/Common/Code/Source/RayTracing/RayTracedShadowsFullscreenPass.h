@@ -60,15 +60,10 @@ namespace AZ
             RayTracedShadowsFullscreenPass(const RPI::PassDescriptor& descriptor);
 
             // Pass behavior overrides...
-            void BuildInternal() override;
             void FrameBeginInternal(FramePrepareParams params) override;
 
         private:
             void CreateBuffers();
-
-            // Slot names matching the pass template and the shader's PassSrg buffer inputs.
-            static constexpr const char* NodesSlotName = "Nodes";
-            static constexpr const char* TriangleVerticesSlotName = "TriangleVertices";
 
             AZ::RayTracingBvh m_bvh;
 
@@ -88,6 +83,11 @@ namespace AZ
             AZ::RHI::ShaderInputNameIndex m_rayBiasIndex = "m_rayBias";
             AZ::RHI::ShaderInputNameIndex m_shadowFactorIndex = "m_shadowFactor";
             AZ::RHI::ShaderInputNameIndex m_nodeCountIndex = "m_nodeCount";
+
+            // SRG buffer binding indices (bound directly, not as pass attachments, since
+            // read-only common-pool buffers have no attachment id).
+            AZ::RHI::ShaderInputNameIndex m_nodesBufferIndex = "m_nodes";
+            AZ::RHI::ShaderInputNameIndex m_triangleVerticesBufferIndex = "m_triangleVertices";
         };
     } // namespace Render
 } // namespace AZ

@@ -42,9 +42,6 @@ namespace AZ
             }
 
             m_buffersDirty = true;
-
-            // Rebuild the pass so BuildInternal re-attaches the new buffers.
-            QueueForBuildAndInitialization();
         }
 
         void RayTracedShadowsFullscreenPass::SetShadowParams(const AZ::ShadowRayParams& params)
@@ -84,23 +81,18 @@ namespace AZ
             m_buffersDirty = false;
         }
 
-        void RayTracedShadowsFullscreenPass::BuildInternal()
+        void RayTracedShadowsFullscreenPass::FrameBeginInternal(FramePrepareParams params)
         {
             if (!m_nodesBuffer || m_buffersDirty)
             {
                 CreateBuffers();
             }
 
-            AttachBufferToSlot(NodesSlotName, m_nodesBuffer);
-            AttachBufferToSlot(TriangleVerticesSlotName, m_triangleVerticesBuffer);
-
-            FullscreenTrianglePass::BuildInternal();
-        }
-
-        void RayTracedShadowsFullscreenPass::FrameBeginInternal(FramePrepareParams params)
-        {
-            if (auto* srg = m_shaderResourceGroup.get())
+            auto* srg = m_shaderResourceGroup.get();
+            if (srg && m_nodesBuffer && m_triangleVerticesBuffer)
             {
+                srg->SetBufferView(m_nodesBufferIndex, m_nodesBuffer->GetBufferView());
+                srg->SetBufferView(m_triangleVerticesBufferIndex, m_triangleVerticesBuffer->GetBufferView());
                 srg->SetConstant(m_toLightIndex, m_params.m_toLight.GetNormalizedSafe());
                 srg->SetConstant(m_maxDistanceIndex, m_params.m_maxDistance);
                 srg->SetConstant(m_rayBiasIndex, m_params.m_normalBias);
