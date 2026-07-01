@@ -165,3 +165,21 @@ Measurement workflow (as close to a live A/B as the engine allows):
 The shadows are hard (binary lit/shadowed, no penumbra) by design — they mirror
 the CPU reference validated by this harness, and run on any GPU/backend (no
 DXR / RT cores required).
+
+## PSO precaching (first-use frame spikes)
+
+Pipeline State Objects (PSOs) are compiled by the driver the first time a
+shader/state combination is drawn — the source of the "first time dips, then
+cached" pattern (new view angles, first feature toggles). The engine persists
+those compiled PSOs to disk (per shader "pipeline library") and reloads them at
+startup, so from the second run onward they're precompiled at load:
+
+| Cvar / command | Default | Meaning |
+|------|---------|---------|
+| `r_enablePsoCaching` | `true` | Persist compiled PSOs to disk at shutdown and reload them at startup |
+| `r_savePsoCache` | (command) | Save all live shaders' PSO caches to disk right now |
+| `r_psoCacheAutoSaveIntervalSeconds` | `0` | If > 0, auto-save the PSO caches every N seconds (crash-proofing) |
+
+To measure: run a session, move the camera around aggressively (compiling PSOs),
+exit cleanly (or `r_savePsoCache`), relaunch, and repeat the same movements — the
+first-use spikes from the first session should be gone.

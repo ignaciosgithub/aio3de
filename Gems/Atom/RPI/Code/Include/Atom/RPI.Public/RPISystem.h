@@ -138,6 +138,10 @@ namespace AZ
 
             float m_currentSimulationTime = 0.0f;
 
+            // Last time (in simulation seconds) the PSO caches were auto-saved
+            // (see r_psoCacheAutoSaveIntervalSeconds).
+            float m_lastPsoCacheSaveTime = 0.0f;
+
             RPISystemDescriptor m_descriptor;
 
             // Reference to the shader asset that is used

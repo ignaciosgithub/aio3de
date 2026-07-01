@@ -50,6 +50,34 @@ namespace AZ
             return FindOrCreate(shaderAsset, AZ::Name{ "" });
         }
 
+        void Shader::SaveAllPipelineLibraries()
+        {
+            if (!r_enablePsoCaching || !Data::InstanceDatabase<Shader>::IsReady())
+            {
+                return;
+            }
+
+            Data::InstanceDatabase<Shader>::Instance().ForEach(
+                [](Shader& shader)
+                {
+                    if (shader.m_pipelineLibraryHandle.IsValid())
+                    {
+                        shader.SavePipelineLibrary();
+                    }
+                });
+        }
+
+        static void SavePsoCacheCommand([[maybe_unused]] const AZ::ConsoleCommandContainer& arguments)
+        {
+            Shader::SaveAllPipelineLibraries();
+        }
+        AZ_CONSOLEFREEFUNC(
+            "r_savePsoCache",
+            SavePsoCacheCommand,
+            AZ::ConsoleFunctorFlags::Null,
+            "Serializes the PSO caches (pipeline libraries) of all live shaders to disk now, so pipeline states compiled "
+            "so far are precompiled at load on the next run. Requires r_enablePsoCaching (saved automatically at shutdown).");
+
         Data::Instance<Shader> Shader::CreateInternal([[maybe_unused]] ShaderAsset& shaderAsset, const AZStd::any* anySupervariantName)
         {
             AZ_Assert(anySupervariantName != nullptr, "Invalid supervariant name param");
