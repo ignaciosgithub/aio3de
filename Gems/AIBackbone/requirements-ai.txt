@@ -1,0 +1,7 @@
+# ML libraries installed into the engine's Python environment by install_ai_libs.
+# Keep this list extensible: add libraries here and re-run the installer.
+numpy
+torch
+onnx
+onnxscript
+onnxruntime
