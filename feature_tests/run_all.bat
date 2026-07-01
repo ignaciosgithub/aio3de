@@ -85,29 +85,34 @@ echo verifies their CPU reference + shader/pass registration.
 if "%FAILED%"=="0" ( exit /b 0 ) else ( exit /b 1 )
 
 :: ---------------------------------------------------------------------------
+:: NOTE: suite names contain parentheses, and %-expansion happens before cmd
+:: parses block parens, so these subroutines avoid parenthesized if/else blocks
+:: entirely (goto instead) and only echo names via delayed expansion.
 :run_functional
+set "NAME=%~1"
 set "FILTER=%~2"
 echo.>> "%REPORT%"
-echo [FUNCTIONALITY] %~1                                        >> "%REPORT%"
+echo [FUNCTIONALITY] !NAME!                                     >> "%REPORT%"
 echo   filter: !FILTER!                                          >> "%REPORT%"
-echo Running functionality: %~1
+echo Running functionality: !NAME!
 "%RUNNER%" "%TESTLIB%" AzRunUnitTests "--gtest_filter=%~2" >> "%REPORT%" 2>&1
-if errorlevel 1 (
-    echo   -^> FAILED                                            >> "%REPORT%"
-    echo   -^> FAILED: %~1
-    set /a FAILED+=1
-) else (
-    echo   -^> PASSED                                            >> "%REPORT%"
-    echo   -^> PASSED: %~1
-)
+if errorlevel 1 goto :functional_failed
+echo   -^> PASSED                                               >> "%REPORT%"
+echo   -^> PASSED: !NAME!
+exit /b 0
+:functional_failed
+echo   -^> FAILED                                               >> "%REPORT%"
+echo   -^> FAILED: !NAME!
+set /a FAILED+=1
 exit /b 0
 
 :run_bench
+set "NAME=%~1"
 set "FILTER=%~2"
 echo.>> "%REPORT%"
-echo [BENCHMARK] %~1                                            >> "%REPORT%"
+echo [BENCHMARK] !NAME!                                         >> "%REPORT%"
 echo   filter: !FILTER!                                          >> "%REPORT%"
-echo Running benchmarks: %~1 (this takes a minute)...
+echo Running benchmarks: !NAME! (this takes a minute)...
 "%RUNNER%" "%TESTLIB%" AzRunBenchmarks "--benchmark_filter=%~2" --benchmark_min_time=0.1 >> "%REPORT%" 2>&1
 echo   -^> benchmark output captured                            >> "%REPORT%"
 exit /b 0
