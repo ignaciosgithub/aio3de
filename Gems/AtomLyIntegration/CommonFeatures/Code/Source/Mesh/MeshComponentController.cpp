@@ -444,7 +444,17 @@ namespace AZ
                 meshDescriptor.m_modelAsset = m_configuration.m_modelAsset;
                 meshDescriptor.m_customMaterials = ConvertToCustomMaterialMap(materials);
                 meshDescriptor.m_useForwardPassIblSpecular = m_configuration.m_useForwardPassIblSpecular;
-                meshDescriptor.m_requiresCloneCallback = RequiresCloning;
+                meshDescriptor.m_requiresCloneCallback = [entityId](const Data::Asset<RPI::ModelAsset>& modelAsset)
+                {
+                    if (RequiresCloning(modelAsset))
+                    {
+                        return true;
+                    }
+                    bool uniqueInstanceRequired = false;
+                    UniqueModelInstanceRequestBus::EventResult(
+                        uniqueInstanceRequired, entityId, &UniqueModelInstanceRequestBus::Events::RequiresUniqueModelInstance);
+                    return uniqueInstanceRequired;
+                };
                 meshDescriptor.m_isRayTracingEnabled = m_configuration.m_isRayTracingEnabled;
                 meshDescriptor.m_excludeFromReflectionCubeMaps = m_configuration.m_excludeFromReflectionCubeMaps;
                 meshDescriptor.m_isAlwaysDynamic = m_configuration.m_isAlwaysDynamic;

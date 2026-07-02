@@ -81,6 +81,7 @@
         "Gems/ScriptedEntityTweener",
         "Gems/ScriptEvents",
         "Gems/SkyAtmosphere",
+        "Gems/SoftBodyPhysics",
         "Gems/Stars",
         "Gems/StartingPointCamera",
         "Gems/StartingPointInput",

@@ -40,6 +40,10 @@ namespace AZ
             //! Returns the model instance used by the component.
             virtual Data::Instance<RPI::Model> GetModel() const = 0;
 
+            //! Unregisters and re-registers the model, re-evaluating whether the model asset
+            //! must be cloned for this entity (see UniqueModelInstanceRequestBus).
+            virtual void RefreshModelRegistration() {}
+
             //! Sets the sort key for the component.
             //! Transparent models are drawn in order first by sort key, then depth.
             //! Use this to force certain transparent models to draw before or after others.
@@ -150,5 +154,16 @@ namespace AZ
             };
         };
         using MeshComponentNotificationBus = EBus<MeshComponentNotifications>;
+
+        //! Components that deform an entity's render mesh at runtime (e.g. soft body physics)
+        //! implement this bus to make the mesh component clone the model asset for this entity,
+        //! so vertex-buffer writes only affect this instance and not every entity sharing the model.
+        class UniqueModelInstanceRequests
+            : public ComponentBus
+        {
+        public:
+            virtual bool RequiresUniqueModelInstance() const = 0;
+        };
+        using UniqueModelInstanceRequestBus = EBus<UniqueModelInstanceRequests>;
     } // namespace Render
 } // namespace AZ
