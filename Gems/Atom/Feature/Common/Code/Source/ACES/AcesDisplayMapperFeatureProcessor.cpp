@@ -10,6 +10,7 @@
 #include <ACES/Aces.h>
 #include <LookupTable/LookupTableAsset.h>
 
+#include <Atom/RHI.Reflect/Format.h>
 #include <Atom/RHI/Factory.h>
 #include <Atom/RHI/RHISystemInterface.h>
 #include <Atom/RPI.Public/Image/ImageSystemInterface.h>
@@ -184,7 +185,11 @@ namespace AZ::Render
         }
         else
         {
-            AZ_Assert(false, "Not yet supported.");
+            AZ_WarningOnce(
+                "AcesDisplayMapper", false,
+                "Display buffer format %s is not explicitly supported by the ACES display mapper; "
+                "falling back to the 48-nit LDR output transform (this is expected for render-to-texture targets).",
+                RHI::ToString(bufferFormat));
             // To work normally on unsupported environment, initialize the display parameters by OutputDeviceTransformType_48Nits.
             outputDeviceTransformType = OutputDeviceTransformType_48Nits;
         }

@@ -18,6 +18,7 @@
 #include <Atom/RPI.Reflect/Pass/PassTemplate.h>
 #include <Atom/RPI.Reflect/Shader/ShaderAsset.h>
 
+#include <Atom/RHI.Reflect/Format.h>
 #include <Atom/RHI/Factory.h>
 #include <Atom/RHI/FrameScheduler.h>
 #include <Atom/RHI/DevicePipelineState.h>
@@ -93,7 +94,11 @@ namespace AZ
                 }
                 else
                 {
-                    AZ_Assert(false, "Not yet supported.");
+                    AZ_WarningOnce(
+                        "AcesOutputTransformPass", false,
+                        "Display buffer format %s is not explicitly supported by the ACES output transform; "
+                        "falling back to the 48-nit LDR output transform (this is expected for render-to-texture targets).",
+                        RHI::ToString(format));
                     // To work normally on unsupported environment, initialize the display parameters by OutputDeviceTransformType_48Nits.
                     AcesDisplayMapperFeatureProcessor::GetAcesDisplayMapperParameters(&m_displayMapperParameters, OutputDeviceTransformType_48Nits);
                 }
