@@ -1627,6 +1627,40 @@ namespace AZ
             return count;
         }
 
+        size_t MeshFeatureProcessor::GetSceneGeometryHash()
+        {
+            size_t hash = 0;
+            for (auto& meshInstance : m_modelData)
+            {
+                const Data::Instance<RPI::Model>& model = meshInstance.m_model;
+                if (!model || !model->GetModelAsset() || model->GetModelAsset()->GetLodAssets().empty())
+                {
+                    continue;
+                }
+                if (!model->GetModelAsset()->GetLodAssets().front().IsReady())
+                {
+                    continue;
+                }
+
+                const AZ::Transform transform = m_transformService->GetTransformForId(meshInstance.GetObjectId());
+                const AZ::Vector3 nonUniformScale = m_transformService->GetNonUniformScaleForId(meshInstance.GetObjectId());
+
+                const float values[] = {
+                    transform.GetTranslation().GetX(), transform.GetTranslation().GetY(), transform.GetTranslation().GetZ(),
+                    transform.GetRotation().GetX(),    transform.GetRotation().GetY(),    transform.GetRotation().GetZ(),
+                    transform.GetRotation().GetW(),    transform.GetUniformScale(),
+                    nonUniformScale.GetX(),            nonUniformScale.GetY(),            nonUniformScale.GetZ(),
+                };
+                for (float value : values)
+                {
+                    uint32_t bits;
+                    memcpy(&bits, &value, sizeof(bits));
+                    AZStd::hash_combine(hash, bits);
+                }
+            }
+            return hash;
+        }
+
         void MeshFeatureProcessor::GetWorldTriangles(AZStd::vector<AZ::BvhTriangle>& outTriangles, uint32_t maxTriangles)
         {
             for (auto& meshInstance : m_modelData)

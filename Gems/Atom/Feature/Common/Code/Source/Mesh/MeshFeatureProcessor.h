@@ -306,6 +306,10 @@ namespace AZ
             //! meshes being added/removed/streamed in.
             uint32_t GetReadyModelCount();
 
+            //! Hash of the ready models and their world transforms/scales. Cheap; usable as a
+            //! change signal to detect meshes being added/removed/streamed in or moved.
+            size_t GetSceneGeometryHash();
+
             void ReportShaderOptionFlags(const AZ::ConsoleCommandContainer& arguments);
 
             // Quick functions to get other relevant feature processors that have already been cached by the MeshFeatureProcessor
