@@ -1,0 +1,24 @@
+{
+    "gem_name": "SoftBodyPhysics",
+    "version": "0.0.0",
+    "display_name": "Soft Body Physics",
+    "license": "Apache-2.0 Or MIT",
+    "license_url": "https://github.com/o3de/o3de/blob/development/LICENSE.txt",
+    "origin": "aio3de",
+    "origin_url": "https://github.com/ignaciosgithub/aio3de",
+    "type": "Code",
+    "summary": "Portable XPBD soft body simulation: attach a Soft Body component to any mesh entity to make it deformable in game mode.",
+    "canonical_tags": [
+        "Gem"
+    ],
+    "user_tags": [
+        "Physics",
+        "Simulation"
+    ],
+    "icon_path": "preview.png",
+    "requirements": "",
+    "documentation_url": "",
+    "dependencies": [
+        "CommonFeaturesAtom"
+    ]
+}

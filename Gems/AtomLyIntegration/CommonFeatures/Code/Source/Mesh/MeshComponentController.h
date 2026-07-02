@@ -105,6 +105,7 @@ namespace AZ
             void SetModelAssetPath(const AZStd::string& modelAssetPath) override;
             AZStd::string GetModelAssetPath() const override;
             AZ::Data::Instance<RPI::Model> GetModel() const override;
+            void RefreshModelRegistration() override;
 
             // AtomImGuiTools::AtomImGuiMeshCallbackBus::Handler overrides ...
             const RPI::MeshDrawPacketLods* GetDrawPackets() const override;
@@ -179,7 +180,6 @@ namespace AZ
             void HandleObjectSrgCreate(const Data::Instance<RPI::ShaderResourceGroup>& objectSrg);
             void RegisterModel();
             void UnregisterModel();
-            void RefreshModelRegistration();
 
             RPI::Cullable::LodConfiguration GetMeshLodConfiguration() const;
 
