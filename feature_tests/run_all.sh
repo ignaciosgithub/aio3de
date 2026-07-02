@@ -89,8 +89,9 @@ run_functional "SIMD frustum culling (#4)"     "MATH_FrustumCull.*:FrustumCullPa
 run_functional "ParallelFor primitive (#2)"    "ParallelForTestFixture.*:ParallelForEachChunk*"
 run_functional "Ray-tracing BVH core (#8)"     "MATH_RayTracingBvh.*"
 run_functional "Ray-traced hard shadows (#14)" "MATH_RayTracedShadows.*"
+run_functional "XPBD soft body physics"      "SoftBodyTests.*"
 
-run_bench "CPU feature benchmarks" "BM_FrustumCull|ParallelForBenchmarkFixture|BM_RayTracingBvh"
+run_bench "CPU feature benchmarks" "BM_FrustumCull|ParallelForBenchmarkFixture|BM_RayTracingBvh|BM_SoftBodyStep"
 
 {
     echo "============================================================"
