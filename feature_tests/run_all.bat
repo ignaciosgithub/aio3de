@@ -63,9 +63,10 @@ call :run_functional "SIMD frustum culling (#4)"   "MATH_FrustumCull.*:FrustumCu
 call :run_functional "ParallelFor primitive (#2)"  "ParallelForTestFixture.*:ParallelForEachChunk*"
 call :run_functional "Ray-tracing BVH core (#8)"   "MATH_RayTracingBvh.*"
 call :run_functional "Ray-traced hard shadows (#14)" "MATH_RayTracedShadows.*"
+call :run_functional "XPBD soft body physics" "SoftBodyTests.*"
 
 :: --- performance benchmarks -------------------------------------------------
-call :run_bench "CPU feature benchmarks" "BM_FrustumCull|ParallelForBenchmarkFixture|BM_RayTracingBvh"
+call :run_bench "CPU feature benchmarks" "BM_FrustumCull|ParallelForBenchmarkFixture|BM_RayTracingBvh|BM_SoftBodyStep"
 
 echo ============================================================>> "%REPORT%"
 if "%FAILED%"=="0" (
