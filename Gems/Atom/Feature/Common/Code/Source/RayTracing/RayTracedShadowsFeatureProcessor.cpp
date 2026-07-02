@@ -88,7 +88,7 @@ namespace AZ::Render
         nullptr,
         AZ::ConsoleFunctorFlags::Null,
         "Automatically rebuild the ray-traced shadows occluder BVH (async, no frame hitch) when meshes "
-        "are added to or removed from the scene, instead of requiring r_rayTracedShadowsRebuild.");
+        "are added, removed or moved in the scene, instead of requiring r_rayTracedShadowsRebuild.");
 
     AZ_CVAR(
         uint32_t,
@@ -96,7 +96,7 @@ namespace AZ::Render
         30,
         nullptr,
         AZ::ConsoleFunctorFlags::Null,
-        "How often (in frames) the auto-rebuild checks the scene's ready-model count for changes.");
+        "How often (in frames) the auto-rebuild checks the scene's meshes and transforms for changes.");
 
     void RayTracedShadowsFeatureProcessor::Reflect(AZ::ReflectContext* context)
     {
@@ -110,7 +110,7 @@ namespace AZ::Render
     {
         m_passEnabled = false;
         m_geometryUploaded = false;
-        m_lastReadyModelCount = 0;
+        m_lastSceneGeometryHash = 0;
         m_framesUntilModelCountPoll = 0;
     }
 
@@ -195,9 +195,9 @@ namespace AZ::Render
             m_geometryUploaded = false;
         }
 
-        // Detect meshes being added/removed (or streamed in at level load) via the ready-model
-        // count, polled every few frames; a change invalidates the geometry so it gets rebuilt
-        // asynchronously below.
+        // Detect meshes being added/removed/moved (or streamed in at level load) via a hash of
+        // the ready models and their transforms, polled every few frames; a change invalidates
+        // the geometry so it gets rebuilt asynchronously below.
         if (enabled || r_rayTracedShadowsPrewarm)
         {
             if (m_framesUntilModelCountPoll == 0)
@@ -205,10 +205,10 @@ namespace AZ::Render
                 m_framesUntilModelCountPoll = AZStd::max<uint32_t>(1, r_rayTracedShadowsAutoRebuildPollFrames);
                 if (auto* meshFeatureProcessor = GetParentScene()->GetFeatureProcessor<MeshFeatureProcessor>())
                 {
-                    const uint32_t readyModelCount = meshFeatureProcessor->GetReadyModelCount();
-                    if (readyModelCount != m_lastReadyModelCount)
+                    const size_t sceneGeometryHash = meshFeatureProcessor->GetSceneGeometryHash();
+                    if (sceneGeometryHash != m_lastSceneGeometryHash)
                     {
-                        m_lastReadyModelCount = readyModelCount;
+                        m_lastSceneGeometryHash = sceneGeometryHash;
                         if (r_rayTracedShadowsAutoRebuild || !m_geometryUploaded)
                         {
                             m_geometryUploaded = false;

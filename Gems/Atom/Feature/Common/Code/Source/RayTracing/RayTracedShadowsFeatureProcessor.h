@@ -49,7 +49,7 @@ namespace AZ::Render
 
         bool m_passEnabled = false;
         bool m_geometryUploaded = false;
-        uint32_t m_lastReadyModelCount = 0;
+        size_t m_lastSceneGeometryHash = 0;
         uint32_t m_framesUntilModelCountPoll = 0;
     };
 } // namespace AZ::Render
