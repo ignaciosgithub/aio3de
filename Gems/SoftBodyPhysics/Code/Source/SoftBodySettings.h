@@ -14,6 +14,13 @@
 
 namespace SoftBodyPhysics
 {
+    //! What the soft body particles collide against.
+    enum class SoftBodyCollisionMode : AZ::u8
+    {
+        Simple = 0, //!< Ground plane only (cheapest).
+        World = 1   //!< Static physics colliders in the level (raycast scene queries).
+    };
+
     //! User-tunable soft body settings, edited in the component UI.
     struct SoftBodySettings
     {
@@ -28,6 +35,9 @@ namespace SoftBodyPhysics
         AZ::u32 m_substeps = 4;            //!< Simulation substeps per frame.
         AZ::u32 m_iterations = 4;          //!< Constraint iterations per substep.
         float m_gravityScale = 1.0f;       //!< Multiplier on world gravity (-9.81 m/s^2 Z).
+        SoftBodyCollisionMode m_collisionMode = SoftBodyCollisionMode::Simple; //!< Simple ground plane or world static colliders.
+        float m_particleRadius = 0.02f;    //!< Collision thickness of each particle in World mode (meters).
+        float m_worldFriction = 0.5f;      //!< Tangential friction on world collider contact [0..1].
         bool m_groundCollision = true;     //!< Collide against a world-space horizontal plane.
         float m_groundHeight = 0.0f;       //!< World Z of the ground plane.
         float m_groundFriction = 0.5f;     //!< Tangential friction on ground contact [0..1].
@@ -35,3 +45,8 @@ namespace SoftBodyPhysics
         float m_pinTolerance = 0.01f;      //!< Vertices within this distance of the top are pinned (meters).
     };
 } // namespace SoftBodyPhysics
+
+namespace AZ
+{
+    AZ_TYPE_INFO_SPECIALIZE(SoftBodyPhysics::SoftBodyCollisionMode, "{9C6E1F42-7A8B-4C0D-9E2F-1A3B5C7D9E0F}");
+}

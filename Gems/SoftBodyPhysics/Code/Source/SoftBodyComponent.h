@@ -64,6 +64,9 @@ namespace SoftBodyPhysics
             uint32_t m_firstParticle = 0; //!< Offset into the per-vertex arrays below.
         };
 
+        static void SolveWorldContacts(
+            AZStd::vector<AZ::SoftBodyParticle>& particles, float particleRadius, float friction);
+
         void BuildSimulation(const AZ::Data::Instance<AZ::RPI::Model>& model);
         void WriteRenderData(bool restoreOriginal);
         void ReleaseSimulation();
