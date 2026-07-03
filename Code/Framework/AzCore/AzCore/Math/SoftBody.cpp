@@ -166,7 +166,7 @@ namespace AZ
         SolveGroundContacts();
         if (m_collisionSolver)
         {
-            m_collisionSolver(m_particles);
+            m_collisionSolver(m_particles, dt);
         }
 
         // Update velocities from the positional change (PBD velocity update) and damp.

@@ -17,8 +17,9 @@ namespace SoftBodyPhysics
     //! What the soft body particles collide against.
     enum class SoftBodyCollisionMode : AZ::u8
     {
-        Simple = 0, //!< Ground plane only (cheapest).
-        World = 1   //!< Static physics colliders in the level (raycast scene queries).
+        Simple = 0,        //!< Ground plane only (cheapest).
+        World = 1,         //!< Static physics colliders in the level (raycast scene queries).
+        WorldAndRigid = 2  //!< Static colliders plus dynamic rigid bodies (two-way: the soft body is pushed and pushes back).
     };
 
     //! User-tunable soft body settings, edited in the component UI.
@@ -38,6 +39,7 @@ namespace SoftBodyPhysics
         SoftBodyCollisionMode m_collisionMode = SoftBodyCollisionMode::Simple; //!< Simple ground plane or world static colliders.
         float m_particleRadius = 0.02f;    //!< Collision thickness of each particle in World mode (meters).
         float m_worldFriction = 0.5f;      //!< Tangential friction on world collider contact [0..1].
+        float m_rigidPushScale = 1.0f;     //!< Scale on the impulse applied to dynamic rigid bodies on contact.
         bool m_groundCollision = true;     //!< Collide against a world-space horizontal plane.
         float m_groundHeight = 0.0f;       //!< World Z of the ground plane.
         float m_groundFriction = 0.5f;     //!< Tangential friction on ground contact [0..1].
