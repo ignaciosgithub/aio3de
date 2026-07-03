@@ -40,6 +40,7 @@ namespace SoftBodyPhysics
         float m_particleRadius = 0.02f;    //!< Collision thickness of each particle in World mode (meters).
         float m_worldFriction = 0.5f;      //!< Tangential friction on world collider contact [0..1].
         float m_rigidPushScale = 1.0f;     //!< Scale on the impulse applied to dynamic rigid bodies on contact.
+        float m_rigidMaxPushVelocity = 2.0f; //!< Max velocity change (m/s) a single contact can impart on a rigid body.
         bool m_softSoftCollision = false;  //!< Collide with the particles of other soft bodies in the level.
         float m_softSoftFriction = 0.5f;   //!< Tangential friction on soft-soft particle contact [0..1].
         bool m_groundCollision = true;     //!< Collide against a world-space horizontal plane.

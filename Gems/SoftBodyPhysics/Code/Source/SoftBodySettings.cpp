@@ -23,6 +23,7 @@ namespace SoftBodyPhysics
                 ->Field("ParticleRadius", &SoftBodySettings::m_particleRadius)
                 ->Field("WorldFriction", &SoftBodySettings::m_worldFriction)
                 ->Field("RigidPushScale", &SoftBodySettings::m_rigidPushScale)
+                ->Field("RigidMaxPushVelocity", &SoftBodySettings::m_rigidMaxPushVelocity)
                 ->Field("SoftSoftCollision", &SoftBodySettings::m_softSoftCollision)
                 ->Field("SoftSoftFriction", &SoftBodySettings::m_softSoftFriction)
                 ->Field("MassPerVertex", &SoftBodySettings::m_massPerVertex)
@@ -82,6 +83,10 @@ namespace SoftBodyPhysics
                         "Rigid push scale", "Scale on the impulse the soft body applies to dynamic rigid bodies on contact")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
                         ->Attribute(AZ::Edit::Attributes::Max, 10.0f)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &SoftBodySettings::m_rigidMaxPushVelocity,
+                        "Rigid max push velocity", "Max velocity change (m/s) a single contact can impart on a rigid body")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Max, 100.0f)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &SoftBodySettings::m_softSoftCollision,
                         "Soft-soft collision", "Collide with the particles of other soft bodies in the level (any collision mode)")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &SoftBodySettings::m_softSoftFriction,
