@@ -19,6 +19,9 @@
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/std/containers/unordered_map.h>
 #include <AzCore/std/limits.h>
+#include <AzFramework/Physics/Common/PhysicsSceneQueries.h>
+#include <AzFramework/Physics/Common/PhysicsTypes.h>
+#include <AzFramework/Physics/PhysicsScene.h>
 
 namespace SoftBodyPhysics
 {
@@ -82,6 +85,67 @@ namespace SoftBodyPhysics
             return (quantize(position.GetX()) << 42) | (quantize(position.GetY()) << 21) | quantize(position.GetZ());
         }
     } // namespace
+
+    //! Projects particles out of the level's static physics colliders using raycasts from each
+    //! particle's pre-substep position along its motion (catches tunneling through thin geometry).
+    void SoftBodyComponent::SolveWorldContacts(
+        AZStd::vector<AZ::SoftBodyParticle>& particles, float particleRadius, float friction)
+    {
+        auto* sceneInterface = AZ::Interface<AzPhysics::SceneInterface>::Get();
+        if (!sceneInterface)
+        {
+            return;
+        }
+        const AzPhysics::SceneHandle sceneHandle = sceneInterface->GetSceneHandle(AzPhysics::DefaultPhysicsSceneName);
+        if (sceneHandle == AzPhysics::InvalidSceneHandle)
+        {
+            return;
+        }
+
+        constexpr float MinMotion = 1e-8f;
+        AzPhysics::RayCastRequest request;
+        request.m_queryType = AzPhysics::SceneQuery::QueryType::Static;
+        request.m_maxResults = 1;
+        AzPhysics::SceneQueryHits hits;
+
+        const float clampedFriction = AZStd::clamp(friction, 0.0f, 1.0f);
+        for (AZ::SoftBodyParticle& particle : particles)
+        {
+            if (particle.m_invMass <= 0.0f)
+            {
+                continue;
+            }
+            const AZ::Vector3 motion = particle.m_position - particle.m_prevPosition;
+            const float motionLength = motion.GetLength();
+            if (motionLength < MinMotion)
+            {
+                continue;
+            }
+            request.m_start = particle.m_prevPosition;
+            request.m_direction = motion / motionLength;
+            request.m_distance = motionLength + particleRadius;
+
+            hits.m_hits.clear();
+            if (!sceneInterface->QueryScene(sceneHandle, &request, hits) || hits.m_hits.empty())
+            {
+                continue;
+            }
+            const AzPhysics::SceneQueryHit& hit = hits.m_hits.front();
+
+            // Project onto the surface, offset by the particle radius along the surface normal.
+            AZ::Vector3 normal = hit.m_normal;
+            if (normal.IsZero())
+            {
+                normal = -request.m_direction;
+            }
+            particle.m_position = hit.m_position + normal * particleRadius;
+
+            // Friction: pull the tangential motion of this substep back toward the entry point.
+            const AZ::Vector3 newMotion = particle.m_position - particle.m_prevPosition;
+            const AZ::Vector3 tangential = newMotion - normal * newMotion.Dot(normal);
+            particle.m_position -= tangential * clampedFriction;
+        }
+    }
 
     SoftBodyComponent::SoftBodyComponent(const SoftBodySettings& settings)
         : m_settings(settings)
@@ -294,6 +358,16 @@ namespace SoftBodyPhysics
         config.m_groundFriction = m_settings.m_groundFriction;
         config.m_pressure = m_settings.m_pressure;
         m_softBody.BuildFromTriangleMesh(worldPositions, m_weldedTriangles, m_settings.m_massPerVertex, m_settings.m_compliance, config);
+
+        if (m_settings.m_collisionMode == SoftBodyCollisionMode::World)
+        {
+            m_softBody.SetCollisionSolver(
+                [radius = m_settings.m_particleRadius, friction = m_settings.m_worldFriction](
+                    AZStd::vector<AZ::SoftBodyParticle>& particles)
+                {
+                    SolveWorldContacts(particles, radius, friction);
+                });
+        }
 
         if (m_settings.m_pinHighestVertices)
         {

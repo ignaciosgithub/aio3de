@@ -10,6 +10,7 @@
 
 #include <AzCore/Math/Vector3.h>
 #include <AzCore/std/containers/vector.h>
+#include <AzCore/std/functional.h>
 
 namespace AZ
 {
@@ -81,6 +82,12 @@ namespace AZ
         //! Advances the simulation by \p deltaTime seconds (internally split into substeps).
         void Step(float deltaTime);
 
+        //! Optional external collision hook, invoked once per substep after the built-in ground
+        //! contacts. The callback receives the particle array and may project particle positions
+        //! out of colliding geometry (positions only; velocities are derived afterwards).
+        using CollisionSolver = AZStd::function<void(AZStd::vector<SoftBodyParticle>&)>;
+        void SetCollisionSolver(CollisionSolver solver) { m_collisionSolver = AZStd::move(solver); }
+
         void SetConfig(const SoftBodyConfig& config) { m_config = config; }
         const SoftBodyConfig& GetConfig() const { return m_config; }
 
@@ -102,6 +109,7 @@ namespace AZ
         void SolveGroundContacts();
 
         SoftBodyConfig m_config;
+        CollisionSolver m_collisionSolver;
         AZStd::vector<SoftBodyParticle> m_particles;
         AZStd::vector<SoftBodyDistanceConstraint> m_distanceConstraints;
         AZStd::vector<SoftBodyTetVolumeConstraint> m_tetVolumeConstraints;

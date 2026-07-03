@@ -164,6 +164,10 @@ namespace AZ
             SolveMeshVolumeConstraint(dt);
         }
         SolveGroundContacts();
+        if (m_collisionSolver)
+        {
+            m_collisionSolver(m_particles);
+        }
 
         // Update velocities from the positional change (PBD velocity update) and damp.
         const float damping = AZStd::clamp(1.0f - m_config.m_damping * dt, 0.0f, 1.0f);

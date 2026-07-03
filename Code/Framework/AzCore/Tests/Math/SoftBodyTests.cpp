@@ -147,6 +147,45 @@ namespace UnitTest
         EXPECT_NEAR(body.ComputeCenter().GetZ(), 0.5f, 0.1f);
     }
 
+    TEST_F(SoftBodyTests, CollisionSolver_ExternalPlane_StopsFallingCube)
+    {
+        AZStd::vector<AZ::Vector3> positions;
+        AZStd::vector<uint32_t> indices;
+        MakeUnitCube(positions, indices);
+        for (AZ::Vector3& p : positions)
+        {
+            p += AZ::Vector3(0.0f, 0.0f, 3.0f);
+        }
+
+        AZ::SoftBody body;
+        AZ::SoftBodyConfig config; // built-in ground plane off; only the external solver collides
+        body.BuildFromTriangleMesh(positions, indices, 1.0f, 0.0f, config);
+
+        // External collision solver: a plane at z = 1 (stand-in for world collider queries).
+        body.SetCollisionSolver(
+            [](AZStd::vector<AZ::SoftBodyParticle>& particles)
+            {
+                for (AZ::SoftBodyParticle& particle : particles)
+                {
+                    if (particle.m_position.GetZ() < 1.0f)
+                    {
+                        particle.m_position.SetZ(1.0f);
+                    }
+                }
+            });
+
+        for (int i = 0; i < 600; ++i) // 10 seconds
+        {
+            body.Step(1.0f / 60.0f);
+        }
+
+        for (const AZ::SoftBodyParticle& particle : body.GetParticles())
+        {
+            EXPECT_GE(particle.m_position.GetZ(), 1.0f - 1e-4f);
+        }
+        EXPECT_NEAR(body.ComputeCenter().GetZ(), 1.5f, 0.1f);
+    }
+
     TEST_F(SoftBodyTests, PressureConstraint_PreservesVolumeUnderGravity)
     {
         AZStd::vector<AZ::Vector3> positions;
