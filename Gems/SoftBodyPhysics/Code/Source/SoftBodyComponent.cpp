@@ -89,10 +89,13 @@ namespace SoftBodyPhysics
         }
     } // namespace
 
-    //! Projects particles out of the level's physics colliders using raycasts from each particle's
-    //! pre-substep position along its motion (catches tunneling through thin geometry). When
-    //! \p includeRigidBodies is set, dynamic rigid bodies collide too and receive a push-back
-    //! impulse at the contact point (two-way coupling).
+    //! Projects particles out of the level's physics colliders using sphere sweeps of the particle
+    //! radius from each particle's pre-substep position along its motion. The MTD hit flag reports
+    //! particles that are already overlapping a collider at the start of the sweep — this catches a
+    //! rigid body moving into a resting soft body (whose particles have no motion of their own) and
+    //! depenetrates particles instead of tunneling through. When \p includeRigidBodies is set,
+    //! dynamic rigid bodies collide too and receive a push-back impulse at the contact point
+    //! (two-way coupling).
     void SoftBodyComponent::SolveWorldContacts(
         AZStd::vector<AZ::SoftBodyParticle>& particles, float dt, const WorldContactSettings& contactSettings)
     {
@@ -108,14 +111,13 @@ namespace SoftBodyPhysics
         }
 
         constexpr float MinMotion = 1e-8f;
-        AzPhysics::RayCastRequest request;
-        request.m_queryType = contactSettings.m_includeRigidBodies
+        const AzPhysics::SceneQuery::QueryType queryType = contactSettings.m_includeRigidBodies
             ? AzPhysics::SceneQuery::QueryType::StaticAndDynamic
             : AzPhysics::SceneQuery::QueryType::Static;
-        request.m_maxResults = 1;
+        AzPhysics::SceneQuery::FilterCallback filterCallback;
         if (contactSettings.m_selfEntityId.IsValid())
         {
-            request.m_filterCallback =
+            filterCallback =
                 [selfEntityId = contactSettings.m_selfEntityId](
                     const AzPhysics::SimulatedBody* body, [[maybe_unused]] const Physics::Shape* shape)
             {
@@ -136,13 +138,20 @@ namespace SoftBodyPhysics
             }
             const AZ::Vector3 motion = particle.m_position - particle.m_prevPosition;
             const float motionLength = motion.GetLength();
-            if (motionLength < MinMotion)
-            {
-                continue;
-            }
-            request.m_start = particle.m_prevPosition;
-            request.m_direction = motion / motionLength;
-            request.m_distance = motionLength + contactSettings.m_particleRadius;
+            // A sweep direction is required even for resting particles: the zero-length sweep with
+            // the MTD flag still reports colliders that moved into the particle since last substep.
+            const AZ::Vector3 direction =
+                motionLength >= MinMotion ? (motion / motionLength) : AZ::Vector3::CreateAxisZ(-1.0f);
+
+            AzPhysics::ShapeCastRequest request = AzPhysics::ShapeCastRequestHelpers::CreateSphereCastRequest(
+                contactSettings.m_particleRadius,
+                AZ::Transform::CreateTranslation(particle.m_prevPosition),
+                direction,
+                AZStd::max(motionLength, MinMotion),
+                queryType,
+                AzPhysics::CollisionGroup::All,
+                filterCallback);
+            request.m_maxResults = 1;
 
             hits.m_hits.clear();
             if (!sceneInterface->QueryScene(sceneHandle, &request, hits) || hits.m_hits.empty())
@@ -151,13 +160,24 @@ namespace SoftBodyPhysics
             }
             const AzPhysics::SceneQueryHit& hit = hits.m_hits.front();
 
-            // Project onto the surface, offset by the particle radius along the surface normal.
             AZ::Vector3 normal = hit.m_normal;
             if (normal.IsZero())
             {
-                normal = -request.m_direction;
+                normal = -direction;
             }
-            const AZ::Vector3 targetPosition = hit.m_position + normal * contactSettings.m_particleRadius;
+
+            AZ::Vector3 targetPosition;
+            if (hit.m_distance <= 0.0f)
+            {
+                // Initial overlap: MTD reports the depenetration direction in m_normal and the
+                // penetration depth as a negative distance. Push the particle out of the collider.
+                targetPosition = particle.m_position + normal * (-hit.m_distance);
+            }
+            else
+            {
+                // Sweep contact: stop the particle center where the sphere first touched.
+                targetPosition = particle.m_prevPosition + direction * hit.m_distance;
+            }
 
             // Two-way coupling: transfer the momentum removed from the particle into dynamic
             // rigid bodies as an impulse at the contact point.
