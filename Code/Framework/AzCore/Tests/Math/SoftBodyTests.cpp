@@ -243,6 +243,96 @@ namespace UnitTest
         EXPECT_NEAR(volume, 1.0f / 6.0f, 1e-3f);
     }
 
+    TEST_F(SoftBodyTests, ParticleContacts_SeparatesOverlappingParticles)
+    {
+        constexpr float Radius = 0.1f;
+
+        AZ::SoftBody bodyA;
+        AZ::SoftBody bodyB;
+        bodyA.AddParticle(AZ::Vector3(0.0f, 0.0f, 0.0f), 1.0f);
+        bodyB.AddParticle(AZ::Vector3(0.05f, 0.0f, 0.0f), 1.0f); // overlapping: 0.05 < 2 * radius
+
+        AZ::SoftBody::SolveParticleContacts(bodyA.GetParticles(), Radius, bodyB.GetParticles(), Radius, 0.0f);
+
+        const AZ::Vector3 pa = bodyA.GetParticles()[0].m_position;
+        const AZ::Vector3 pb = bodyB.GetParticles()[0].m_position;
+        // One-sided response: only the querying body's particle moves, out to the contact distance.
+        EXPECT_NEAR((pb - pa).GetLength(), 2.0f * Radius, 1e-5f);
+        EXPECT_NEAR(pa.GetX(), 0.05f - 2.0f * Radius, 1e-5f);
+        EXPECT_NEAR(pb.GetX(), 0.05f, 1e-5f);
+    }
+
+    TEST_F(SoftBodyTests, ParticleContacts_PinnedParticleTakesNoCorrection)
+    {
+        constexpr float Radius = 0.1f;
+
+        AZ::SoftBody bodyA;
+        AZ::SoftBody bodyB;
+        bodyA.AddParticle(AZ::Vector3(0.0f, 0.0f, 0.0f), 0.0f); // pinned
+        bodyB.AddParticle(AZ::Vector3(0.05f, 0.0f, 0.0f), 1.0f);
+
+        AZ::SoftBody::SolveParticleContacts(bodyA.GetParticles(), Radius, bodyB.GetParticles(), Radius, 0.0f);
+
+        // Pinned particles are skipped and the other body is never moved by this call.
+        EXPECT_TRUE(bodyA.GetParticles()[0].m_position.IsClose(AZ::Vector3::CreateZero()));
+        EXPECT_NEAR(bodyB.GetParticles()[0].m_position.GetX(), 0.05f, 1e-5f);
+    }
+
+    TEST_F(SoftBodyTests, ParticleContacts_DistantParticlesUntouched)
+    {
+        constexpr float Radius = 0.1f;
+
+        AZ::SoftBody bodyA;
+        AZ::SoftBody bodyB;
+        bodyA.AddParticle(AZ::Vector3(0.0f, 0.0f, 0.0f), 1.0f);
+        bodyB.AddParticle(AZ::Vector3(1.0f, 0.0f, 0.0f), 1.0f);
+
+        AZ::SoftBody::SolveParticleContacts(bodyA.GetParticles(), Radius, bodyB.GetParticles(), Radius, 0.5f);
+
+        EXPECT_TRUE(bodyA.GetParticles()[0].m_position.IsClose(AZ::Vector3::CreateZero()));
+        EXPECT_TRUE(bodyB.GetParticles()[0].m_position.IsClose(AZ::Vector3::CreateAxisX()));
+    }
+
+    TEST_F(SoftBodyTests, ParticleContacts_CubeRestsOnCube)
+    {
+        AZStd::vector<AZ::Vector3> positions;
+        AZStd::vector<uint32_t> indices;
+        MakeUnitCube(positions, indices);
+
+        // Lower cube resting on the ground; upper cube dropped from above.
+        AZ::SoftBodyConfig config;
+        config.m_groundPlaneEnabled = true;
+        config.m_groundHeight = 0.0f;
+
+        AZ::SoftBody lower;
+        lower.BuildFromTriangleMesh(positions, indices, 1.0f, 0.0f, config);
+
+        for (AZ::Vector3& p : positions)
+        {
+            p += AZ::Vector3(0.0f, 0.0f, 2.0f);
+        }
+        AZ::SoftBody upper;
+        upper.BuildFromTriangleMesh(positions, indices, 1.0f, 0.0f, config);
+
+        constexpr float Radius = 0.05f;
+        upper.SetCollisionSolver(
+            [&lower](AZStd::vector<AZ::SoftBodyParticle>& particles, [[maybe_unused]] float dt)
+            {
+                AZ::SoftBody::SolveParticleContacts(particles, Radius, lower.GetParticles(), Radius, 1.0f);
+            });
+
+        for (int i = 0; i < 600; ++i) // 10 seconds
+        {
+            lower.Step(1.0f / 60.0f);
+            upper.Step(1.0f / 60.0f);
+        }
+
+        // The upper cube comes to rest on top of the lower one (center ~1.5 + contact gap),
+        // instead of sinking through to the ground at 0.5.
+        EXPECT_NEAR(upper.ComputeCenter().GetZ(), 1.5f + 2.0f * Radius, 0.1f);
+        EXPECT_NEAR(lower.ComputeCenter().GetZ(), 0.5f, 0.15f);
+    }
+
     TEST_F(SoftBodyTests, Determinism_SameInputsSameResults)
     {
         auto simulate = []() -> AZ::Vector3

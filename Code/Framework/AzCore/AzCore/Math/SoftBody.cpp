@@ -8,6 +8,8 @@
 
 #include <AzCore/Math/SoftBody.h>
 
+#include <AzCore/std/algorithm.h>
+#include <AzCore/std/containers/unordered_map.h>
 #include <AzCore/std/containers/unordered_set.h>
 #include <AzCore/std/utility/pair.h>
 
@@ -27,6 +29,14 @@ namespace AZ
         float SignedTetVolume(const Vector3& a, const Vector3& b, const Vector3& c, const Vector3& d)
         {
             return (b - a).Cross(c - a).Dot(d - a) / 6.0f;
+        }
+
+        int64_t SpatialCellKey(int32_t x, int32_t y, int32_t z)
+        {
+            // 21 bits per axis, offset to keep negative coordinates distinct.
+            constexpr int64_t Offset = 1 << 20;
+            constexpr int64_t Mask = (1 << 21) - 1;
+            return (((x + Offset) & Mask) << 42) | (((y + Offset) & Mask) << 21) | ((z + Offset) & Mask);
         }
     } // namespace
 
@@ -126,6 +136,97 @@ namespace AZ
             center += particle.m_position;
         }
         return center / static_cast<float>(m_particles.size());
+    }
+
+    void SoftBody::SolveParticleContacts(
+        AZStd::vector<SoftBodyParticle>& bodyA, float radiusA,
+        AZStd::vector<SoftBodyParticle>& bodyB, float radiusB,
+        float friction)
+    {
+        if (bodyA.empty() || bodyB.empty())
+        {
+            return;
+        }
+        const float contactDistance = radiusA + radiusB;
+        if (contactDistance <= 0.0f)
+        {
+            return;
+        }
+        const float invCellSize = 1.0f / contactDistance;
+        const float contactDistanceSq = contactDistance * contactDistance;
+        const float clampedFriction = AZStd::clamp(friction, 0.0f, 1.0f);
+
+        // Hash bodyB's particles into cells sized to the contact distance.
+        AZStd::unordered_map<int64_t, AZStd::vector<uint32_t>> grid;
+        grid.reserve(bodyB.size());
+        for (uint32_t i = 0; i < bodyB.size(); ++i)
+        {
+            const Vector3& p = bodyB[i].m_position;
+            grid[SpatialCellKey(
+                     static_cast<int32_t>(AZStd::floorf(p.GetX() * invCellSize)),
+                     static_cast<int32_t>(AZStd::floorf(p.GetY() * invCellSize)),
+                     static_cast<int32_t>(AZStd::floorf(p.GetZ() * invCellSize)))]
+                .push_back(i);
+        }
+
+        for (SoftBodyParticle& particleA : bodyA)
+        {
+            if (particleA.m_invMass <= 0.0f)
+            {
+                continue;
+            }
+            const Vector3& pa = particleA.m_position;
+            const int32_t cx = static_cast<int32_t>(AZStd::floorf(pa.GetX() * invCellSize));
+            const int32_t cy = static_cast<int32_t>(AZStd::floorf(pa.GetY() * invCellSize));
+            const int32_t cz = static_cast<int32_t>(AZStd::floorf(pa.GetZ() * invCellSize));
+            for (int32_t dx = -1; dx <= 1; ++dx)
+            {
+                for (int32_t dy = -1; dy <= 1; ++dy)
+                {
+                    for (int32_t dz = -1; dz <= 1; ++dz)
+                    {
+                        auto cell = grid.find(SpatialCellKey(cx + dx, cy + dy, cz + dz));
+                        if (cell == grid.end())
+                        {
+                            continue;
+                        }
+                        for (uint32_t indexB : cell->second)
+                        {
+                            // One-sided response: only this body's particles move. The other body
+                            // resolves its own side of the contact during its own step, which keeps
+                            // the pair from pumping energy into each other.
+                            const SoftBodyParticle& particleB = bodyB[indexB];
+                            Vector3 delta = particleA.m_position - particleB.m_position;
+                            const float distanceSq = delta.GetLengthSq();
+                            if (distanceSq >= contactDistanceSq || distanceSq < Epsilon)
+                            {
+                                continue;
+                            }
+                            const float distance = Sqrt(distanceSq);
+                            Vector3 normal = delta / distance;
+                            float penetration = contactDistance - distance;
+                            // If the pair crossed sides during this substep, the current separation
+                            // axis points the wrong way; resolve toward the pre-substep side instead
+                            // of pushing the particles through each other.
+                            const Vector3 prevDelta = particleA.m_prevPosition - particleB.m_prevPosition;
+                            if (normal.Dot(prevDelta) < 0.0f)
+                            {
+                                normal = -normal;
+                                penetration = contactDistance + distance;
+                            }
+                            particleA.m_position += normal * penetration;
+
+                            // Friction: damp the relative tangential motion of this substep.
+                            const Vector3 relativeMotion =
+                                (particleA.m_position - particleA.m_prevPosition) -
+                                (particleB.m_position - particleB.m_prevPosition);
+                            const Vector3 tangential = relativeMotion - normal * relativeMotion.Dot(normal);
+                            particleA.m_position -= tangential * clampedFriction;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     void SoftBody::Step(float deltaTime)

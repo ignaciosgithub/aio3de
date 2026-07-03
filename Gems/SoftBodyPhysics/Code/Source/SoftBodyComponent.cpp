@@ -7,6 +7,7 @@
  */
 
 #include "SoftBodyComponent.h"
+#include "SoftBodyRegistry.h"
 
 #include <Atom/RPI.Public/Buffer/Buffer.h>
 #include <Atom/RPI.Public/Model/Model.h>
@@ -395,8 +396,10 @@ namespace SoftBodyPhysics
         config.m_pressure = m_settings.m_pressure;
         m_softBody.BuildFromTriangleMesh(worldPositions, m_weldedTriangles, m_settings.m_massPerVertex, m_settings.m_compliance, config);
 
-        if (m_settings.m_collisionMode == SoftBodyCollisionMode::World ||
-            m_settings.m_collisionMode == SoftBodyCollisionMode::WorldAndRigid)
+        const bool worldContacts = m_settings.m_collisionMode == SoftBodyCollisionMode::World ||
+            m_settings.m_collisionMode == SoftBodyCollisionMode::WorldAndRigid;
+        const bool softSoftContacts = m_settings.m_softSoftCollision;
+        if (worldContacts || softSoftContacts)
         {
             WorldContactSettings contactSettings;
             contactSettings.m_particleRadius = m_settings.m_particleRadius;
@@ -405,10 +408,24 @@ namespace SoftBodyPhysics
             contactSettings.m_includeRigidBodies = m_settings.m_collisionMode == SoftBodyCollisionMode::WorldAndRigid;
             contactSettings.m_selfEntityId = GetEntityId();
             m_softBody.SetCollisionSolver(
-                [contactSettings](AZStd::vector<AZ::SoftBodyParticle>& particles, float dt)
+                [contactSettings, worldContacts, softSoftContacts,
+                 body = &m_softBody,
+                 particleRadius = m_settings.m_particleRadius,
+                 softSoftFriction = m_settings.m_softSoftFriction](AZStd::vector<AZ::SoftBodyParticle>& particles, float dt)
                 {
-                    SolveWorldContacts(particles, dt, contactSettings);
+                    if (worldContacts)
+                    {
+                        SolveWorldContacts(particles, dt, contactSettings);
+                    }
+                    if (softSoftContacts)
+                    {
+                        SoftBodyRegistry::SolveContacts(body, particleRadius, softSoftFriction);
+                    }
                 });
+        }
+        if (softSoftContacts)
+        {
+            SoftBodyRegistry::Register(&m_softBody, m_settings.m_particleRadius);
         }
 
         if (m_settings.m_pinHighestVertices)
@@ -540,6 +557,7 @@ namespace SoftBodyPhysics
 
     void SoftBodyComponent::ReleaseSimulation()
     {
+        SoftBodyRegistry::Unregister(&m_softBody);
         m_model = nullptr;
         m_subMeshes.clear();
         m_originalPositions.clear();

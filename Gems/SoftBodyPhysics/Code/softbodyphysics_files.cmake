@@ -11,4 +11,6 @@ set(FILES
     Source/SoftBodySettings.h
     Source/SoftBodyComponent.cpp
     Source/SoftBodyComponent.h
+    Source/SoftBodyRegistry.cpp
+    Source/SoftBodyRegistry.h
 )
