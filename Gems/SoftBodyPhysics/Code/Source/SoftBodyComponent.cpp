@@ -20,8 +20,10 @@
 #include <AzCore/std/containers/unordered_map.h>
 #include <AzCore/std/limits.h>
 #include <AzFramework/Physics/Common/PhysicsSceneQueries.h>
+#include <AzFramework/Physics/Common/PhysicsSimulatedBody.h>
 #include <AzFramework/Physics/Common/PhysicsTypes.h>
 #include <AzFramework/Physics/PhysicsScene.h>
+#include <AzFramework/Physics/SimulatedBodies/RigidBody.h>
 
 namespace SoftBodyPhysics
 {
@@ -86,10 +88,12 @@ namespace SoftBodyPhysics
         }
     } // namespace
 
-    //! Projects particles out of the level's static physics colliders using raycasts from each
-    //! particle's pre-substep position along its motion (catches tunneling through thin geometry).
+    //! Projects particles out of the level's physics colliders using raycasts from each particle's
+    //! pre-substep position along its motion (catches tunneling through thin geometry). When
+    //! \p includeRigidBodies is set, dynamic rigid bodies collide too and receive a push-back
+    //! impulse at the contact point (two-way coupling).
     void SoftBodyComponent::SolveWorldContacts(
-        AZStd::vector<AZ::SoftBodyParticle>& particles, float particleRadius, float friction)
+        AZStd::vector<AZ::SoftBodyParticle>& particles, float dt, const WorldContactSettings& contactSettings)
     {
         auto* sceneInterface = AZ::Interface<AzPhysics::SceneInterface>::Get();
         if (!sceneInterface)
@@ -104,11 +108,25 @@ namespace SoftBodyPhysics
 
         constexpr float MinMotion = 1e-8f;
         AzPhysics::RayCastRequest request;
-        request.m_queryType = AzPhysics::SceneQuery::QueryType::Static;
+        request.m_queryType = contactSettings.m_includeRigidBodies
+            ? AzPhysics::SceneQuery::QueryType::StaticAndDynamic
+            : AzPhysics::SceneQuery::QueryType::Static;
         request.m_maxResults = 1;
+        if (contactSettings.m_selfEntityId.IsValid())
+        {
+            request.m_filterCallback =
+                [selfEntityId = contactSettings.m_selfEntityId](
+                    const AzPhysics::SimulatedBody* body, [[maybe_unused]] const Physics::Shape* shape)
+            {
+                return (body && body->GetEntityId() == selfEntityId)
+                    ? AzPhysics::SceneQuery::QueryHitType::None
+                    : AzPhysics::SceneQuery::QueryHitType::Block;
+            };
+        }
         AzPhysics::SceneQueryHits hits;
 
-        const float clampedFriction = AZStd::clamp(friction, 0.0f, 1.0f);
+        const float clampedFriction = AZStd::clamp(contactSettings.m_friction, 0.0f, 1.0f);
+        const float invDt = dt > 0.0f ? 1.0f / dt : 0.0f;
         for (AZ::SoftBodyParticle& particle : particles)
         {
             if (particle.m_invMass <= 0.0f)
@@ -123,7 +141,7 @@ namespace SoftBodyPhysics
             }
             request.m_start = particle.m_prevPosition;
             request.m_direction = motion / motionLength;
-            request.m_distance = motionLength + particleRadius;
+            request.m_distance = motionLength + contactSettings.m_particleRadius;
 
             hits.m_hits.clear();
             if (!sceneInterface->QueryScene(sceneHandle, &request, hits) || hits.m_hits.empty())
@@ -138,7 +156,25 @@ namespace SoftBodyPhysics
             {
                 normal = -request.m_direction;
             }
-            particle.m_position = hit.m_position + normal * particleRadius;
+            const AZ::Vector3 targetPosition = hit.m_position + normal * contactSettings.m_particleRadius;
+
+            // Two-way coupling: transfer the momentum removed from the particle into dynamic
+            // rigid bodies as an impulse at the contact point.
+            if (contactSettings.m_includeRigidBodies && hit.m_bodyHandle != AzPhysics::InvalidSimulatedBodyHandle)
+            {
+                auto* rigidBody = azrtti_cast<AzPhysics::RigidBody*>(
+                    sceneInterface->GetSimulatedBodyFromHandle(sceneHandle, hit.m_bodyHandle));
+                if (rigidBody && !rigidBody->IsKinematic())
+                {
+                    const AZ::Vector3 removedMotion = particle.m_position - targetPosition;
+                    const float particleMass = 1.0f / particle.m_invMass;
+                    const AZ::Vector3 impulse =
+                        removedMotion * (particleMass * invDt * contactSettings.m_rigidPushScale);
+                    rigidBody->ApplyLinearImpulseAtWorldPoint(impulse, hit.m_position);
+                }
+            }
+
+            particle.m_position = targetPosition;
 
             // Friction: pull the tangential motion of this substep back toward the entry point.
             const AZ::Vector3 newMotion = particle.m_position - particle.m_prevPosition;
@@ -359,13 +395,19 @@ namespace SoftBodyPhysics
         config.m_pressure = m_settings.m_pressure;
         m_softBody.BuildFromTriangleMesh(worldPositions, m_weldedTriangles, m_settings.m_massPerVertex, m_settings.m_compliance, config);
 
-        if (m_settings.m_collisionMode == SoftBodyCollisionMode::World)
+        if (m_settings.m_collisionMode == SoftBodyCollisionMode::World ||
+            m_settings.m_collisionMode == SoftBodyCollisionMode::WorldAndRigid)
         {
+            WorldContactSettings contactSettings;
+            contactSettings.m_particleRadius = m_settings.m_particleRadius;
+            contactSettings.m_friction = m_settings.m_worldFriction;
+            contactSettings.m_rigidPushScale = m_settings.m_rigidPushScale;
+            contactSettings.m_includeRigidBodies = m_settings.m_collisionMode == SoftBodyCollisionMode::WorldAndRigid;
+            contactSettings.m_selfEntityId = GetEntityId();
             m_softBody.SetCollisionSolver(
-                [radius = m_settings.m_particleRadius, friction = m_settings.m_worldFriction](
-                    AZStd::vector<AZ::SoftBodyParticle>& particles)
+                [contactSettings](AZStd::vector<AZ::SoftBodyParticle>& particles, float dt)
                 {
-                    SolveWorldContacts(particles, radius, friction);
+                    SolveWorldContacts(particles, dt, contactSettings);
                 });
         }
 

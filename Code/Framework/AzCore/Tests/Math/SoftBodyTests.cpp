@@ -163,7 +163,7 @@ namespace UnitTest
 
         // External collision solver: a plane at z = 1 (stand-in for world collider queries).
         body.SetCollisionSolver(
-            [](AZStd::vector<AZ::SoftBodyParticle>& particles)
+            [](AZStd::vector<AZ::SoftBodyParticle>& particles, [[maybe_unused]] float dt)
             {
                 for (AZ::SoftBodyParticle& particle : particles)
                 {

@@ -83,9 +83,10 @@ namespace AZ
         void Step(float deltaTime);
 
         //! Optional external collision hook, invoked once per substep after the built-in ground
-        //! contacts. The callback receives the particle array and may project particle positions
-        //! out of colliding geometry (positions only; velocities are derived afterwards).
-        using CollisionSolver = AZStd::function<void(AZStd::vector<SoftBodyParticle>&)>;
+        //! contacts. The callback receives the particle array and the substep delta time, and may
+        //! project particle positions out of colliding geometry (positions only; velocities are
+        //! derived afterwards).
+        using CollisionSolver = AZStd::function<void(AZStd::vector<SoftBodyParticle>&, float dt)>;
         void SetCollisionSolver(CollisionSolver solver) { m_collisionSolver = AZStd::move(solver); }
 
         void SetConfig(const SoftBodyConfig& config) { m_config = config; }

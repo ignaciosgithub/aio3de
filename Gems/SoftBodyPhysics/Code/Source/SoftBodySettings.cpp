@@ -22,6 +22,7 @@ namespace SoftBodyPhysics
                 ->Field("CollisionMode", &SoftBodySettings::m_collisionMode)
                 ->Field("ParticleRadius", &SoftBodySettings::m_particleRadius)
                 ->Field("WorldFriction", &SoftBodySettings::m_worldFriction)
+                ->Field("RigidPushScale", &SoftBodySettings::m_rigidPushScale)
                 ->Field("MassPerVertex", &SoftBodySettings::m_massPerVertex)
                 ->Field("Compliance", &SoftBodySettings::m_compliance)
                 ->Field("Pressure", &SoftBodySettings::m_pressure)
@@ -66,6 +67,7 @@ namespace SoftBodyPhysics
                         "Collision mode", "Simple = ground plane only (cheapest); World = collide with the level's static physics colliders")
                         ->EnumAttribute(SoftBodyCollisionMode::Simple, "Simple (ground plane)")
                         ->EnumAttribute(SoftBodyCollisionMode::World, "World (static colliders)")
+                        ->EnumAttribute(SoftBodyCollisionMode::WorldAndRigid, "World + rigid bodies (two-way)")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &SoftBodySettings::m_particleRadius,
                         "Particle radius", "Collision thickness of each particle in World mode (meters)")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.001f)
@@ -74,6 +76,10 @@ namespace SoftBodyPhysics
                         "World friction", "Tangential friction on world collider contact")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
                         ->Attribute(AZ::Edit::Attributes::Max, 1.0f)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &SoftBodySettings::m_rigidPushScale,
+                        "Rigid push scale", "Scale on the impulse the soft body applies to dynamic rigid bodies on contact")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Max, 10.0f)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &SoftBodySettings::m_groundCollision,
                         "Ground collision", "Collide against a world-space horizontal plane")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &SoftBodySettings::m_groundHeight,
