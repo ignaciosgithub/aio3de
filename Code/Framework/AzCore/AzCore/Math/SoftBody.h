@@ -102,6 +102,16 @@ namespace AZ
         //! Center of mass of all particles (unweighted average for pinned-free mixes with equal masses).
         Vector3 ComputeCenter() const;
 
+        //! Resolves contacts between the particles of two different soft bodies: any particle of
+        //! \p bodyA closer than \p radiusA + \p radiusB to a particle of \p bodyB is projected out
+        //! along the separation axis, with tangential \p friction [0..1] applied on contact.
+        //! The response is one-sided (only \p bodyA moves); mutual collision comes from each body
+        //! running this against the other during its own step. Uses a spatial hash over \p bodyB.
+        static void SolveParticleContacts(
+            AZStd::vector<SoftBodyParticle>& bodyA, float radiusA,
+            AZStd::vector<SoftBodyParticle>& bodyB, float radiusB,
+            float friction);
+
     private:
         void SubStep(float dt);
         void SolveDistanceConstraints(float dt);
