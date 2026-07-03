@@ -169,8 +169,18 @@ namespace SoftBodyPhysics
                 {
                     const AZ::Vector3 removedMotion = particle.m_position - targetPosition;
                     const float particleMass = 1.0f / particle.m_invMass;
-                    const AZ::Vector3 impulse =
+                    AZ::Vector3 impulse =
                         removedMotion * (particleMass * invDt * contactSettings.m_rigidPushScale);
+
+                    // Cap the velocity change imparted on the body: a particle that starts a substep
+                    // already overlapping (e.g. bodies placed in contact in the editor) would otherwise
+                    // produce a near-infinite impulse from the full penetration depth over a tiny dt.
+                    const float maxImpulse = rigidBody->GetMass() * contactSettings.m_rigidMaxPushVelocity;
+                    const float impulseLength = impulse.GetLength();
+                    if (impulseLength > maxImpulse && impulseLength > 0.0f)
+                    {
+                        impulse *= maxImpulse / impulseLength;
+                    }
                     rigidBody->ApplyLinearImpulseAtWorldPoint(impulse, hit.m_position);
                 }
             }
@@ -405,6 +415,7 @@ namespace SoftBodyPhysics
             contactSettings.m_particleRadius = m_settings.m_particleRadius;
             contactSettings.m_friction = m_settings.m_worldFriction;
             contactSettings.m_rigidPushScale = m_settings.m_rigidPushScale;
+            contactSettings.m_rigidMaxPushVelocity = m_settings.m_rigidMaxPushVelocity;
             contactSettings.m_includeRigidBodies = m_settings.m_collisionMode == SoftBodyCollisionMode::WorldAndRigid;
             contactSettings.m_selfEntityId = GetEntityId();
             m_softBody.SetCollisionSolver(

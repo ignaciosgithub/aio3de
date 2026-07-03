@@ -69,6 +69,7 @@ namespace SoftBodyPhysics
             float m_particleRadius = 0.02f;
             float m_friction = 0.5f;
             float m_rigidPushScale = 1.0f;
+            float m_rigidMaxPushVelocity = 2.0f;
             bool m_includeRigidBodies = false;
             AZ::EntityId m_selfEntityId;
         };
