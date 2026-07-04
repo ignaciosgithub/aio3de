@@ -21,6 +21,7 @@ namespace SoftBodyPhysics
                 ->Version(2)
                 ->Field("CollisionMode", &SoftBodySettings::m_collisionMode)
                 ->Field("ParticleRadius", &SoftBodySettings::m_particleRadius)
+                ->Field("AutoContactThickness", &SoftBodySettings::m_autoContactThickness)
                 ->Field("WorldFriction", &SoftBodySettings::m_worldFriction)
                 ->Field("RigidPushScale", &SoftBodySettings::m_rigidPushScale)
                 ->Field("RigidMaxPushVelocity", &SoftBodySettings::m_rigidMaxPushVelocity)
@@ -75,6 +76,8 @@ namespace SoftBodyPhysics
                         "Particle radius", "Collision thickness of each particle in World mode (meters)")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.001f)
                         ->Attribute(AZ::Edit::Attributes::Max, 1.0f)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &SoftBodySettings::m_autoContactThickness,
+                        "Auto contact thickness", "Grow the contact thickness to cover the gaps between particles (based on the mesh edge length), so colliders cannot sink in between vertices")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &SoftBodySettings::m_worldFriction,
                         "World friction", "Tangential friction on world collider contact")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.0f)

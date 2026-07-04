@@ -38,6 +38,7 @@ namespace SoftBodyPhysics
         float m_gravityScale = 1.0f;       //!< Multiplier on world gravity (-9.81 m/s^2 Z).
         SoftBodyCollisionMode m_collisionMode = SoftBodyCollisionMode::Simple; //!< Simple ground plane or world static colliders.
         float m_particleRadius = 0.02f;    //!< Collision thickness of each particle in World mode (meters).
+        bool m_autoContactThickness = true; //!< Grow the contact thickness to cover the gaps between particles (based on mesh edge length).
         float m_worldFriction = 0.5f;      //!< Tangential friction on world collider contact [0..1].
         float m_rigidPushScale = 1.0f;     //!< Scale on the impulse applied to dynamic rigid bodies on contact.
         float m_rigidMaxPushVelocity = 2.0f; //!< Max velocity change (m/s) a single contact can impart on a rigid body.
