@@ -426,13 +426,33 @@ namespace SoftBodyPhysics
         config.m_pressure = m_settings.m_pressure;
         m_softBody.BuildFromTriangleMesh(worldPositions, m_weldedTriangles, m_settings.m_massPerVertex, m_settings.m_compliance, config);
 
+        // The contact thickness must cover the gaps between particles, or colliders (and the
+        // particles of other soft bodies) sink into the faces between vertices before any particle
+        // registers a contact. Grow it to half the average mesh edge length so the particle spheres
+        // tile the surface without holes.
+        float contactRadius = m_settings.m_particleRadius;
+        if (m_settings.m_autoContactThickness)
+        {
+            const auto& edges = m_softBody.GetDistanceConstraints();
+            if (!edges.empty())
+            {
+                float edgeLengthSum = 0.0f;
+                for (const AZ::SoftBodyDistanceConstraint& edge : edges)
+                {
+                    edgeLengthSum += edge.m_restLength;
+                }
+                const float averageEdgeLength = edgeLengthSum / static_cast<float>(edges.size());
+                contactRadius = AZStd::max(contactRadius, 0.5f * averageEdgeLength);
+            }
+        }
+
         const bool worldContacts = m_settings.m_collisionMode == SoftBodyCollisionMode::World ||
             m_settings.m_collisionMode == SoftBodyCollisionMode::WorldAndRigid;
         const bool softSoftContacts = m_settings.m_softSoftCollision;
         if (worldContacts || softSoftContacts)
         {
             WorldContactSettings contactSettings;
-            contactSettings.m_particleRadius = m_settings.m_particleRadius;
+            contactSettings.m_particleRadius = contactRadius;
             contactSettings.m_friction = m_settings.m_worldFriction;
             contactSettings.m_rigidPushScale = m_settings.m_rigidPushScale;
             contactSettings.m_rigidMaxPushVelocity = m_settings.m_rigidMaxPushVelocity;
@@ -441,7 +461,7 @@ namespace SoftBodyPhysics
             m_softBody.SetCollisionSolver(
                 [contactSettings, worldContacts, softSoftContacts,
                  body = &m_softBody,
-                 particleRadius = m_settings.m_particleRadius,
+                 particleRadius = contactRadius,
                  softSoftFriction = m_settings.m_softSoftFriction](AZStd::vector<AZ::SoftBodyParticle>& particles, float dt)
                 {
                     if (worldContacts)
@@ -456,7 +476,7 @@ namespace SoftBodyPhysics
         }
         if (softSoftContacts)
         {
-            SoftBodyRegistry::Register(&m_softBody, m_settings.m_particleRadius);
+            SoftBodyRegistry::Register(&m_softBody, contactRadius);
         }
 
         if (m_settings.m_pinHighestVertices)
