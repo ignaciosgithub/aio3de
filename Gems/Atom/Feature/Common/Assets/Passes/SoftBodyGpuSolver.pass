@@ -1,0 +1,55 @@
+{
+    "Type": "JsonSerialization",
+    "Version": 1,
+    "ClassName": "PassAsset",
+    "ClassData": {
+        "PassTemplate": {
+            "Name": "SoftBodyGpuSolverTemplate",
+            "PassClass": "SoftBodyGpuSolverPass",
+            "Slots": [
+                {
+                    "Name": "Particles",
+                    "ShaderInputName": "m_positions",
+                    "SlotType": "InputOutput",
+                    "ScopeAttachmentUsage": "Shader"
+                },
+                {
+                    "Name": "PrevPositions",
+                    "ShaderInputName": "m_prevPositions",
+                    "SlotType": "InputOutput",
+                    "ScopeAttachmentUsage": "Shader"
+                },
+                {
+                    "Name": "Velocities",
+                    "ShaderInputName": "m_velocities",
+                    "SlotType": "InputOutput",
+                    "ScopeAttachmentUsage": "Shader"
+                },
+                {
+                    "Name": "ConstraintCorrections",
+                    "ShaderInputName": "m_constraintCorrections",
+                    "SlotType": "InputOutput",
+                    "ScopeAttachmentUsage": "Shader"
+                },
+                {
+                    "Name": "ParticleGradients",
+                    "ShaderInputName": "m_particleGradients",
+                    "SlotType": "InputOutput",
+                    "ScopeAttachmentUsage": "Shader"
+                },
+                {
+                    "Name": "TriangleGradients",
+                    "ShaderInputName": "m_triangleGradients",
+                    "SlotType": "InputOutput",
+                    "ScopeAttachmentUsage": "Shader"
+                }
+            ],
+            "PassData": {
+                "$type": "ComputePassData",
+                "ShaderAsset": {
+                    "FilePath": "Shaders/SoftBody/SoftBodyGpuSolve.shader"
+                }
+            }
+        }
+    }
+}

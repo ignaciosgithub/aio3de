@@ -22,6 +22,13 @@ namespace SoftBodyPhysics
         WorldAndRigid = 2  //!< Static colliders plus dynamic rigid bodies (two-way: the soft body is pushed and pushes back).
     };
 
+    //! Where the XPBD constraint solve runs.
+    enum class SoftBodySolverMode : AZ::u8
+    {
+        Cpu = 0, //!< CPU solver (supports all collision modes).
+        Gpu = 1  //!< Compute-shader solver (Vulkan/DX12); Simple collision mode only.
+    };
+
     //! User-tunable soft body settings, edited in the component UI.
     struct SoftBodySettings
     {
@@ -36,6 +43,7 @@ namespace SoftBodyPhysics
         AZ::u32 m_substeps = 4;            //!< Simulation substeps per frame.
         AZ::u32 m_iterations = 4;          //!< Constraint iterations per substep.
         float m_gravityScale = 1.0f;       //!< Multiplier on world gravity (-9.81 m/s^2 Z).
+        SoftBodySolverMode m_solverMode = SoftBodySolverMode::Cpu; //!< CPU (default) or GPU compute solver.
         SoftBodyCollisionMode m_collisionMode = SoftBodyCollisionMode::Simple; //!< Simple ground plane or world static colliders.
         float m_particleRadius = 0.02f;    //!< Collision thickness of each particle in World mode (meters).
         bool m_autoContactThickness = true; //!< Grow the contact thickness to cover the gaps between particles (based on mesh edge length).
@@ -55,4 +63,5 @@ namespace SoftBodyPhysics
 namespace AZ
 {
     AZ_TYPE_INFO_SPECIALIZE(SoftBodyPhysics::SoftBodyCollisionMode, "{9C6E1F42-7A8B-4C0D-9E2F-1A3B5C7D9E0F}");
+    AZ_TYPE_INFO_SPECIALIZE(SoftBodyPhysics::SoftBodySolverMode, "{2E8D4B6A-1C3F-45A7-B9D0-6E7F8A9B0C1D}");
 }

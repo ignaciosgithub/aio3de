@@ -261,6 +261,10 @@
                 "Path": "Passes/RayTracedShadowsFullscreen.pass"
             },
             {
+                "Name": "SoftBodyGpuSolverTemplate",
+                "Path": "Passes/SoftBodyGpuSolver.pass"
+            },
+            {
                 "Name": "SubsurfaceScatteringPassTemplate",
                 "Path": "Passes/SubsurfaceScattering.pass"
             },

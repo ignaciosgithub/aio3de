@@ -1,0 +1,279 @@
+/*
+ * Copyright (c) Contributors to the Open 3D Engine Project.
+ * For complete copyright and license terms please see the LICENSE at the root of this distribution.
+ *
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
+ *
+ */
+
+// GPU XPBD soft body solver.
+//
+// One thread group simulates one soft body: threads stride over the body's particles,
+// distance constraints and triangles, running the full substep/iteration loop of the
+// CPU solver (AZ::SoftBody) with group barriers between phases. Distance constraints
+// are solved Jacobi-style: each constraint computes its correction in parallel, then
+// each particle gathers and averages the corrections of its adjacent constraints
+// (the CPU path is Gauss-Seidel; raise iterations to recover equivalent stiffness).
+// World/rigid/soft-soft collision stays on the CPU path; the GPU path supports the
+// ground plane, so it is used for Simple collision mode only.
+
+#include <Atom/Features/SrgSemantics.azsli>
+
+// Must match AZ::Render::SoftBodyGpuBodyParams field for field.
+struct SoftBodyGpuBodyParams
+{
+    uint m_particleOffset;
+    uint m_particleCount;
+    uint m_constraintOffset;
+    uint m_constraintCount;
+    uint m_triangleOffset;
+    uint m_triangleCount;
+    uint m_substeps;
+    uint m_iterations;
+    float3 m_gravity;
+    float m_dtPerSubstep;
+    float m_damping;
+    float m_groundHeight;
+    uint m_groundEnabled;
+    float m_groundFriction;
+    float m_pressure;
+    float m_pressureCompliance;
+    float m_restVolume;
+    uint m_stepQueued;
+};
+
+ShaderResourceGroup PassSrg : SRG_PerPass
+{
+    StructuredBuffer<SoftBodyGpuBodyParams> m_bodyParams;
+
+    // Per particle: xyz = world position, w = inverse mass (0 = pinned).
+    RWStructuredBuffer<float4> m_positions;
+    RWStructuredBuffer<float4> m_prevPositions;
+    RWStructuredBuffer<float4> m_velocities;
+
+    // Scratch: per-constraint correction vector and per-particle / per-triangle-corner
+    // volume gradients, used to pass data between the parallel phases.
+    RWStructuredBuffer<float4> m_constraintCorrections;
+    RWStructuredBuffer<float4> m_particleGradients;
+    RWStructuredBuffer<float4> m_triangleGradients; // 3 entries per triangle
+
+    StructuredBuffer<uint2> m_constraintParticles;   // global particle indices
+    StructuredBuffer<float2> m_constraintParams;     // x = rest length, y = compliance
+    StructuredBuffer<uint> m_adjacency;              // (constraintIndex << 1) | isSecondEndpoint
+    StructuredBuffer<uint> m_adjacencyOffsets;       // per global particle, size totalParticles + 1
+    StructuredBuffer<uint> m_triangles;              // global particle indices, 3 per triangle
+    StructuredBuffer<uint> m_triAdjacency;           // (triangleIndex << 2) | corner
+    StructuredBuffer<uint> m_triAdjacencyOffsets;    // per global particle, size totalParticles + 1
+
+    uint m_bodyCount;
+}
+
+#define NUM_THREADS 256
+#define SOFTBODY_EPSILON 1e-6
+
+groupshared float gs_partial[NUM_THREADS];
+
+// Sums one value per thread across the group; every thread returns the total.
+float GroupReduce(float value, uint threadIndex)
+{
+    gs_partial[threadIndex] = value;
+    GroupMemoryBarrierWithGroupSync();
+    [unroll]
+    for (uint stride = NUM_THREADS / 2; stride > 0; stride >>= 1)
+    {
+        if (threadIndex < stride)
+        {
+            gs_partial[threadIndex] += gs_partial[threadIndex + stride];
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+    const float total = gs_partial[0];
+    GroupMemoryBarrierWithGroupSync();
+    return total;
+}
+
+[numthreads(NUM_THREADS, 1, 1)]
+void MainCS(uint3 groupId : SV_GroupID, uint3 groupThreadId : SV_GroupThreadID)
+{
+    const uint bodyIndex = groupId.x;
+    if (bodyIndex >= PassSrg::m_bodyCount)
+    {
+        return;
+    }
+    const SoftBodyGpuBodyParams body = PassSrg::m_bodyParams[bodyIndex];
+    if (body.m_stepQueued == 0 || body.m_particleCount == 0 || body.m_dtPerSubstep <= 0.0)
+    {
+        return;
+    }
+
+    const uint tid = groupThreadId.x;
+    const float dt = body.m_dtPerSubstep;
+    const float invDt = 1.0 / dt;
+    const float invDt2 = invDt * invDt;
+    const float dampingFactor = clamp(1.0 - body.m_damping * dt, 0.0, 1.0);
+    const bool solvePressure =
+        body.m_pressure > 0.0 && body.m_triangleCount > 0 && abs(body.m_restVolume) > SOFTBODY_EPSILON;
+
+    for (uint substep = 0; substep < body.m_substeps; ++substep)
+    {
+        // Predict: integrate gravity, advance positions, store previous positions.
+        for (uint i = tid; i < body.m_particleCount; i += NUM_THREADS)
+        {
+            const uint p = body.m_particleOffset + i;
+            float4 position = PassSrg::m_positions[p];
+            PassSrg::m_prevPositions[p] = position;
+            if (position.w > 0.0)
+            {
+                float4 velocity = PassSrg::m_velocities[p];
+                velocity.xyz += body.m_gravity * dt;
+                position.xyz += velocity.xyz * dt;
+                PassSrg::m_velocities[p] = velocity;
+                PassSrg::m_positions[p] = position;
+            }
+        }
+        AllMemoryBarrierWithGroupSync();
+
+        for (uint iteration = 0; iteration < body.m_iterations; ++iteration)
+        {
+            // Distance constraints, phase A: one thread per constraint computes the
+            // XPBD correction vector (same math as SoftBody::SolveDistanceConstraints).
+            for (uint c = tid; c < body.m_constraintCount; c += NUM_THREADS)
+            {
+                const uint constraintIndex = body.m_constraintOffset + c;
+                const uint2 particleIndices = PassSrg::m_constraintParticles[constraintIndex];
+                const float2 constraintParams = PassSrg::m_constraintParams[constraintIndex];
+                const float4 pa = PassSrg::m_positions[particleIndices.x];
+                const float4 pb = PassSrg::m_positions[particleIndices.y];
+                const float wSum = pa.w + pb.w;
+
+                float4 correction = float4(0.0, 0.0, 0.0, 0.0);
+                const float3 delta = pb.xyz - pa.xyz;
+                const float length2 = dot(delta, delta);
+                if (wSum > 0.0 && length2 > SOFTBODY_EPSILON * SOFTBODY_EPSILON)
+                {
+                    const float len = sqrt(length2);
+                    const float constraintValue = len - constraintParams.x;
+                    const float alphaTilde = constraintParams.y * invDt2;
+                    const float lambda = -constraintValue / (wSum + alphaTilde);
+                    correction.xyz = delta * (lambda / len);
+                }
+                PassSrg::m_constraintCorrections[constraintIndex] = correction;
+            }
+            AllMemoryBarrierWithGroupSync();
+
+            // Distance constraints, phase B: each particle gathers the corrections of its
+            // adjacent constraints and applies their average (Jacobi update).
+            for (uint i = tid; i < body.m_particleCount; i += NUM_THREADS)
+            {
+                const uint p = body.m_particleOffset + i;
+                float4 position = PassSrg::m_positions[p];
+                if (position.w <= 0.0)
+                {
+                    continue;
+                }
+                const uint begin = PassSrg::m_adjacencyOffsets[p];
+                const uint end = PassSrg::m_adjacencyOffsets[p + 1];
+                if (end <= begin)
+                {
+                    continue;
+                }
+                float3 accumulated = float3(0.0, 0.0, 0.0);
+                for (uint a = begin; a < end; ++a)
+                {
+                    const uint entry = PassSrg::m_adjacency[a];
+                    const float3 correction = PassSrg::m_constraintCorrections[entry >> 1].xyz;
+                    // Endpoint A moves against the correction, endpoint B along it.
+                    accumulated += ((entry & 1) != 0) ? correction : -correction;
+                }
+                position.xyz += accumulated * (position.w / float(end - begin));
+                PassSrg::m_positions[p] = position;
+            }
+            AllMemoryBarrierWithGroupSync();
+
+            // Global volume (pressure) constraint, same math as SoftBody::SolveMeshVolumeConstraint.
+            if (solvePressure)
+            {
+                // Per triangle: corner gradients and partial signed volume.
+                float partialVolume = 0.0;
+                for (uint t = tid; t < body.m_triangleCount; t += NUM_THREADS)
+                {
+                    const uint triangleIndex = body.m_triangleOffset + t;
+                    const uint ia = PassSrg::m_triangles[3 * triangleIndex];
+                    const uint ib = PassSrg::m_triangles[3 * triangleIndex + 1];
+                    const uint ic = PassSrg::m_triangles[3 * triangleIndex + 2];
+                    const float3 a = PassSrg::m_positions[ia].xyz;
+                    const float3 b = PassSrg::m_positions[ib].xyz;
+                    const float3 c = PassSrg::m_positions[ic].xyz;
+                    PassSrg::m_triangleGradients[3 * triangleIndex] = float4(cross(b, c) / 6.0, 0.0);
+                    PassSrg::m_triangleGradients[3 * triangleIndex + 1] = float4(cross(c, a) / 6.0, 0.0);
+                    PassSrg::m_triangleGradients[3 * triangleIndex + 2] = float4(cross(a, b) / 6.0, 0.0);
+                    partialVolume += dot(a, cross(b, c)) / 6.0;
+                }
+                AllMemoryBarrierWithGroupSync();
+                const float volume = GroupReduce(partialVolume, tid);
+
+                // Per particle: gather the gradient from adjacent triangle corners.
+                float partialWSum = 0.0;
+                for (uint i = tid; i < body.m_particleCount; i += NUM_THREADS)
+                {
+                    const uint p = body.m_particleOffset + i;
+                    const uint begin = PassSrg::m_triAdjacencyOffsets[p];
+                    const uint end = PassSrg::m_triAdjacencyOffsets[p + 1];
+                    float3 gradient = float3(0.0, 0.0, 0.0);
+                    for (uint a = begin; a < end; ++a)
+                    {
+                        const uint entry = PassSrg::m_triAdjacency[a];
+                        gradient += PassSrg::m_triangleGradients[3 * (entry >> 2) + (entry & 3)].xyz;
+                    }
+                    PassSrg::m_particleGradients[p] = float4(gradient, 0.0);
+                    partialWSum += PassSrg::m_positions[p].w * dot(gradient, gradient);
+                }
+                AllMemoryBarrierWithGroupSync();
+                const float wSum = GroupReduce(partialWSum, tid);
+
+                if (wSum > SOFTBODY_EPSILON)
+                {
+                    const float constraintValue = volume - body.m_pressure * body.m_restVolume;
+                    const float alphaTilde = body.m_pressureCompliance * invDt2;
+                    const float lambda = -constraintValue / (wSum + alphaTilde);
+                    for (uint i = tid; i < body.m_particleCount; i += NUM_THREADS)
+                    {
+                        const uint p = body.m_particleOffset + i;
+                        float4 position = PassSrg::m_positions[p];
+                        if (position.w > 0.0)
+                        {
+                            position.xyz += PassSrg::m_particleGradients[p].xyz * (lambda * position.w);
+                            PassSrg::m_positions[p] = position;
+                        }
+                    }
+                }
+                AllMemoryBarrierWithGroupSync();
+            }
+        }
+
+        // Ground contact + PBD velocity update (same as SolveGroundContacts + SubStep tail).
+        for (uint i = tid; i < body.m_particleCount; i += NUM_THREADS)
+        {
+            const uint p = body.m_particleOffset + i;
+            float4 position = PassSrg::m_positions[p];
+            if (position.w <= 0.0)
+            {
+                continue;
+            }
+            const float4 prevPosition = PassSrg::m_prevPositions[p];
+            if (body.m_groundEnabled != 0 && position.z < body.m_groundHeight)
+            {
+                position.z = body.m_groundHeight;
+                // Approximate friction: pull the tangential motion of this substep back
+                // toward where the particle came from.
+                const float2 tangential = position.xy - prevPosition.xy;
+                position.xy -= tangential * clamp(body.m_groundFriction, 0.0, 1.0);
+            }
+            float4 velocity = PassSrg::m_velocities[p];
+            velocity.xyz = (position.xyz - prevPosition.xyz) * invDt * dampingFactor;
+            PassSrg::m_velocities[p] = velocity;
+            PassSrg::m_positions[p] = position;
+        }
+        AllMemoryBarrierWithGroupSync();
+    }
+}
