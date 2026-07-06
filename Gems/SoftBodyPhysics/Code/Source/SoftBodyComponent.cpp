@@ -18,6 +18,7 @@
 #include <AzCore/Component/TransformBus.h>
 #include <AzCore/Math/PackedVector3.h>
 #include <AzCore/Serialization/SerializeContext.h>
+#include <AzCore/Task/Algorithms.h>
 #include <AzCore/std/containers/unordered_map.h>
 #include <AzCore/std/limits.h>
 #include <AzFramework/Physics/Common/PhysicsSceneQueries.h>
@@ -126,91 +127,126 @@ namespace SoftBodyPhysics
                     : AzPhysics::SceneQuery::QueryHitType::Block;
             };
         }
-        AzPhysics::SceneQueryHits hits;
+        //! Push-back impulse recorded during the parallel sweep phase, applied serially after
+        //! (rigid body writes are not thread-safe, unlike scene queries which take a read lock).
+        struct RigidPush
+        {
+            AzPhysics::SimulatedBodyHandle m_bodyHandle = AzPhysics::InvalidSimulatedBodyHandle;
+            AZ::Vector3 m_impulse = AZ::Vector3::CreateZero(); //!< Unclamped; capped against the body mass on apply.
+            AZ::Vector3 m_contactPoint = AZ::Vector3::CreateZero();
+        };
+        AZStd::vector<RigidPush> rigidPushes;
+        if (contactSettings.m_includeRigidBodies)
+        {
+            rigidPushes.resize(particles.size());
+        }
 
         const float clampedFriction = AZStd::clamp(contactSettings.m_friction, 0.0f, 1.0f);
         const float invDt = dt > 0.0f ? 1.0f / dt : 0.0f;
-        for (AZ::SoftBodyParticle& particle : particles)
-        {
-            if (particle.m_invMass <= 0.0f)
-            {
-                continue;
-            }
-            const AZ::Vector3 motion = particle.m_position - particle.m_prevPosition;
-            const float motionLength = motion.GetLength();
-            // A sweep direction is required even for resting particles: the zero-length sweep with
-            // the MTD flag still reports colliders that moved into the particle since last substep.
-            const AZ::Vector3 direction =
-                motionLength >= MinMotion ? (motion / motionLength) : AZ::Vector3::CreateAxisZ(-1.0f);
 
-            AzPhysics::ShapeCastRequest request = AzPhysics::ShapeCastRequestHelpers::CreateSphereCastRequest(
-                contactSettings.m_particleRadius,
-                AZ::Transform::CreateTranslation(particle.m_prevPosition),
-                direction,
-                AZStd::max(motionLength, MinMotion),
-                queryType,
-                AzPhysics::CollisionGroup::All,
-                filterCallback);
-            request.m_maxResults = 1;
-
-            hits.m_hits.clear();
-            if (!sceneInterface->QueryScene(sceneHandle, &request, hits) || hits.m_hits.empty())
+        // Phase 1 (parallel): sweep every particle against the scene and resolve its position.
+        // Each iteration only reads the scene and writes its own particle / rigid-push slot.
+        AZ::ParallelForEachChunk<size_t>(
+            size_t{ 0 }, particles.size(),
+            [&](size_t chunkBegin, size_t chunkEnd)
             {
-                continue;
-            }
-            const AzPhysics::SceneQueryHit& hit = hits.m_hits.front();
-
-            AZ::Vector3 normal = hit.m_normal;
-            if (normal.IsZero())
-            {
-                normal = -direction;
-            }
-
-            AZ::Vector3 targetPosition;
-            if (hit.m_distance <= 0.0f)
-            {
-                // Initial overlap: MTD reports the depenetration direction in m_normal and the
-                // penetration depth as a negative distance. Push the particle out of the collider.
-                targetPosition = particle.m_position + normal * (-hit.m_distance);
-            }
-            else
-            {
-                // Sweep contact: stop the particle center where the sphere first touched.
-                targetPosition = particle.m_prevPosition + direction * hit.m_distance;
-            }
-
-            // Two-way coupling: transfer the momentum removed from the particle into dynamic
-            // rigid bodies as an impulse at the contact point.
-            if (contactSettings.m_includeRigidBodies && hit.m_bodyHandle != AzPhysics::InvalidSimulatedBodyHandle)
-            {
-                auto* rigidBody = azrtti_cast<AzPhysics::RigidBody*>(
-                    sceneInterface->GetSimulatedBodyFromHandle(sceneHandle, hit.m_bodyHandle));
-                if (rigidBody && !rigidBody->IsKinematic())
+                AzPhysics::SceneQueryHits hits;
+                for (size_t particleIndex = chunkBegin; particleIndex < chunkEnd; ++particleIndex)
                 {
-                    const AZ::Vector3 removedMotion = particle.m_position - targetPosition;
-                    const float particleMass = 1.0f / particle.m_invMass;
-                    AZ::Vector3 impulse =
-                        removedMotion * (particleMass * invDt * contactSettings.m_rigidPushScale);
-
-                    // Cap the velocity change imparted on the body: a particle that starts a substep
-                    // already overlapping (e.g. bodies placed in contact in the editor) would otherwise
-                    // produce a near-infinite impulse from the full penetration depth over a tiny dt.
-                    const float maxImpulse = rigidBody->GetMass() * contactSettings.m_rigidMaxPushVelocity;
-                    const float impulseLength = impulse.GetLength();
-                    if (impulseLength > maxImpulse && impulseLength > 0.0f)
+                    AZ::SoftBodyParticle& particle = particles[particleIndex];
+                    if (particle.m_invMass <= 0.0f)
                     {
-                        impulse *= maxImpulse / impulseLength;
+                        continue;
                     }
-                    rigidBody->ApplyLinearImpulseAtWorldPoint(impulse, hit.m_position);
+                    const AZ::Vector3 motion = particle.m_position - particle.m_prevPosition;
+                    const float motionLength = motion.GetLength();
+                    // A sweep direction is required even for resting particles: the zero-length sweep with
+                    // the MTD flag still reports colliders that moved into the particle since last substep.
+                    const AZ::Vector3 direction =
+                        motionLength >= MinMotion ? (motion / motionLength) : AZ::Vector3::CreateAxisZ(-1.0f);
+
+                    AzPhysics::ShapeCastRequest request = AzPhysics::ShapeCastRequestHelpers::CreateSphereCastRequest(
+                        contactSettings.m_particleRadius,
+                        AZ::Transform::CreateTranslation(particle.m_prevPosition),
+                        direction,
+                        AZStd::max(motionLength, MinMotion),
+                        queryType,
+                        AzPhysics::CollisionGroup::All,
+                        filterCallback);
+                    request.m_maxResults = 1;
+
+                    hits.m_hits.clear();
+                    if (!sceneInterface->QueryScene(sceneHandle, &request, hits) || hits.m_hits.empty())
+                    {
+                        continue;
+                    }
+                    const AzPhysics::SceneQueryHit& hit = hits.m_hits.front();
+
+                    AZ::Vector3 normal = hit.m_normal;
+                    if (normal.IsZero())
+                    {
+                        normal = -direction;
+                    }
+
+                    AZ::Vector3 targetPosition;
+                    if (hit.m_distance <= 0.0f)
+                    {
+                        // Initial overlap: MTD reports the depenetration direction in m_normal and the
+                        // penetration depth as a negative distance. Push the particle out of the collider.
+                        targetPosition = particle.m_position + normal * (-hit.m_distance);
+                    }
+                    else
+                    {
+                        // Sweep contact: stop the particle center where the sphere first touched.
+                        targetPosition = particle.m_prevPosition + direction * hit.m_distance;
+                    }
+
+                    // Two-way coupling: record the momentum removed from the particle so it can be
+                    // transferred to dynamic rigid bodies as an impulse in the serial phase.
+                    if (contactSettings.m_includeRigidBodies && hit.m_bodyHandle != AzPhysics::InvalidSimulatedBodyHandle)
+                    {
+                        const AZ::Vector3 removedMotion = particle.m_position - targetPosition;
+                        const float particleMass = 1.0f / particle.m_invMass;
+                        RigidPush& push = rigidPushes[particleIndex];
+                        push.m_bodyHandle = hit.m_bodyHandle;
+                        push.m_impulse = removedMotion * (particleMass * invDt * contactSettings.m_rigidPushScale);
+                        push.m_contactPoint = hit.m_position;
+                    }
+
+                    particle.m_position = targetPosition;
+
+                    // Friction: pull the tangential motion of this substep back toward the entry point.
+                    const AZ::Vector3 newMotion = particle.m_position - particle.m_prevPosition;
+                    const AZ::Vector3 tangential = newMotion - normal * newMotion.Dot(normal);
+                    particle.m_position -= tangential * clampedFriction;
                 }
+            });
+
+        // Phase 2 (serial): apply the recorded push-back impulses to dynamic rigid bodies.
+        for (const RigidPush& push : rigidPushes)
+        {
+            if (push.m_bodyHandle == AzPhysics::InvalidSimulatedBodyHandle)
+            {
+                continue;
             }
+            auto* rigidBody = azrtti_cast<AzPhysics::RigidBody*>(
+                sceneInterface->GetSimulatedBodyFromHandle(sceneHandle, push.m_bodyHandle));
+            if (!rigidBody || rigidBody->IsKinematic())
+            {
+                continue;
+            }
+            AZ::Vector3 impulse = push.m_impulse;
 
-            particle.m_position = targetPosition;
-
-            // Friction: pull the tangential motion of this substep back toward the entry point.
-            const AZ::Vector3 newMotion = particle.m_position - particle.m_prevPosition;
-            const AZ::Vector3 tangential = newMotion - normal * newMotion.Dot(normal);
-            particle.m_position -= tangential * clampedFriction;
+            // Cap the velocity change imparted on the body: a particle that starts a substep
+            // already overlapping (e.g. bodies placed in contact in the editor) would otherwise
+            // produce a near-infinite impulse from the full penetration depth over a tiny dt.
+            const float maxImpulse = rigidBody->GetMass() * contactSettings.m_rigidMaxPushVelocity;
+            const float impulseLength = impulse.GetLength();
+            if (impulseLength > maxImpulse && impulseLength > 0.0f)
+            {
+                impulse *= maxImpulse / impulseLength;
+            }
+            rigidBody->ApplyLinearImpulseAtWorldPoint(impulse, push.m_contactPoint);
         }
     }
 
