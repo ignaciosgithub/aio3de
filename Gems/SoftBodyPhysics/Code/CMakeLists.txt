@@ -20,6 +20,7 @@ ly_add_target(
             AZ::AzFramework
             Gem::CommonFeaturesAtom.Public
             Gem::Atom_RPI.Public
+            Gem::Atom_Feature_Common.Public
 )
 
 ly_add_target(

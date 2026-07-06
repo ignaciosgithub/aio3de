@@ -17,6 +17,7 @@ namespace AZ
     namespace Render
     {
         class ModelReloaderSystem;
+        class SoftBodyGpuSolverSystem;
 
         class CommonSystemComponent
             : public AZ::Component
@@ -46,6 +47,7 @@ namespace AZ
             RPI::PassSystemInterface::OnReadyLoadTemplatesEvent::Handler m_loadTemplatesHandler;
 
             AZStd::unique_ptr<ModelReloaderSystem> m_modelReloaderSystem;
+            AZStd::unique_ptr<SoftBodyGpuSolverSystem> m_softBodyGpuSolverSystem;
         };
     } // namespace Render
 } // namespace AZ

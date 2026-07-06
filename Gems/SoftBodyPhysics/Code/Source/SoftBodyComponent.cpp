@@ -15,6 +15,7 @@
 #include <Atom/RPI.Reflect/Model/ModelAsset.h>
 #include <Atom/RPI.Reflect/Model/ModelLodAsset.h>
 #include <AzCore/Component/Entity.h>
+#include <AzCore/Interface/Interface.h>
 #include <AzCore/Component/TransformBus.h>
 #include <AzCore/Math/PackedVector3.h>
 #include <AzCore/Serialization/SerializeContext.h>
@@ -599,6 +600,49 @@ namespace SoftBodyPhysics
             }
         }
 
+        // GPU solver: register the built body (with pins applied) with the compute-shader
+        // solver. GPU mode covers the constraint solve and ground plane; world/rigid/soft-soft
+        // contacts need the CPU path, so those configurations keep the CPU solver.
+        if (m_settings.m_solverMode == SoftBodySolverMode::Gpu &&
+            m_settings.m_collisionMode == SoftBodyCollisionMode::Simple &&
+            !m_settings.m_softSoftCollision)
+        {
+            if (auto* gpuSolver = AZ::Interface<AZ::Render::SoftBodyGpuSolverInterface>::Get())
+            {
+                AZ::Render::SoftBodyGpuBodyDesc desc;
+                const auto& particles = m_softBody.GetParticles();
+                desc.m_particles.reserve(particles.size());
+                for (const AZ::SoftBodyParticle& particle : particles)
+                {
+                    desc.m_particles.emplace_back(
+                        particle.m_position.GetX(), particle.m_position.GetY(), particle.m_position.GetZ(), particle.m_invMass);
+                }
+                const auto& edges = m_softBody.GetDistanceConstraints();
+                desc.m_constraintParticles.reserve(edges.size() * 2);
+                desc.m_constraintRestLengths.reserve(edges.size());
+                desc.m_constraintCompliances.reserve(edges.size());
+                for (const AZ::SoftBodyDistanceConstraint& edge : edges)
+                {
+                    desc.m_constraintParticles.push_back(edge.m_particleA);
+                    desc.m_constraintParticles.push_back(edge.m_particleB);
+                    desc.m_constraintRestLengths.push_back(edge.m_restLength);
+                    desc.m_constraintCompliances.push_back(edge.m_compliance);
+                }
+                desc.m_triangles = m_weldedTriangles;
+                desc.m_restVolume = m_softBody.ComputeMeshVolume();
+                desc.m_gravity = config.m_gravity;
+                desc.m_substeps = config.m_substeps;
+                desc.m_iterations = config.m_iterations;
+                desc.m_damping = config.m_damping;
+                desc.m_groundPlaneEnabled = config.m_groundPlaneEnabled;
+                desc.m_groundHeight = config.m_groundHeight;
+                desc.m_groundFriction = config.m_groundFriction;
+                desc.m_pressure = config.m_pressure;
+                desc.m_pressureCompliance = config.m_pressureCompliance;
+                m_gpuBodyHandle = gpuSolver->RegisterBody(desc);
+            }
+        }
+
         m_simulationReady = true;
         AZ::TickBus::Handler::BusConnect();
     }
@@ -610,6 +654,27 @@ namespace SoftBodyPhysics
             return;
         }
         AZ::TransformBus::EventResult(m_worldTM, GetEntityId(), &AZ::TransformInterface::GetWorldTM);
+        if (m_gpuBodyHandle != AZ::Render::InvalidSoftBodyGpuBodyHandle)
+        {
+            auto* gpuSolver = AZ::Interface<AZ::Render::SoftBodyGpuSolverInterface>::Get();
+            if (gpuSolver)
+            {
+                gpuSolver->QueueStep(m_gpuBodyHandle, AZStd::min(deltaTime, MaxTickDelta));
+                if (gpuSolver->TryGetPositions(m_gpuBodyHandle, m_gpuPositions) &&
+                    m_gpuPositions.size() == m_softBody.GetParticles().size())
+                {
+                    auto& particles = m_softBody.GetParticles();
+                    for (size_t i = 0; i < particles.size(); ++i)
+                    {
+                        particles[i].m_position = m_gpuPositions[i];
+                    }
+                    WriteRenderData(/*restoreOriginal=*/false);
+                }
+                return;
+            }
+            // The GPU solver went away: fall back to the CPU solver.
+            m_gpuBodyHandle = AZ::Render::InvalidSoftBodyGpuBodyHandle;
+        }
         m_softBody.Step(AZStd::min(deltaTime, MaxTickDelta));
         WriteRenderData(/*restoreOriginal=*/false);
     }
@@ -712,6 +777,15 @@ namespace SoftBodyPhysics
 
     void SoftBodyComponent::ReleaseSimulation()
     {
+        if (m_gpuBodyHandle != AZ::Render::InvalidSoftBodyGpuBodyHandle)
+        {
+            if (auto* gpuSolver = AZ::Interface<AZ::Render::SoftBodyGpuSolverInterface>::Get())
+            {
+                gpuSolver->UnregisterBody(m_gpuBodyHandle);
+            }
+            m_gpuBodyHandle = AZ::Render::InvalidSoftBodyGpuBodyHandle;
+        }
+        m_gpuPositions.clear();
         SoftBodyRegistry::Unregister(&m_softBody);
         m_model = nullptr;
         m_subMeshes.clear();

@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <Atom/Feature/SoftBody/SoftBodyGpuSolverInterface.h>
 #include <AtomLyIntegration/CommonFeatures/Mesh/MeshComponentBus.h>
 #include <AzCore/Component/Component.h>
 #include <AzCore/Component/TickBus.h>
@@ -95,6 +96,8 @@ namespace SoftBodyPhysics
         AZStd::vector<uint32_t> m_weldedTriangles;
 
         AZ::SoftBody m_softBody;
+        AZ::Render::SoftBodyGpuBodyHandle m_gpuBodyHandle = AZ::Render::InvalidSoftBodyGpuBodyHandle;
+        AZStd::vector<AZ::Vector3> m_gpuPositions;
         AZ::Transform m_worldTM = AZ::Transform::CreateIdentity();
         bool m_simulationReady = false;
         bool m_requestedModelRefresh = false;

@@ -62,6 +62,10 @@ set(FILES
     Source/Culling/GpuFrustumCullPass.h
     Source/Culling/GpuFrustumCullDrawPass.cpp
     Source/Culling/GpuFrustumCullDrawPass.h
+    Source/SoftBody/SoftBodyGpuSolverPass.cpp
+    Source/SoftBody/SoftBodyGpuSolverPass.h
+    Source/SoftBody/SoftBodyGpuSolverSystem.cpp
+    Source/SoftBody/SoftBodyGpuSolverSystem.h
     Source/RayTracing/RayTracingBvhPass.cpp
     Source/RayTracing/RayTracingBvhPass.h
     Source/RayTracing/RayTracedShadowsPass.cpp

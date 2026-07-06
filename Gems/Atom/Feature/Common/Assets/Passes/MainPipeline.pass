@@ -27,6 +27,12 @@
                     "TemplateName": "MorphTargetPassTemplate"
                 },
                 {
+                    // GPU XPBD soft body solver; dispatches only for bodies registered
+                    // with the SoftBodyGpuSolver interface (Soft Body component, Solver = GPU).
+                    "Name": "SoftBodyGpuSolverPass",
+                    "TemplateName": "SoftBodyGpuSolverTemplate"
+                },
+                {
                     "Name": "SkinningPass",
                     "TemplateName": "SkinningPassTemplate",
                     "Connections": [

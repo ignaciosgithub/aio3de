@@ -96,6 +96,8 @@
 #include <CoreLights/LightCullingPass.h>
 #include <Culling/GpuFrustumCullPass.h>
 #include <Culling/GpuFrustumCullDrawPass.h>
+#include <SoftBody/SoftBodyGpuSolverPass.h>
+#include <SoftBody/SoftBodyGpuSolverSystem.h>
 #include <RayTracing/RayTracingBvhPass.h>
 #include <RayTracing/RayTracedShadowsPass.h>
 #include <RayTracing/RayTracedShadowsFullscreenPass.h>
@@ -253,6 +255,10 @@ namespace AZ
             passSystem->AddPassCreator(Name("LightCullingTilePreparePass"), &LightCullingTilePreparePass::Create);
             passSystem->AddPassCreator(Name("GpuFrustumCullPass"), &GpuFrustumCullPass::Create);
             passSystem->AddPassCreator(Name("GpuFrustumCullDrawPass"), &GpuFrustumCullDrawPass::Create);
+            passSystem->AddPassCreator(Name("SoftBodyGpuSolverPass"), &SoftBodyGpuSolverPass::Create);
+
+            m_softBodyGpuSolverSystem = AZStd::make_unique<SoftBodyGpuSolverSystem>();
+            m_softBodyGpuSolverSystem->Activate();
             passSystem->AddPassCreator(Name("RayTracingBvhPass"), &RayTracingBvhPass::Create);
             passSystem->AddPassCreator(Name("RayTracedShadowsPass"), &RayTracedShadowsPass::Create);
             passSystem->AddPassCreator(Name("RayTracedShadowsFullscreenPass"), &RayTracedShadowsFullscreenPass::Create);
@@ -359,6 +365,11 @@ namespace AZ
 
         void CommonSystemComponent::Deactivate()
         {
+            if (m_softBodyGpuSolverSystem)
+            {
+                m_softBodyGpuSolverSystem->Deactivate();
+                m_softBodyGpuSolverSystem.reset();
+            }
             m_modelReloaderSystem.reset();
             m_loadTemplatesHandler.Disconnect();
 

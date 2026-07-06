@@ -18,7 +18,8 @@ namespace SoftBodyPhysics
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
             serializeContext->Class<SoftBodySettings>()
-                ->Version(2)
+                ->Version(3)
+                ->Field("SolverMode", &SoftBodySettings::m_solverMode)
                 ->Field("CollisionMode", &SoftBodySettings::m_collisionMode)
                 ->Field("ParticleRadius", &SoftBodySettings::m_particleRadius)
                 ->Field("AutoContactThickness", &SoftBodySettings::m_autoContactThickness)
@@ -67,6 +68,10 @@ namespace SoftBodyPhysics
                         ->Attribute(AZ::Edit::Attributes::Max, 32u)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &SoftBodySettings::m_gravityScale,
                         "Gravity scale", "Multiplier on world gravity")
+                    ->DataElement(AZ::Edit::UIHandlers::ComboBox, &SoftBodySettings::m_solverMode,
+                        "Solver", "CPU = supports all collision modes; GPU = compute-shader XPBD solve (Simple collision mode only, falls back to CPU otherwise)")
+                        ->EnumAttribute(SoftBodySolverMode::Cpu, "CPU")
+                        ->EnumAttribute(SoftBodySolverMode::Gpu, "GPU (compute shader)")
                     ->DataElement(AZ::Edit::UIHandlers::ComboBox, &SoftBodySettings::m_collisionMode,
                         "Collision mode", "Simple = ground plane only (cheapest); World = collide with the level's static physics colliders")
                         ->EnumAttribute(SoftBodyCollisionMode::Simple, "Simple (ground plane)")
