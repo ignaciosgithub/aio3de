@@ -27,11 +27,14 @@ namespace Terrain
         if (serialize)
         {
             serialize->Class<MeshConfiguration>()
-                ->Version(2)
+                ->Version(3)
                 ->Field("RenderDistance", &MeshConfiguration::m_renderDistance)
                 ->Field("FirstLodDistance", &MeshConfiguration::m_firstLodDistance)
                 ->Field("ClodEnabled", &MeshConfiguration::m_clodEnabled)
                 ->Field("ClodDistance", &MeshConfiguration::m_clodDistance)
+                ->Field("TerrainOcclusion", &MeshConfiguration::m_terrainOcclusion)
+                ->Field("OccluderResolution", &MeshConfiguration::m_occluderResolution)
+                ->Field("OccluderHeightBias", &MeshConfiguration::m_occluderHeightBias)
                 ;
 
             serialize->Class<DetailMaterialConfiguration>()
@@ -81,6 +84,17 @@ namespace Terrain
                         ->Attribute(AZ::Edit::Attributes::Max, 1000.0f)
                         ->Attribute(AZ::Edit::Attributes::SoftMax, 100.0f)
                         ->Attribute(AZ::Edit::Attributes::ReadOnly, &MeshConfiguration::IsClodDisabled)
+                    ->DataElement(AZ::Edit::UIHandlers::CheckBox, &MeshConfiguration::m_terrainOcclusion, "Terrain occlusion culling", "Renders a conservative low-resolution terrain mesh into the software occlusion buffer so objects hidden behind terrain are culled before drawing.")
+                    ->DataElement(AZ::Edit::UIHandlers::Slider, &MeshConfiguration::m_occluderResolution, "Occluder resolution", "Number of vertices along each edge of the terrain occluder mesh. Higher values occlude more accurately at a higher CPU cost.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 8u)
+                        ->Attribute(AZ::Edit::Attributes::Max, 256u)
+                        ->Attribute(AZ::Edit::Attributes::SoftMax, 128u)
+                        ->Attribute(AZ::Edit::Attributes::ReadOnly, &MeshConfiguration::IsOcclusionDisabled)
+                    ->DataElement(AZ::Edit::UIHandlers::Slider, &MeshConfiguration::m_occluderHeightBias, "Occluder height bias", "Meters the occluder mesh is lowered below the sampled terrain to stay conservative. Increase if objects near the terrain surface flicker or disappear.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Max, 100.0f)
+                        ->Attribute(AZ::Edit::Attributes::SoftMax, 10.0f)
+                        ->Attribute(AZ::Edit::Attributes::ReadOnly, &MeshConfiguration::IsOcclusionDisabled)
                     ;
 
                 editContext->Class<DetailMaterialConfiguration>("Detail material", "Settings related to rendering detail surface materials.")
