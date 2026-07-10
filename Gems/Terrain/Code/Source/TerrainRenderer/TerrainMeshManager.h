@@ -57,6 +57,8 @@ namespace Terrain
         float m_firstLodDistance = 128.0f;
         bool m_clodEnabled = true;
         float m_clodDistance = 16.0f;
+        bool m_autoLod = true;
+        float m_autoLodErrorPixels = 1.0f;
 
         bool operator==(const MeshConfiguration& other) const
         {
@@ -64,6 +66,8 @@ namespace Terrain
                 && m_firstLodDistance == other.m_firstLodDistance
                 && m_clodEnabled == other.m_clodEnabled
                 && m_clodDistance == other.m_clodDistance
+                && m_autoLod == other.m_autoLod
+                && m_autoLodErrorPixels == other.m_autoLodErrorPixels
                 ;
         }
 
@@ -72,6 +76,7 @@ namespace Terrain
             return !(m_renderDistance == other.m_renderDistance
                 && m_firstLodDistance == other.m_firstLodDistance
                 && m_clodEnabled == other.m_clodEnabled
+                && m_autoLod == other.m_autoLod
                 );
         }
 
@@ -83,6 +88,11 @@ namespace Terrain
         bool IsClodDisabled() // Since the edit context attribute is "ReadOnly" instead of "Enabled", the logic needs to be reversed.
         {
             return !m_clodEnabled;
+        }
+
+        bool IsAutoLodDisabled()
+        {
+            return !m_autoLod;
         }
 
     };
@@ -184,6 +194,10 @@ namespace Terrain
 
             bool m_hasData = false;
             bool m_isQueuedForSrgCompile = false;
+
+            // Maximum geometric error in meters introduced by representing this sector's terrain
+            // at the next coarser LOD's sample spacing. Negative means unknown (be conservative).
+            float m_lodError = -1.0f;
         };
 
         struct SectorLodGrid
@@ -279,6 +293,10 @@ namespace Terrain
             const AZStd::span<const HeightNormalVertex> lodHeightsNormals);
         void GatherMeshData(SectorDataRequest request, AZStd::vector<HeightNormalVertex>& meshHeightsNormals, AZ::Aabb& meshAabb, bool& terrainExistsAnywhere);
 
+        float ComputeSectorLodError(
+            AZStd::span<const HeightNormalVertex> originalHeightsNormals,
+            AZStd::span<const HeightNormalVertex> lodHeightsNormals) const;
+
         void CheckLodGridsForUpdate(AZ::Vector3 newPosition);
         void ProcessSectorUpdates(AZStd::vector<AZStd::vector<Sector*>>& sectorUpdates);
 
@@ -329,6 +347,10 @@ namespace Terrain
 
         // Set up the initial camera position impossible to force an update.
         AZ::Vector3 m_cameraPosition = AZ::Vector3::CreateAxisX(AZStd::numeric_limits<float>::max());
+
+        // Converts a sector's world-space geometric error (meters) into the camera distance under
+        // which that error would exceed the configured screen-space tolerance. 0 disables auto LOD.
+        float m_lodErrorDistanceFactor = 0.0f;
 
         AzFramework::Terrain::FloatRange m_worldHeightBounds;
         float m_sampleSpacing = 1.0f;
