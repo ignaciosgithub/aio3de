@@ -96,6 +96,7 @@ namespace Terrain
     void TerrainMeshManager::SetConfiguration(const MeshConfiguration& config)
     {
         bool requireRebuild = m_config.CheckWouldRequireRebuild(config);
+        bool configChanged = m_config != config;
 
         if (m_config != config)
         {
@@ -108,6 +109,11 @@ namespace Terrain
         {
             m_rebuildSectors = true;
             OnTerrainDataChanged(AZ::Aabb::CreateNull(), TerrainDataChangedMask::HeightData);
+        }
+        else if (configChanged)
+        {
+            // Selection-only settings (like the auto LOD error tolerance) changed, so recalculate the candidate sectors.
+            m_candidateSectors.clear();
         }
 
         // This will trigger a draw packet rebuild later.
@@ -233,6 +239,21 @@ namespace Terrain
         }
 
         UpdateOccluderMesh(mainView->GetCameraTransform().GetTranslation());
+
+        if (m_config.m_autoLod)
+        {
+            // Convert the configured screen-space error tolerance (in pixels at a 1080p reference resolution)
+            // into a factor that maps a sector's world-space geometric error to the camera distance where the
+            // projected error equals the tolerance: projectedPixels = error / distance * (0.5 * height * proj11).
+            constexpr float ReferenceScreenHeight = 1080.0f;
+            const float proj11 = mainView->GetViewToClipMatrix().GetElement(1, 1);
+            const float tolerancePixels = AZStd::GetMax(m_config.m_autoLodErrorPixels, 0.01f);
+            m_lodErrorDistanceFactor = (0.5f * ReferenceScreenHeight * proj11) / tolerancePixels;
+        }
+        else
+        {
+            m_lodErrorDistanceFactor = 0.0f;
+        }
 
         ShaderMeshData meshData;
         mainView->GetCameraTransform().GetTranslation().StoreToFloat3(meshData.m_mainCameraPosition.data());
@@ -985,6 +1006,65 @@ namespace Terrain
         sector.m_lodHeightsNormalsBuffer->UpdateData(clodHeightNormals.data(), clodHeightNormals.size() * sizeof(HeightNormalVertex), 0);
     }
 
+    float TerrainMeshManager::ComputeSectorLodError(
+        const AZStd::span<const HeightNormalVertex> originalHeightsNormals,
+        const AZStd::span<const HeightNormalVertex> lodHeightsNormals) const
+    {
+        // Measures the maximum height difference (in meters) between this sector's full resolution mesh and the
+        // same area sampled at the next coarser LOD's spacing (the same interpolation scheme CLOD morphs toward).
+        // Returns a negative value when the error can't be trusted (e.g. the coarser LOD is missing data where
+        // the full resolution mesh has some), so callers fall back to the fixed LOD distance rings.
+
+        const uint16_t lodGridVerts1D = (m_gridVerts1D >> 1) + 1;
+        uint32_t maxDiff = 0;
+
+        for (uint16_t yPos = 0; yPos < m_gridVerts1D; ++yPos)
+        {
+            for (uint16_t xPos = 0; xPos < m_gridVerts1D; ++xPos)
+            {
+                const uint16_t index = yPos * m_gridVerts1D + xPos;
+                uint16_t lodIndex1 = (yPos / 2) * lodGridVerts1D + (xPos / 2);
+                uint16_t lodIndex2 = lodIndex1;
+
+                if (xPos % 2 == 1)
+                {
+                    ++lodIndex1;
+                }
+                if (yPos % 2 == 1)
+                {
+                    lodIndex2 += lodGridVerts1D;
+                }
+
+                const HeightDataType originalHeight = originalHeightsNormals[m_vertexOrder.at(index)].m_height;
+                const HeightDataType lodHeight1 = lodHeightsNormals[lodIndex1].m_height;
+                const HeightDataType lodHeight2 = lodHeightsNormals[lodIndex2].m_height;
+
+                if (lodHeight1 == NoTerrainVertexHeight || lodHeight2 == NoTerrainVertexHeight)
+                {
+                    if (originalHeight != NoTerrainVertexHeight)
+                    {
+                        return -1.0f; // The coarser LOD is missing terrain that exists at full resolution.
+                    }
+                    continue;
+                }
+
+                if (originalHeight == NoTerrainVertexHeight)
+                {
+                    return -1.0f; // The coarser LOD has terrain where full resolution has a hole.
+                }
+
+                const uint32_t interpolatedHeight = (uint32_t(lodHeight1) + uint32_t(lodHeight2)) / 2;
+                const uint32_t diff = originalHeight > interpolatedHeight ?
+                    originalHeight - interpolatedHeight :
+                    interpolatedHeight - originalHeight;
+                maxDiff = AZStd::GetMax(maxDiff, diff);
+            }
+        }
+
+        const float heightRange = m_worldHeightBounds.m_max - m_worldHeightBounds.m_min;
+        return (aznumeric_cast<float>(maxDiff) / aznumeric_cast<float>(AZStd::numeric_limits<HeightDataType>::max() - 1)) * heightRange;
+    }
+
     void TerrainMeshManager::GatherMeshData(SectorDataRequest request, AZStd::vector<HeightNormalVertex>& meshHeightsNormals, AZ::Aabb& meshAabb, bool& terrainExistsAnywhere)
     {
         const AZ::Vector2 stepSize(request.m_vertexSpacing);
@@ -1172,7 +1252,7 @@ namespace Terrain
                         CreateAabbQuadrants(sector->m_aabb, sector->m_quadrantAabbs);
                     }
 
-                    if (m_config.m_clodEnabled && sector->m_hasData)
+                    if ((m_config.m_clodEnabled || m_config.m_autoLod) && sector->m_hasData)
                     {
                         SectorDataRequest request;
                         uint16_t m_gridSizeNextLod = (m_gridSize >> 1);
@@ -1192,7 +1272,14 @@ namespace Terrain
                             HeightNormalVertex defaultValue = { NoTerrainVertexHeight, NormalXYDataType(NormalDataType(0), NormalDataType(0)) };
                             AZStd::fill(meshLodHeightsNormals.begin(), meshLodHeightsNormals.end(), defaultValue);
                         }
-                        UpdateSectorLodBuffers(*sector, meshHeightsNormals, meshLodHeightsNormals);
+                        if (m_config.m_clodEnabled)
+                        {
+                            UpdateSectorLodBuffers(*sector, meshHeightsNormals, meshLodHeightsNormals);
+                        }
+
+                        sector->m_lodError = terrainExists ?
+                            ComputeSectorLodError(meshHeightsNormals, meshLodHeightsNormals) :
+                            -1.0f;
                     }
                 };
 
@@ -1207,6 +1294,7 @@ namespace Terrain
                     m_sectorsThatNeedSrgCompiled.push_back(sector);
                 }
                 sector->m_hasData = false; // mark the terrain as not having data for now. Once a job runs if it actually has data it'll flip to true.
+                sector->m_lodError = -1.0f; // unknown until the job computes it, so be conservative.
 
                 // Check against the area of terrain that could appear in this sector for any terrain areas. If none exist then skip updating the mesh.
                 bool hasTerrain = false;
@@ -1437,8 +1525,25 @@ namespace Terrain
                     continue;
                 }
 
+                // With auto LOD, a sector stops being drawn at this level as soon as the next coarser level's
+                // geometric error projects to less than the configured screen-space tolerance, instead of
+                // holding on until the fixed per-level distance ring. The ring distance stays as the upper
+                // bound since the grid for each level only covers that far. The last level always uses the
+                // ring so the full render distance stays covered.
+                float sectorMaxDistanceSq = maxDistanceSq;
+                const bool lastLod = (lodLevel == m_sectorLods.size() - 1);
+                if (!lastLod && m_lodErrorDistanceFactor > 0.0f && sector.m_lodError >= 0.0f)
+                {
+                    // m_lodError measures only the error step to the next coarser level. Scale it to estimate
+                    // the cumulative error versus full resolution (error increments roughly quarter as the
+                    // spacing halves, so the geometric series sums to 4/3 of the largest step).
+                    constexpr float CumulativeErrorScale = 4.0f / 3.0f;
+                    const float errorCutoff = sector.m_lodError * CumulativeErrorScale * m_lodErrorDistanceFactor;
+                    sectorMaxDistanceSq = AZStd::GetMin(maxDistanceSq, errorCutoff * errorCutoff);
+                }
+
                 const float aabbMinDistanceSq = sector.m_aabb.GetDistanceSq(m_cameraPosition);
-                if (aabbMinDistanceSq < maxDistanceSq)
+                if (aabbMinDistanceSq < sectorMaxDistanceSq)
                 {
                     selectedSectors.at(selectedIndex) = true;
 
