@@ -27,11 +27,13 @@ namespace Terrain
         if (serialize)
         {
             serialize->Class<MeshConfiguration>()
-                ->Version(2)
+                ->Version(3)
                 ->Field("RenderDistance", &MeshConfiguration::m_renderDistance)
                 ->Field("FirstLodDistance", &MeshConfiguration::m_firstLodDistance)
                 ->Field("ClodEnabled", &MeshConfiguration::m_clodEnabled)
                 ->Field("ClodDistance", &MeshConfiguration::m_clodDistance)
+                ->Field("AutoLod", &MeshConfiguration::m_autoLod)
+                ->Field("AutoLodErrorPixels", &MeshConfiguration::m_autoLodErrorPixels)
                 ;
 
             serialize->Class<DetailMaterialConfiguration>()
@@ -81,6 +83,12 @@ namespace Terrain
                         ->Attribute(AZ::Edit::Attributes::Max, 1000.0f)
                         ->Attribute(AZ::Edit::Attributes::SoftMax, 100.0f)
                         ->Attribute(AZ::Edit::Attributes::ReadOnly, &MeshConfiguration::IsClodDisabled)
+                    ->DataElement(AZ::Edit::UIHandlers::CheckBox, &MeshConfiguration::m_autoLod, "Auto LOD (screen-space error)", "Chooses each terrain sector's LOD from its measured geometric error so flat areas use coarser meshes sooner, keeping the projected error under the tolerance below. The fixed LOD distances act as an upper bound.")
+                    ->DataElement(AZ::Edit::UIHandlers::Slider, &MeshConfiguration::m_autoLodErrorPixels, "Auto LOD error tolerance (pixels)", "Maximum screen-space geometric error, in pixels at a 1080p reference resolution, allowed before a sector switches to a finer LOD. Lower is more accurate, higher is faster.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.25f)
+                        ->Attribute(AZ::Edit::Attributes::Max, 16.0f)
+                        ->Attribute(AZ::Edit::Attributes::SoftMax, 4.0f)
+                        ->Attribute(AZ::Edit::Attributes::ReadOnly, &MeshConfiguration::IsAutoLodDisabled)
                     ;
 
                 editContext->Class<DetailMaterialConfiguration>("Detail material", "Settings related to rendering detail surface materials.")
