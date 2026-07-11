@@ -257,8 +257,22 @@ namespace AZ
             };
             using OcclusionPlaneVector = AZStd::vector<OcclusionPlane>;
 
+            //! An arbitrary world-space triangle mesh rendered into the software occlusion buffer,
+            //! so anything behind it gets culled. Meshes must be conservative (never taller/closer
+            //! than the real geometry they stand in for) or visible objects may be culled.
+            struct OccluderMesh
+            {
+                AZStd::vector<Vector3> m_vertices;
+                AZStd::vector<uint32_t> m_indices; // triangle list
+                Aabb m_aabb;
+            };
+            using OccluderMeshVector = AZStd::vector<OccluderMesh>;
+
             //! Sets a list of occlusion planes to be used during the culling process.
             void SetOcclusionPlanes(const OcclusionPlaneVector& occlusionPlanes) { m_occlusionPlanes = occlusionPlanes; }
+
+            //! Sets a list of occluder meshes to be rendered into the software occlusion buffer during culling.
+            void SetOccluderMeshes(OccluderMeshVector&& occluderMeshes) { m_occluderMeshes = AZStd::move(occluderMeshes); }
 
             //! Notifies the CullingScene that culling will begin for this frame.
             void BeginCulling(const Scene& scene, AZStd::span<const ViewPtr> views);
@@ -312,6 +326,7 @@ namespace AZ
             CullingDebugContext m_debugCtx;
             AZStd::concurrency_checker m_cullDataConcurrencyCheck;
             OcclusionPlaneVector m_occlusionPlanes;
+            OccluderMeshVector m_occluderMeshes;
             AZ::TaskGraphActiveInterface* m_taskGraphActive = nullptr;
         };
         

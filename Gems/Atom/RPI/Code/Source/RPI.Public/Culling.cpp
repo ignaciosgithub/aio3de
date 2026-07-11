@@ -685,6 +685,46 @@ namespace AZ
 #if AZ_TRAIT_MASKED_OCCLUSION_CULLING_SUPPORTED
             // setup occlusion culling, if necessary
             MaskedOcclusionCulling* maskedOcclusionCulling = view.GetMaskedOcclusionCulling();
+            if (maskedOcclusionCulling && !m_occluderMeshes.empty())
+            {
+                bool anyMeshVisible = false;
+                AZStd::vector<float> clipVerts;
+                for (const OccluderMesh& occluderMesh : m_occluderMeshes)
+                {
+                    if (occluderMesh.m_indices.empty() ||
+                        (occluderMesh.m_aabb.IsValid() && !ShapeIntersection::Overlaps(frustum, occluderMesh.m_aabb)))
+                    {
+                        continue;
+                    }
+
+                    clipVerts.clear();
+                    clipVerts.reserve(occluderMesh.m_vertices.size() * 4);
+                    for (const Vector3& vertex : occluderMesh.m_vertices)
+                    {
+                        const Vector4 clipVertex = view.GetWorldToClipMatrix() * Vector4(vertex);
+                        clipVerts.push_back(clipVertex.GetX());
+                        clipVerts.push_back(clipVertex.GetY());
+                        clipVerts.push_back(clipVertex.GetZ());
+                        clipVerts.push_back(clipVertex.GetW());
+                    }
+
+                    const int triangleCount = aznumeric_cast<int>(occluderMesh.m_indices.size() / 3);
+
+                    // BACKFACE_NONE so occluder meshes work regardless of winding.
+                    if (maskedOcclusionCulling->RenderTriangles(
+                            clipVerts.data(), occluderMesh.m_indices.data(), triangleCount, nullptr, MaskedOcclusionCulling::BACKFACE_NONE) ==
+                        MaskedOcclusionCulling::CullingResult::VISIBLE)
+                    {
+                        anyMeshVisible = true;
+                    }
+                }
+
+                if (anyMeshVisible)
+                {
+                    view.SetMaskedOcclusionCullingDirty(true);
+                }
+            }
+
             if (maskedOcclusionCulling && !m_occlusionPlanes.empty())
             {
                 // frustum cull occlusion planes

@@ -22,6 +22,7 @@
 #include <Atom/RHI/RHISystemInterface.h>
 
 
+#include <Atom/RPI.Public/Culling.h>
 #include <Atom/RPI.Public/Scene.h>
 #include <Atom/RPI.Public/View.h>
 #include <Atom/RPI.Public/AuxGeom/AuxGeomDraw.h>
@@ -96,6 +97,11 @@ namespace Terrain
     {
         bool requireRebuild = m_config.CheckWouldRequireRebuild(config);
         bool configChanged = m_config != config;
+
+        if (m_config != config)
+        {
+            m_occluderDirty = true;
+        }
 
         m_config = config;
 
@@ -183,6 +189,13 @@ namespace Terrain
         m_xyPositions.clear();
         m_cachedDrawData.clear();
 
+        if (m_occluderMeshActive && m_parentScene && m_parentScene->GetCullingScene())
+        {
+            m_parentScene->GetCullingScene()->SetOccluderMeshes({});
+            m_occluderMeshActive = false;
+        }
+        m_occluderDirty = true;
+
         m_rebuildSectors = true;
     }
 
@@ -224,6 +237,8 @@ namespace Terrain
             RebuildSectors();
             m_rebuildSectors = false;
         }
+
+        UpdateOccluderMesh(mainView->GetCameraTransform().GetTranslation());
 
         if (m_config.m_autoLod)
         {
@@ -735,6 +750,7 @@ namespace Terrain
 
             m_worldHeightBounds = heightBounds;
             m_sampleSpacing = queryResolution;
+            m_occluderDirty = true;
 
             if (dirtyRegion.IsValid())
             {
@@ -1298,6 +1314,162 @@ namespace Terrain
         }
         jobCompletion.StartAndWaitForCompletion();
         m_candidateSectors.clear(); // Force recalculation of candidate sectors since AABBs could have changed.
+    }
+
+    void TerrainMeshManager::UpdateOccluderMesh(const AZ::Vector3& cameraPosition)
+    {
+        AZ::RPI::CullingScene* cullingScene = m_parentScene ? m_parentScene->GetCullingScene() : nullptr;
+        if (!cullingScene)
+        {
+            return;
+        }
+
+        if (!m_config.m_terrainOcclusion)
+        {
+            if (m_occluderMeshActive)
+            {
+                cullingScene->SetOccluderMeshes({});
+                m_occluderMeshActive = false;
+            }
+            return;
+        }
+
+        // The occluder covers the terrain around the camera up to this distance. Distant terrain
+        // contributes little occlusion, so the coverage is capped to keep the vertex density useful.
+        const float coverageDistance = AZStd::GetMin(m_config.m_renderDistance, 2048.0f);
+        const uint32_t verts1D = AZStd::clamp(m_config.m_occluderResolution, 8u, 256u);
+        const float cellSize = (coverageDistance * 2.0f) / aznumeric_cast<float>(verts1D - 1);
+
+        // Only rebuild when the camera has moved at least a cell, or the terrain / config changed.
+        const AZ::Vector2 movedDelta =
+            AZ::Vector2(cameraPosition) - AZ::Vector2(m_occluderBuildPosition);
+        if (!m_occluderDirty && movedDelta.GetLengthSq() < cellSize * cellSize)
+        {
+            return;
+        }
+        m_occluderDirty = false;
+        m_occluderBuildPosition = cameraPosition;
+
+        // Sample the terrain at twice the vertex density, then take the min over each vertex's
+        // 3x3 fine-sample neighborhood so the occluder never rises above the real surface between
+        // samples. The height bias drops it further to stay conservative against fine detail.
+        const uint32_t fineSamples1D = verts1D * 2 - 1;
+        const float fineSpacing = cellSize * 0.5f;
+        const AZ::Vector2 startPosition =
+            AZ::Vector2(cameraPosition) - AZ::Vector2(coverageDistance);
+
+        constexpr float HeightDoesNotExistValue = -AZStd::numeric_limits<float>::max();
+        AZStd::vector<float> fineHeights(fineSamples1D * fineSamples1D, HeightDoesNotExistValue);
+        bool terrainExistsAnywhere = false;
+
+        auto perPositionCallback = [&fineHeights, fineSamples1D, &terrainExistsAnywhere]
+        (size_t xIndex, size_t yIndex, const AzFramework::SurfaceData::SurfacePoint& surfacePoint, bool terrainExists)
+        {
+            if (terrainExists)
+            {
+                fineHeights.at(yIndex * fineSamples1D + xIndex) = surfacePoint.m_position.GetZ();
+                terrainExistsAnywhere = true;
+            }
+        };
+
+        AzFramework::Terrain::TerrainQueryRegion queryRegion(
+            AZ::Vector3(startPosition.GetX(), startPosition.GetY(), 0.0f), fineSamples1D, fineSamples1D,
+            AZ::Vector2(fineSpacing));
+
+        AzFramework::Terrain::TerrainDataRequestBus::Broadcast(
+            &AzFramework::Terrain::TerrainDataRequests::QueryRegion,
+            queryRegion,
+            AzFramework::Terrain::TerrainDataRequests::TerrainDataMask::Heights,
+            perPositionCallback,
+            AzFramework::Terrain::TerrainDataRequests::Sampler::DEFAULT);
+
+        if (!terrainExistsAnywhere)
+        {
+            if (m_occluderMeshActive)
+            {
+                cullingScene->SetOccluderMeshes({});
+                m_occluderMeshActive = false;
+            }
+            return;
+        }
+
+        AZ::RPI::CullingScene::OccluderMesh occluderMesh;
+        occluderMesh.m_vertices.resize(verts1D * verts1D);
+        AZStd::vector<bool> vertexValid(verts1D * verts1D, false);
+
+        for (uint32_t yPos = 0; yPos < verts1D; ++yPos)
+        {
+            for (uint32_t xPos = 0; xPos < verts1D; ++xPos)
+            {
+                const int32_t fineX = aznumeric_cast<int32_t>(xPos * 2);
+                const int32_t fineY = aznumeric_cast<int32_t>(yPos * 2);
+
+                float minHeight = AZStd::numeric_limits<float>::max();
+                bool valid = true;
+                for (int32_t offsetY = -1; offsetY <= 1 && valid; ++offsetY)
+                {
+                    for (int32_t offsetX = -1; offsetX <= 1; ++offsetX)
+                    {
+                        const int32_t sampleX = AZStd::clamp(fineX + offsetX, 0, aznumeric_cast<int32_t>(fineSamples1D - 1));
+                        const int32_t sampleY = AZStd::clamp(fineY + offsetY, 0, aznumeric_cast<int32_t>(fineSamples1D - 1));
+                        const float height = fineHeights.at(sampleY * fineSamples1D + sampleX);
+                        if (height == HeightDoesNotExistValue)
+                        {
+                            valid = false;
+                            break;
+                        }
+                        minHeight = AZStd::GetMin(minHeight, height);
+                    }
+                }
+
+                const uint32_t vertexIndex = yPos * verts1D + xPos;
+                vertexValid.at(vertexIndex) = valid;
+                if (valid)
+                {
+                    const AZ::Vector3 vertex(
+                        startPosition.GetX() + xPos * cellSize,
+                        startPosition.GetY() + yPos * cellSize,
+                        minHeight - m_config.m_occluderHeightBias);
+                    occluderMesh.m_vertices.at(vertexIndex) = vertex;
+                    occluderMesh.m_aabb.AddPoint(vertex);
+                }
+            }
+        }
+
+        occluderMesh.m_indices.reserve((verts1D - 1) * (verts1D - 1) * 6);
+        for (uint32_t yPos = 0; yPos < verts1D - 1; ++yPos)
+        {
+            for (uint32_t xPos = 0; xPos < verts1D - 1; ++xPos)
+            {
+                const uint32_t topLeft = yPos * verts1D + xPos;
+                const uint32_t topRight = topLeft + 1;
+                const uint32_t bottomLeft = topLeft + verts1D;
+                const uint32_t bottomRight = bottomLeft + 1;
+
+                // Skip quads touching any terrain hole so holes never occlude.
+                if (vertexValid.at(topLeft) && vertexValid.at(topRight) &&
+                    vertexValid.at(bottomLeft) && vertexValid.at(bottomRight))
+                {
+                    occluderMesh.m_indices.insert(occluderMesh.m_indices.end(),
+                        { topLeft, bottomLeft, topRight, topRight, bottomLeft, bottomRight });
+                }
+            }
+        }
+
+        if (occluderMesh.m_indices.empty())
+        {
+            if (m_occluderMeshActive)
+            {
+                cullingScene->SetOccluderMeshes({});
+                m_occluderMeshActive = false;
+            }
+            return;
+        }
+
+        AZ::RPI::CullingScene::OccluderMeshVector occluderMeshes;
+        occluderMeshes.emplace_back(AZStd::move(occluderMesh));
+        cullingScene->SetOccluderMeshes(AZStd::move(occluderMeshes));
+        m_occluderMeshActive = true;
     }
 
     void TerrainMeshManager::UpdateCandidateSectors()

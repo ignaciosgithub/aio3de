@@ -59,6 +59,9 @@ namespace Terrain
         float m_clodDistance = 16.0f;
         bool m_autoLod = true;
         float m_autoLodErrorPixels = 1.0f;
+        bool m_terrainOcclusion = false;
+        uint32_t m_occluderResolution = 64;
+        float m_occluderHeightBias = 1.0f;
 
         bool operator==(const MeshConfiguration& other) const
         {
@@ -68,6 +71,9 @@ namespace Terrain
                 && m_clodDistance == other.m_clodDistance
                 && m_autoLod == other.m_autoLod
                 && m_autoLodErrorPixels == other.m_autoLodErrorPixels
+                && m_terrainOcclusion == other.m_terrainOcclusion
+                && m_occluderResolution == other.m_occluderResolution
+                && m_occluderHeightBias == other.m_occluderHeightBias
                 ;
         }
 
@@ -93,6 +99,11 @@ namespace Terrain
         bool IsAutoLodDisabled()
         {
             return !m_autoLod;
+        }
+
+        bool IsOcclusionDisabled()
+        {
+            return !m_terrainOcclusion;
         }
 
     };
@@ -312,6 +323,8 @@ namespace Terrain
             const void* initialData = nullptr,
             const char* name = nullptr);
 
+        void UpdateOccluderMesh(const AZ::Vector3& cameraPosition);
+
         void UpdateCandidateSectors();
         void CreateAabbQuadrants(const AZ::Aabb& aabb, AZStd::span<AZ::Aabb, 4> quadrantAabb);
 
@@ -364,6 +377,11 @@ namespace Terrain
         uint8_t m_gridSize = 0; // number of quads in a single row of a sector
         uint8_t m_gridVerts1D = 0; // number of vertices along sector edge (m_gridSize + 1)
         uint16_t m_gridVerts2D = 0; // number of vertices in sector
+
+        // Position the occluder mesh was last built around, initialized to force the first build.
+        AZ::Vector3 m_occluderBuildPosition = AZ::Vector3::CreateAxisX(AZStd::numeric_limits<float>::max());
+        bool m_occluderDirty = true;
+        bool m_occluderMeshActive = false;
 
         bool m_isInitialized{ false };
         bool m_rebuildSectors{ true };
