@@ -45,6 +45,7 @@
         "Gems/ImGui",
         "Gems/InAppPurchases",
         "Gems/LandscapeCanvas",
+        "Gems/LevelStreaming",
         "Gems/LmbrCentral",
         "Gems/LocalUser",
         "Gems/LyShine",

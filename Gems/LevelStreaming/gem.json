@@ -1,0 +1,23 @@
+{
+    "gem_name": "LevelStreaming",
+    "version": "0.0.0",
+    "display_name": "Level Streaming",
+    "license": "Apache-2.0 Or MIT",
+    "license_url": "https://github.com/o3de/o3de/blob/development/LICENSE.txt",
+    "origin": "aio3de",
+    "origin_url": "https://github.com/ignaciosgithub/aio3de",
+    "type": "Code",
+    "summary": "Divides the level into streamable chunks whose bounds grow to the tallest object in each chunk, and streams mesh rendering in and out around the camera.",
+    "canonical_tags": [
+        "Gem"
+    ],
+    "user_tags": [
+        "Rendering",
+        "Streaming"
+    ],
+    "requirements": "",
+    "documentation_url": "",
+    "dependencies": [
+        "CommonFeaturesAtom"
+    ]
+}
