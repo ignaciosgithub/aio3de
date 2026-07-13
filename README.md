@@ -84,6 +84,12 @@ Setting up the engine and your first project is five steps that work the same on
 **Full, digestible walkthrough (both platforms, GUI option, troubleshooting):
 [`docs/aio3de/QUICKSTART.md`](docs/aio3de/QUICKSTART.md).**
 
+Once the Editor runs: build your first level with
+[`docs/aio3de/GETTING_STARTED_TUTORIAL.md`](docs/aio3de/GETTING_STARTED_TUTORIAL.md),
+then add gameplay with
+[`docs/aio3de/SCRIPTING_AND_GAME_LOGIC.md`](docs/aio3de/SCRIPTING_AND_GAME_LOGIC.md)
+(Lua, Script Canvas, input, spawning, triggers — with copy-paste recipes).
+
 Use `scripts/o3de.sh hub status` at any time to see which projects map to which
 engine. For the upstream reference see
 [Setting up O3DE from GitHub](https://o3de.org/docs/welcome-guide/setup/setup-from-github/).
