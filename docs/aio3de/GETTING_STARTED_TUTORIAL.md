@@ -128,6 +128,34 @@ Quick version (fly camera):
 
 Ctrl+G — you can move around your level.
 
+## 5b. Particles (fire, smoke, sparks, rain)
+
+The engine ships a full particle system: the **OpenParticleSystem** gem
+(preview). Enable it for your project, re-run CMake configure, and rebuild:
+
+```
+scripts/o3de enable-gem -gn OpenParticleSystem -pp <project>
+```
+
+Then:
+
+1. Create an entity, add the **Particle** component (Particle System category).
+2. Assign a **Particle Asset** — start with a shipped sample from
+   `Gems/OpenParticleSystem/Assets/Particles/` (`firework.particle`,
+   `collision.particle`, `ribbon.particle`, `noise.particle`,
+   `vortexForce.particle`, `mesh.particle`, ...). They appear in the Asset
+   Browser once the gem is enabled.
+3. To author your own: **Tools → (Preview) Particle Editor** (or the *Open in
+   Particle Editor* button on the component). An effect is a set of
+   **emitters**, each with *Spawn* modules (rate/burst, location shape, initial
+   velocity/size/color/lifetime), *Update* modules (forces, drag, vortex,
+   noise, color/size over life, collision, kill volumes, events), and a
+   *Render* mode (camera-facing **sprite**, stretched **ribbon**/trails, or
+   full **mesh** particles). Save the `.particle` asset and assign it.
+4. Materials for particles live under
+   `Gems/OpenParticleSystem/Assets/Materials/OpenParticle/` — duplicate one to
+   change texture/blend mode (additive for fire/sparks, alpha for smoke).
+
 ## 6. Save, prefabs, and iteration
 
 - **Ctrl+S** saves the level. Levels and everything in them are **prefabs**
