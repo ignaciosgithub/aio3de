@@ -182,6 +182,12 @@ Then:
   [`Gems/ArenaShooter/README.md`](../../Gems/ArenaShooter/README.md): input
   bindings for keyboard/mouse + gamepad, player controller, hitscan weapon,
   health/respawn, score HUD, input device detection and an anim-graph driver.
+- **AI opponents:** enable the **NeuralBots** gem (code gem — reconfigure +
+  rebuild) and add a **Bot Agent** component (AI category) to a
+  character-controller entity: it fights the target entity with human
+  constraints (reaction time, aim error, turn/fire-rate caps), driven by an
+  AIBackbone-trained MLP or a built-in heuristic. See
+  [`Gems/NeuralBots/README.md`](../../Gems/NeuralBots/README.md).
 - **Scripting and game logic:**
   [`SCRIPTING_AND_GAME_LOGIC.md`](SCRIPTING_AND_GAME_LOGIC.md) — Lua, Script
   Canvas, input, spawning, triggers, timers, and links to every sample script

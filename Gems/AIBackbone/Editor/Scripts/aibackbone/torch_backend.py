@@ -111,6 +111,54 @@ def onnx_path(spec_path):
     return os.path.splitext(spec_path)[0] + ".onnx"
 
 
+def weights_json_path(spec_path):
+    return os.path.splitext(spec_path)[0] + ".weights.json"
+
+
+def export_weights_json(spec, model, path):
+    """Exports an nn.Sequential MLP as a portable JSON weights file.
+
+    The format is consumed by runtime inference (e.g. the NeuralBots gem's
+    Bot Agent component):
+
+        {"format": "mlp-1",
+         "layers": [{"weights": [[...], ...], "biases": [...],
+                     "activation": "relu"|"tanh"|"sigmoid"|"leaky_relu"|"none"},
+                    ...]}
+
+    Each layer's weights matrix is [out_units][in_units] (row per output unit).
+    The last layer's activation is the spec's output_activation.
+    """
+    import json
+
+    torch = _torch()
+    import torch.nn as nn
+
+    act_names = {
+        nn.ReLU: "relu",
+        nn.Tanh: "tanh",
+        nn.Sigmoid: "sigmoid",
+        nn.LeakyReLU: "leaky_relu",
+    }
+
+    layers = []
+    modules = list(model)
+    for i, module in enumerate(modules):
+        if isinstance(module, nn.Linear):
+            activation = "none"
+            if i + 1 < len(modules):
+                activation = act_names.get(type(modules[i + 1]), "none")
+            with torch.no_grad():
+                layers.append({
+                    "weights": module.weight.cpu().tolist(),
+                    "biases": module.bias.cpu().tolist(),
+                    "activation": activation,
+                })
+
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"format": "mlp-1", "layers": layers}, f)
+
+
 class Trainer:
     """Background-thread trainer with stop-and-save and resume-from-checkpoint.
 
@@ -246,6 +294,10 @@ class Trainer:
             export_onnx(self.spec, model, onnx_path(self.spec_path))
         except Exception:
             pass  # ONNX export is best-effort; weights are already saved
+        try:
+            export_weights_json(self.spec, model, weights_json_path(self.spec_path))
+        except Exception:
+            pass  # JSON export is best-effort; weights are already saved
 
 
 def load_trained_model(spec, spec_path):
