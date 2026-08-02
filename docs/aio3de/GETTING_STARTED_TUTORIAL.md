@@ -176,6 +176,12 @@ Then:
 
 ## 8. Where to go next
 
+- **Build a full game from an example kit:** enable the **ArenaShooter** gem
+  (`scripts/o3de enable-gem -gn ArenaShooter -pp <project>`, asset-only — no
+  rebuild) and follow
+  [`Gems/ArenaShooter/README.md`](../../Gems/ArenaShooter/README.md): input
+  bindings for keyboard/mouse + gamepad, player controller, hitscan weapon,
+  health/respawn, score HUD, input device detection and an anim-graph driver.
 - **Scripting and game logic:**
   [`SCRIPTING_AND_GAME_LOGIC.md`](SCRIPTING_AND_GAME_LOGIC.md) — Lua, Script
   Canvas, input, spawning, triggers, timers, and links to every sample script
