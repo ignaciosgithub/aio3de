@@ -17,7 +17,7 @@
         "Game"
     ],
     "icon_path": "preview.png",
-    "requirements": "Enable the DebugDraw, StartingPointInput, PhysX5 and ScriptEvents gems in your project (HUD/impact markers use DebugDraw; input uses StartingPointInput; movement uses the PhysX character controller).",
+    "requirements": "Enable the DebugDraw, StartingPointInput and PhysX5 gems in your project (HUD/impact markers use DebugDraw, input uses StartingPointInput, movement uses the PhysX character controller).",
     "documentation_url": "",
     "dependencies": []
 }
