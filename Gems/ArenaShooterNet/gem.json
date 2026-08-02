@@ -1,0 +1,25 @@
+{
+    "gem_name": "ArenaShooterNet",
+    "version": "0.1.0",
+    "display_name": "Arena Shooter Networking",
+    "license": "Apache-2.0 Or MIT",
+    "license_url": "https://github.com/o3de/o3de/blob/development/LICENSE.txt",
+    "origin": "aio3de",
+    "origin_url": "https://github.com/ignaciosgithub/aio3de",
+    "type": "Code",
+    "summary": "Server-authoritative multiplayer components for the ArenaShooter example: predicted networked player movement (Network Arena Player) and replicated health with server-side hit validation (Network Arena Health), built on the Multiplayer gem.",
+    "canonical_tags": [
+        "Gem"
+    ],
+    "user_tags": [
+        "Network",
+        "Multiplayer",
+        "Game"
+    ],
+    "icon_path": "preview.png",
+    "requirements": "Enable the Multiplayer, PhysX5 and StartingPointInput gems in your project.",
+    "documentation_url": "",
+    "dependencies": [
+        "Multiplayer"
+    ]
+}

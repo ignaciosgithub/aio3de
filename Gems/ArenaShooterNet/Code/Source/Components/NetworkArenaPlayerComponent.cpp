@@ -1,0 +1,228 @@
+/*
+ * Copyright (c) Contributors to the Open 3D Engine Project.
+ * For complete copyright and license terms please see the LICENSE at the root of this distribution.
+ *
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
+ *
+ */
+#include "NetworkArenaPlayerComponent.h"
+
+#include <AzCore/Component/TransformBus.h>
+#include <AzCore/Math/Quaternion.h>
+#include <AzFramework/Physics/Common/PhysicsSceneQueries.h>
+#include <AzFramework/Physics/PhysicsScene.h>
+#include <AzFramework/Physics/PhysicsSystem.h>
+#include <LmbrCentral/Scripting/GameplayNotificationBus.h>
+#include <Multiplayer/Components/NetworkCharacterComponent.h>
+
+namespace ArenaShooterNet
+{
+    namespace
+    {
+        const StartingPointInput::InputEventNotificationId MoveForwardEventId("MoveForward");
+        const StartingPointInput::InputEventNotificationId MoveRightEventId("MoveRight");
+        const StartingPointInput::InputEventNotificationId LookXEventId("LookX");
+        const StartingPointInput::InputEventNotificationId LookYEventId("LookY");
+        const StartingPointInput::InputEventNotificationId ShootEventId("Shoot");
+    } // namespace
+
+    NetworkArenaPlayerComponentController::NetworkArenaPlayerComponentController(NetworkArenaPlayerComponent& parent)
+        : NetworkArenaPlayerComponentControllerBase(parent)
+    {
+    }
+
+    void NetworkArenaPlayerComponentController::OnActivate([[maybe_unused]] Multiplayer::EntityIsMigrating entityIsMigrating)
+    {
+        if (IsNetEntityRoleAutonomous())
+        {
+            StartingPointInput::InputEventNotificationBus::MultiHandler::BusConnect(MoveForwardEventId);
+            StartingPointInput::InputEventNotificationBus::MultiHandler::BusConnect(MoveRightEventId);
+            StartingPointInput::InputEventNotificationBus::MultiHandler::BusConnect(LookXEventId);
+            StartingPointInput::InputEventNotificationBus::MultiHandler::BusConnect(LookYEventId);
+            StartingPointInput::InputEventNotificationBus::MultiHandler::BusConnect(ShootEventId);
+        }
+    }
+
+    void NetworkArenaPlayerComponentController::OnDeactivate([[maybe_unused]] Multiplayer::EntityIsMigrating entityIsMigrating)
+    {
+        StartingPointInput::InputEventNotificationBus::MultiHandler::BusDisconnect();
+    }
+
+    Multiplayer::MultiplayerController::InputPriorityOrder NetworkArenaPlayerComponentController::GetInputOrder() const
+    {
+        return Multiplayer::MultiplayerController::InputPriorityOrder::Default;
+    }
+
+    void NetworkArenaPlayerComponentController::OnPressed(float value)
+    {
+        const StartingPointInput::InputEventNotificationId* busId =
+            StartingPointInput::InputEventNotificationBus::GetCurrentBusId();
+        if (!busId)
+        {
+            return;
+        }
+        if (*busId == MoveForwardEventId)
+        {
+            m_forward = value;
+        }
+        else if (*busId == MoveRightEventId)
+        {
+            m_strafe = value;
+        }
+        else if (*busId == LookXEventId)
+        {
+            m_yawDegrees -= value;
+        }
+        else if (*busId == LookYEventId)
+        {
+            m_pitchDegrees = AZ::GetClamp(m_pitchDegrees - value, -85.0f, 85.0f);
+        }
+        else if (*busId == ShootEventId)
+        {
+            m_shooting = true;
+        }
+    }
+
+    void NetworkArenaPlayerComponentController::OnHeld(float value)
+    {
+        OnPressed(value);
+    }
+
+    void NetworkArenaPlayerComponentController::OnReleased(float value)
+    {
+        const StartingPointInput::InputEventNotificationId* busId =
+            StartingPointInput::InputEventNotificationBus::GetCurrentBusId();
+        if (!busId)
+        {
+            return;
+        }
+        if (*busId == MoveForwardEventId)
+        {
+            m_forward = 0.0f;
+        }
+        else if (*busId == MoveRightEventId)
+        {
+            m_strafe = 0.0f;
+        }
+        else if (*busId == ShootEventId)
+        {
+            m_shooting = false;
+        }
+        AZ_UNUSED(value);
+    }
+
+    void NetworkArenaPlayerComponentController::CreateInput(Multiplayer::NetworkInput& input, [[maybe_unused]] float deltaTime)
+    {
+        if (!m_yawInitialized)
+        {
+            AZ::Transform tm = AZ::Transform::CreateIdentity();
+            AZ::TransformBus::EventResult(tm, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
+            m_yawDegrees = AZ::RadToDeg(tm.GetRotation().GetEulerRadians().GetZ());
+            m_yawInitialized = true;
+        }
+
+        auto* playerInput = input.FindComponentInput<NetworkArenaPlayerComponentNetworkInput>();
+        if (!playerInput)
+        {
+            return;
+        }
+        playerInput->m_fwdBack = m_forward;
+        playerInput->m_leftRight = m_strafe;
+        playerInput->m_viewYaw = m_yawDegrees;
+        playerInput->m_viewPitch = m_pitchDegrees;
+        playerInput->m_shoot = m_shooting ? 1.0f : 0.0f;
+    }
+
+    void NetworkArenaPlayerComponentController::ProcessInput(Multiplayer::NetworkInput& input, float deltaTime)
+    {
+        auto* playerInput = input.FindComponentInput<NetworkArenaPlayerComponentNetworkInput>();
+        if (!playerInput)
+        {
+            return;
+        }
+
+        // view rotation (yaw on the entity; pitch is only used for the shot direction)
+        const AZ::Quaternion yawRot = AZ::Quaternion::CreateRotationZ(AZ::DegToRad(playerInput->m_viewYaw));
+        AZ::TransformBus::Event(GetEntityId(), &AZ::TransformBus::Events::SetWorldRotationQuaternion, yawRot);
+
+        // movement through the networked character controller (predicted on the
+        // autonomous client, authoritative on the server)
+        AZ::Vector3 moveLocal(
+            AZ::GetClamp(playerInput->m_leftRight, -1.0f, 1.0f),
+            AZ::GetClamp(playerInput->m_fwdBack, -1.0f, 1.0f),
+            0.0f);
+        if (moveLocal.GetLengthSq() > 1.0f)
+        {
+            moveLocal.Normalize();
+        }
+        const AZ::Vector3 velocity = yawRot.TransformVector(moveLocal) * GetMoveSpeed();
+        GetNetworkCharacterComponentController()->TryMoveWithVelocity(velocity, deltaTime);
+
+        // shooting is resolved only on the server: clients just transmit the
+        // trigger state, never a hit result
+        if (IsNetEntityRoleAuthority())
+        {
+            m_fireCooldown = AZStd::max(m_fireCooldown - deltaTime, 0.0f);
+            if (playerInput->m_shoot > 0.5f && m_fireCooldown <= 0.0f)
+            {
+                m_fireCooldown = GetFireInterval(); // server-enforced fire rate
+                m_pitchDegrees = playerInput->m_viewPitch;
+                m_yawDegrees = playerInput->m_viewYaw;
+                ServerShoot();
+            }
+        }
+    }
+
+    void NetworkArenaPlayerComponentController::ServerShoot()
+    {
+        auto* physicsSystem = AZ::Interface<AzPhysics::SystemInterface>::Get();
+        if (!physicsSystem)
+        {
+            return;
+        }
+        AzPhysics::Scene* scene =
+            physicsSystem->GetScene(physicsSystem->GetSceneHandle(AzPhysics::DefaultPhysicsSceneName));
+        if (!scene)
+        {
+            return;
+        }
+
+        AZ::Vector3 selfPos = AZ::Vector3::CreateZero();
+        AZ::TransformBus::EventResult(selfPos, GetEntityId(), &AZ::TransformBus::Events::GetWorldTranslation);
+        const AZ::Vector3 eye = selfPos + AZ::Vector3(0.0f, 0.0f, GetEyeHeight());
+
+        const AZ::Quaternion aimRot = AZ::Quaternion::CreateRotationZ(AZ::DegToRad(m_yawDegrees)) *
+            AZ::Quaternion::CreateRotationX(AZ::DegToRad(m_pitchDegrees));
+        const AZ::Vector3 direction = aimRot.TransformVector(AZ::Vector3::CreateAxisY());
+
+        AzPhysics::RayCastRequest request;
+        request.m_start = eye;
+        request.m_direction = direction;
+        request.m_distance = GetFireRange();
+        request.m_reportMultipleHits = true;
+
+        AzPhysics::SceneQueryHits hits = scene->QueryScene(&request);
+        const AzPhysics::SceneQueryHit* closest = nullptr;
+        for (const AzPhysics::SceneQueryHit& hit : hits.m_hits)
+        {
+            if (hit.m_entityId == GetEntityId())
+            {
+                continue;
+            }
+            if (!closest || hit.m_distance < closest->m_distance)
+            {
+                closest = &hit;
+            }
+        }
+
+        if (closest && closest->m_entityId.IsValid())
+        {
+            // server-local damage event: NetworkArenaHealthComponent's authority
+            // controller handles it and replicates the resulting health
+            AZ::GameplayNotificationBus::Event(
+                AZ::GameplayNotificationId(closest->m_entityId, AZ_CRC_CE("Damage"), azrtti_typeid<float>()),
+                &AZ::GameplayNotificationBus::Events::OnEventBegin,
+                AZStd::any(GetFireDamage()));
+        }
+    }
+} // namespace ArenaShooterNet
