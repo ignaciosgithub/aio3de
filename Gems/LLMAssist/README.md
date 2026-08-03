@@ -15,8 +15,12 @@ the Editor). Restart the Editor; two new panes appear in **Tools**:
 
 ## Tools > AI Assistant
 
-- **Chat tab** — pick a provider (openai / anthropic / kimi) and model
-  (defaults: `gpt-4o`, `claude-opus-4-6`, `moonshot-v1-32k`), ask anything.
+- **Chat tab** — pick a provider (openai / anthropic / kimi) and a model from
+  the dropdown (defaults: `gpt-5`, `claude-opus-4-6`, `kimi-k2-0905-preview`;
+  the full current lineup of each provider is listed). The box is editable —
+  type any model id directly — and the **+** button saves it to your personal
+  list in `~/.o3de/llmassist_models.json`, so newly released models can be
+  added without any engine update.
 - **Docs-aware**: with the checkbox on (default), the assistant is given the
   most relevant sections of the engine's documentation
   (`docs/aio3de/*.md`, gem READMEs) **and the recent engine updates** (git

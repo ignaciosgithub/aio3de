@@ -74,8 +74,16 @@ class AIAssistantDialog(QtWidgets.QDialog):
         self._provider.currentTextChanged.connect(self._on_provider_changed)
         top.addWidget(self._provider)
         top.addWidget(QtWidgets.QLabel("Model:"))
-        self._model = QtWidgets.QLineEdit(providers.DEFAULT_MODELS["openai"])
+        self._model = QtWidgets.QComboBox()
+        self._model.setEditable(True)  # any model id can be typed directly
+        self._populate_models(self._provider.currentText())
         top.addWidget(self._model, 1)
+        add_model = QtWidgets.QPushButton("+")
+        add_model.setFixedWidth(28)
+        add_model.setToolTip("Save the typed model id to this provider's list "
+                             "(kept in ~/.o3de/llmassist_models.json)")
+        add_model.clicked.connect(self._on_add_model)
+        top.addWidget(add_model)
         self._docs_aware = QtWidgets.QCheckBox("Docs-aware (engine docs + updates)")
         self._docs_aware.setChecked(True)
         top.addWidget(self._docs_aware)
@@ -106,8 +114,20 @@ class AIAssistantDialog(QtWidgets.QDialog):
         layout.addLayout(buttons)
         return widget
 
+    def _populate_models(self, provider):
+        self._model.clear()
+        self._model.addItems(providers.models_for(provider))
+
     def _on_provider_changed(self, provider):
-        self._model.setText(providers.DEFAULT_MODELS.get(provider, ""))
+        self._populate_models(provider)
+
+    def _on_add_model(self):
+        model = self._model.currentText().strip()
+        provider = self._provider.currentText()
+        if model:
+            providers.add_user_model(provider, model)
+            self._populate_models(provider)
+            self._model.setCurrentText(model)
 
     def _append(self, who, text):
         self._transcript.appendPlainText(f"[{who}]\n{text}\n")
@@ -147,7 +167,8 @@ class AIAssistantDialog(QtWidgets.QDialog):
         self._send.setEnabled(False)
         self._send.setText("Waiting…")
         self._worker = _ChatWorker(
-            self._provider.currentText(), messages, self._model.text().strip() or None, self)
+            self._provider.currentText(), messages,
+            self._model.currentText().strip() or None, self)
         self._worker.finished_ok.connect(lambda reply: self._on_reply(question, reply))
         self._worker.finished_err.connect(self._on_error)
         self._worker.start()
