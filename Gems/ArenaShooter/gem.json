@@ -1,0 +1,23 @@
+{
+    "gem_name": "ArenaShooter",
+    "version": "0.1.0",
+    "display_name": "Arena Shooter Kit",
+    "license": "Apache-2.0 Or MIT",
+    "license_url": "https://github.com/o3de/o3de/blob/development/LICENSE.txt",
+    "origin": "aio3de",
+    "origin_url": "https://github.com/ignaciosgithub/aio3de",
+    "type": "Asset",
+    "summary": "Example arena shooter game kit: input bindings (keyboard/mouse + gamepad), player controller, hitscan weapon, health/respawn, score HUD, input device detection and animation driver scripts.",
+    "canonical_tags": [
+        "Gem"
+    ],
+    "user_tags": [
+        "Assets",
+        "Sample",
+        "Game"
+    ],
+    "icon_path": "preview.png",
+    "requirements": "Enable the DebugDraw, StartingPointInput and PhysX5 gems in your project (HUD/impact markers use DebugDraw, input uses StartingPointInput, movement uses the PhysX character controller).",
+    "documentation_url": "",
+    "dependencies": []
+}
