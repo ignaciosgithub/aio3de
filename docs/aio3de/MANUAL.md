@@ -1,0 +1,1030 @@
+# aio3de — The Complete Manual
+
+A single, detailed reference for every part of this fork of O3DE: installing and
+building the engine, using the Editor, every fork-specific feature (ray-traced
+shadows, GPU culling, terrain auto-LOD/streaming/occlusion, soft body physics,
+the Python AI backbone), scripting and game logic, and a full, end-to-end
+walkthrough of the shipped **Arena Shooter example game** — offline play,
+neural-network bots with human constraints, server-authoritative internet
+multiplayer, and encrypted anti-tamper networking.
+
+---
+
+## Table of contents
+
+1. [What this fork is](#1-what-this-fork-is)
+2. [Requirements](#2-requirements)
+3. [Installing and building the engine](#3-installing-and-building-the-engine)
+4. [Creating and configuring a project](#4-creating-and-configuring-a-project)
+5. [Editor fundamentals](#5-editor-fundamentals)
+6. [Rendering features](#6-rendering-features)
+7. [Terrain: auto LOD, streaming, occlusion](#7-terrain-auto-lod-streaming-occlusion)
+8. [Physics](#8-physics)
+9. [Soft body physics](#9-soft-body-physics)
+10. [Particles (OpenParticleSystem)](#10-particles-openparticlesystem)
+11. [Input and device detection](#11-input-and-device-detection)
+12. [Animation](#12-animation)
+13. [Scripting and game logic](#13-scripting-and-game-logic)
+14. [AI: the AIBackbone gem](#14-ai-the-aibackbone-gem)
+15. [The example game: Arena Shooter](#15-the-example-game-arena-shooter)
+16. [Multiplayer networking](#16-multiplayer-networking)
+17. [Secure networking (anti-tamper)](#17-secure-networking-anti-tamper)
+18. [Troubleshooting](#18-troubleshooting)
+19. [Reference tables](#19-reference-tables)
+20. [Document index](#20-document-index)
+
+---
+
+## 1. What this fork is
+
+`aio3de` is a fork of the Open 3D Engine (O3DE) focused on making the engine
+practical and demonstrable out of the box. On top of upstream O3DE it adds:
+
+| Area | Additions |
+| --- | --- |
+| Rendering | Hardware-agnostic ray-traced shadows (portable BVH + compute traversal, live-toggleable), GPU-driven frustum culling with indirect draws, SIMD batched CPU sphere culling, PSO pipeline-library disk caching |
+| Terrain | Error-driven automatic terrain LOD bounded by screen-space error, terrain as an automatic software occluder, height-aware streamable level chunks (LevelStreaming gem) |
+| Physics | Full XPBD soft body system (SoftBodyPhysics gem): CPU and GPU compute solvers, world/rigid/soft-soft collision, in-Editor component |
+| AI | AIBackbone gem: in-Editor AI Model Builder, ML stack installer, dataset recorder, ONNX import, portable weights export; NeuralBots gem: runtime MLP bot agent with human constraints |
+| Gameplay | ArenaShooter example game kit (input bindings + Lua gameplay scripts), ArenaShooterNet server-authoritative multiplayer |
+| Networking | Setup and tooling for the engine's DTLS transport security: RSA-authenticated handshake, AES-GCM encrypted/authenticated packets, replay protection, cert pinning |
+| Tooling & onboarding | `o3de doctor/status/resolve` CLI, auto-bootstrapping Python venv, Tkinter pre-build GUI hub, cross-platform quick start, feature test/benchmark harness |
+| Parallelism | `AZ::ParallelFor` TaskGraph primitive used across hot paths |
+
+Everything is delivered as standard O3DE gems and engine code — nothing needs
+external services.
+
+---
+
+## 2. Requirements
+
+### Windows
+
+- Windows 10/11, 64-bit.
+- **Visual Studio 2022 or newer** with the "Desktop development with C++"
+  workload (MSVC, Windows SDK, CMake support). The engine also builds with
+  VS 2026 / MSVC 14.5x.
+- **CMake 3.22+** (bundled with VS or standalone).
+- **Git** (with LFS if you clone large asset repos).
+- **RAM**: 16 GB minimum; **strongly recommended**: a page file of
+  16–32 GB (see [§18.1](#181-msvc-out-of-heap-c1060)). Compiling the Editor is
+  memory-hungry.
+- **Disk**: ~100 GB free for engine + build + 3rd-party packages.
+- GPU with DirectX 12 or Vulkan support.
+
+### Linux
+
+- Ubuntu 22.04/24.04 (other distros work with equivalent packages).
+- Clang or GCC toolchain, CMake, Ninja.
+- Vulkan-capable GPU + drivers for running; building headless is fine.
+- See `docs/aio3de/BUILDING_LINUX.md` for the exact package list and the
+  tinyusdz/FetchContent notes specific to this fork.
+
+---
+
+## 3. Installing and building the engine
+
+### 3.1 Clone
+
+```bat
+git clone https://github.com/ignaciosgithub/aio3de.git
+cd aio3de
+```
+
+### 3.2 Register the engine
+
+```bat
+scripts\o3de.bat register --this-engine        :: Windows
+scripts/o3de.sh register --this-engine         # Linux
+```
+
+The first `o3de` invocation **auto-bootstraps the Python virtual environment**
+(a fork feature) — no manual `get_python` step. If the bundled Python crashes
+on launch, the CLI detects it and points you at the missing VC++
+redistributable.
+
+Optional health check (fork feature):
+
+```bat
+scripts\o3de.bat doctor     :: verify toolchain, packages, registration
+scripts\o3de.bat status     :: show engine/project registration state
+scripts\o3de.bat resolve    :: attempt automatic fixes
+```
+
+### 3.3 Configure (CMake)
+
+Windows:
+
+```bat
+cmake -B build\windows -S . -G "Visual Studio 17 2022"
+```
+
+Linux:
+
+```bash
+cmake -B build/linux -S . -G Ninja -DCMAKE_BUILD_TYPE=profile
+```
+
+CMake downloads the required 3rd-party packages automatically on first
+configure. **Re-run the configure whenever you enable/disable a gem** — the
+gem list is baked into the generated build. Because CMake caches your options,
+the re-run is just:
+
+```bat
+cmake build\windows
+```
+
+### 3.4 Build
+
+```bat
+cmake --build build\windows --target Editor --config profile -- /m
+```
+
+On memory-constrained machines use serial compilation (see
+[§18.1](#181-msvc-out-of-heap-c1060)):
+
+```bat
+cmake --build build\windows --target Editor --config profile -- /m:1 /p:CL_MPCount=1
+```
+
+Other useful targets: `AssetProcessor`, `<Project>.GameLauncher`,
+`<Project>.ServerLauncher`, `o3de` (Project Manager GUI).
+
+A successful build ends with `Build succeeded` and
+`Editor.vcxproj -> ...\bin\profile\Editor.exe`.
+
+### 3.5 First launch
+
+1. Start `build\windows\bin\profile\Editor.exe` (it launches the Asset
+   Processor automatically).
+2. **Let the Asset Processor finish** before judging anything — on a first
+   launch or after a big rebuild it processes thousands of assets and shader
+   variants; the Editor can look frozen for several minutes. Watch the AP tray
+   icon's job count.
+3. Open or create a level; press **Ctrl+G** to enter game mode, **Esc** to
+   leave.
+
+---
+
+## 4. Creating and configuring a project
+
+### 4.1 Create
+
+GUI: run `build\windows\bin\profile\o3de.exe` (Project Manager) → *New
+project*. This fork also ships a Tkinter **pre-build onboarding hub**
+(preflight checks + project creation) for machines where the Qt Project
+Manager isn't built yet.
+
+CLI:
+
+```bat
+scripts\o3de.bat create-project -pp C:\path\to\MyProject
+```
+
+### 4.2 Enable gems
+
+Every feature in this manual lives in a gem. Two ways to enable one:
+
+CLI (from the engine root):
+
+```bat
+scripts\o3de.bat enable-gem -gn <GemName> -pp <project path>
+```
+
+GUI: Project Manager → project card → **⋮ → Configure Gems** → toggle → save.
+
+**Rules that trip everyone up:**
+
+- *Asset-only gems* (e.g. `ArenaShooter`) need no rebuild — restart the
+  Editor/Asset Processor and the assets appear.
+- *Code gems* (e.g. `NeuralBots`, `ArenaShooterNet`, `OpenParticleSystem`,
+  `SoftBodyPhysics`, `LevelStreaming`) require: **enable → re-run CMake
+  configure → rebuild the Editor → relaunch**. Their components do **not**
+  appear in *Add Component* until the rebuilt Editor is running.
+- You can verify what's enabled by opening `<project>/project.json` and
+  reading the `gem_names` array.
+
+### 4.3 Gems used in this manual
+
+| Gem | Type | Provides |
+| --- | --- | --- |
+| `ArenaShooter` | assets | example game scripts + input bindings |
+| `NeuralBots` | code | neural-net Bot Agent component |
+| `ArenaShooterNet` | code | server-authoritative multiplayer components |
+| `AIBackbone` | code+tools | AI Model Builder, training, dataset recorder |
+| `SoftBodyPhysics` | code | Soft Body component (XPBD) |
+| `LevelStreaming` | code | streamable chunk grid component |
+| `OpenParticleSystem` | code | Particle component + Particle Editor |
+| `Multiplayer` | code | netcode foundation (dependency of ArenaShooterNet) |
+| `PhysX5` | code | rigid bodies, character controller, scene queries |
+| `StartingPointInput` | code | Input component / input event buses |
+| `EMotionFX` | code | Actor + Anim Graph animation |
+| `DebugDraw` | code | on-screen debug text/shapes (used by the HUD) |
+| `WhiteBox` | code | in-Editor blockout modeling |
+
+---
+
+## 5. Editor fundamentals
+
+- **Entity Outliner** (left): the level's entity hierarchy. Right-click →
+  *Create entity*. Drag entities to parent them.
+- **Entity Inspector** (right): components of the selected entity. **Add
+  Component** button → searchable list grouped by category.
+- **Asset Browser**: every processed asset, organized by gem/project folder.
+  Assets from a gem appear under `Gems/<GemName>/Assets/...`.
+- **Viewport**: WASD + right-mouse-drag to fly. `1/2/3` translate/rotate/scale
+  gizmos.
+- **Prefabs**: select entities → right-click → *Create Prefab*. Prefabs are
+  the unit of reuse and of network spawning.
+- **Game mode**: **Ctrl+G** starts simulation in-Editor, **Esc** exits.
+- **Console** (bottom): shows errors and accepts cvar input (e.g. type
+  `r_rayTracedShadows true`).
+- **White Box modeling**: add a **White Box** component to an entity to
+  push/pull faces, extrude and split edges directly in the viewport — ideal
+  for blocking out level geometry. For organic/character modeling use Blender
+  and import FBX/glTF; the Asset Processor ingests them automatically.
+
+The step-by-step "empty editor → playable level" walkthrough (terrain,
+lighting, physics props, player camera) is in
+`docs/aio3de/GETTING_STARTED_TUTORIAL.md`.
+
+---
+
+## 6. Rendering features
+
+### 6.1 Hardware-agnostic ray-traced shadows
+
+Unlike vendor RT APIs, this implementation runs on **any GPU with compute
+shaders**: a portable BVH is built on the CPU (asynchronously, on background
+jobs) and traversed in a compute pass, producing hard ray-traced shadows
+composited over the main pipeline.
+
+Runtime control (Editor console or `.cfg` files):
+
+| CVar | Type | Meaning |
+| --- | --- | --- |
+| `r_rayTracedShadows` | bool | master toggle (live-toggleable) |
+| `r_rayTracedShadowsRebuild` | bool | force a BVH rebuild now |
+| `r_rayTracedShadowsAutoRebuild` | bool | rebuild automatically when meshes move/change |
+| `r_rayTracedShadowsAutoRebuildPollFrames` | uint | frames between change-detection polls |
+| `r_rayTracedShadowsPrewarm` | bool | build the BVH at level load (no first-toggle hitch) |
+| `r_rayTracedShadowsBias` | float | ray origin offset to fight self-shadow acne |
+| `r_rayTracedShadowsFactor` | float | shadow darkness factor |
+| `r_rayTracedShadowsMaxDistance` | float | max shadow ray distance |
+| `r_rayTracedShadowsMaxTriangles` | uint | BVH triangle budget |
+
+Design notes:
+
+- The BVH build runs **asynchronously** on background jobs; toggling shadows or
+  moving meshes never hitches the frame.
+- BVH buffers are bound directly to the pass SRG (read-only buffers have no
+  attachment id) — relevant if you write your own consumer pass.
+- Details: `docs/aio3de/RAY_TRACING.md`.
+
+### 6.2 GPU-driven frustum culling
+
+A compute pass classifies instance bounds against the frustum and compacts
+survivors into `DrawIndexedIndirect` argument buffers consumed by a dedicated
+draw pass — the CPU never touches per-instance visibility. See
+`docs/aio3de/GPU_CULLING.md` for the pass wiring and how to feed it.
+
+### 6.3 CPU batched sphere culling
+
+`AZ::FrustumClassifySpheres` classifies spheres against a frustum in
+SoA + SIMD batches, integrated (gated) into `RPI::Culling`:
+
+| CVar | Meaning |
+| --- | --- |
+| `r_useBatchedSphereCulling` | enable the SoA/SIMD batched path |
+| `r_batchedSphereCullingMinEntries` | minimum batch size before it kicks in |
+| `r_useEntryWorkListsForCulling` | work-list based job splitting |
+| `r_numEntriesPerCullingJob` / `r_numNodesPerCullingJob` | job granularity |
+
+### 6.4 PSO precaching
+
+The RHI pipeline-library disk cache is **on by default** in this fork:
+compiled pipeline states persist across runs, eliminating most first-frame
+shader-compile hitches. A console command saves the cache on demand, and an
+auto-save interval writes it periodically.
+
+### 6.5 CPU parallelism
+
+`AZ::ParallelFor` (in `AzCore/Task/Algorithms.h`) is a TaskGraph-based
+parallel-for used across engine hot paths (culling, soft body sweeps, BVH
+builds). Use it for your own data-parallel loops:
+
+```cpp
+#include <AzCore/Task/Algorithms.h>
+AZ::ParallelFor(0, count, [&](size_t i) { /* work on element i */ });
+```
+
+---
+
+## 7. Terrain: auto LOD, streaming, occlusion
+
+### 7.1 Terrain auto LOD (Nanite-style error-driven)
+
+Each terrain sector selects its LOD from the **actual geometric error** it
+would introduce, projected to screen space — not from raw distance. You set a
+tolerance in *pixels*; the mesh manager picks, per sector, the coarsest LOD
+whose projected error stays below it. Silhouettes stay crisp near the camera
+while flat, distant terrain drops to very coarse meshes.
+
+Settings (on the Terrain World Renderer component):
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| Auto LOD | on | error-driven selection (off = legacy distance-based) |
+| Auto LOD error (pixels) | 1.0 | max tolerated screen-space error; raise for performance, lower for quality |
+
+Debug cvars: `r_debugTerrainLodLevels` (color-code sectors by LOD),
+`r_debugTerrainAabbs` (draw sector bounds).
+
+### 7.2 Level streaming (LevelStreaming gem)
+
+Add a **Level Streaming** component to a level entity to stream world content
+in/out around the camera in a chunk grid. The differentiator: **chunk bounds
+grow vertically to the tallest object inside the chunk**, so a tall tower
+keeps streaming from much further away than a crate — distance is measured to
+the chunk's true bounds, not to a flat cell.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| Chunk size | 64 m | horizontal (XY) size of a streamable chunk |
+| Stream distance | 256 m | camera-to-chunk-bounds distance under which the chunk streams in |
+| Hysteresis | 0.1 | extra fraction beyond stream distance before streaming out (kills boundary flicker) |
+| Rebuild interval | 0.5 s | how often chunk membership is rebuilt (picks up moved/spawned objects) |
+
+### 7.3 Terrain occlusion
+
+Terrain is fed into the software occlusion buffer as an **automatic,
+conservative occluder**: hills and ridges cull the entities behind them with
+no manual occluder authoring. It is conservative — it never over-culls; worst
+case it merely fails to cull. Works together with (and independently of) the
+GPU culling path.
+
+---
+
+## 8. Physics
+
+The engine uses **PhysX 5** (`PhysX5` gem). The pieces you'll use constantly:
+
+- **Static geometry**: *PhysX Static Rigid Body* + *PhysX Collider* (or a
+  Terrain physics collider). Objects with colliders but no dynamic rigid body
+  are immovable and collide with everything dynamic.
+- **Dynamic props**: *PhysX Dynamic Rigid Body* + *PhysX Collider* (set mass,
+  restitution, friction on the collider's physics material).
+- **Characters**: *PhysX Character Controller* (+ *Character Gameplay* for
+  gravity/jumping). All player and bot movement in the example game goes
+  through the character controller — never write transforms directly on
+  physics-driven entities.
+- **Triggers**: any collider with *Trigger* checked; script against
+  trigger-enter/exit notifications.
+- **Scene queries**: raycasts/sweeps from Lua, Script Canvas, or C++ — used by
+  the example game for hitscan shots and bot line-of-sight.
+
+---
+
+## 9. Soft body physics
+
+The `SoftBodyPhysics` gem adds a **Soft Body** component that simulates any
+mesh as an XPBD (extended position-based dynamics) particle system: edges
+become distance constraints, an optional pressure constraint preserves volume,
+and the render mesh deforms with the simulation. Fully set up in-Editor, no
+code needed.
+
+### 9.1 Setup
+
+1. Enable `SoftBodyPhysics`, reconfigure, rebuild.
+2. Entity with a **Mesh** component → **Add Component → Soft Body**.
+3. Press Ctrl+G — the mesh drops, jiggles, and collides per your settings.
+
+### 9.2 Settings reference
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| Mass per vertex | 0.1 kg | mass of each simulated particle |
+| Compliance | 0.001 | edge softness; 0 = rigid edges, larger = stretchier |
+| Pressure | 1.0 | volume preservation; 0 = off, 1 = keep rest volume, >1 inflates |
+| Damping | 0.5 | per-second velocity damping [0..1] |
+| Substeps | 4 | simulation substeps per frame |
+| Iterations | 4 | constraint iterations per substep |
+| Gravity scale | 1.0 | multiplier on world gravity |
+| Solver mode | CPU | `Cpu` (all features) or `Gpu` compute shader (Vulkan/DX12; Simple collision only) |
+| Collision mode | Simple | `Simple` (ground plane), `World` (static level colliders), `WorldAndRigid` (plus two-way dynamic rigid body coupling) |
+| Particle radius | 0.02 m | collision thickness per particle in World modes |
+| Auto contact thickness | on | grows the thickness from the mesh edge length so contacts cover inter-particle gaps (prevents visible interpenetration) |
+| World friction | 0.5 | tangential friction on world contacts |
+| Rigid push scale | 1.0 | scale on impulses applied to dynamic rigid bodies |
+| Rigid max push velocity | 2.0 m/s | clamp on per-contact velocity change imparted to a rigid body (prevents explosions at play start) |
+| Soft-soft collision | off | collide with particles of other soft bodies (spatial-hash contacts) |
+| Soft-soft friction | 0.5 | friction for soft-soft contacts |
+| Ground collision / height / friction | on / 0 / 0.5 | the Simple-mode ground plane |
+| Pin highest vertices | off | pin topmost vertices (hanging cloth/bodies) |
+| Pin tolerance | 0.01 m | how close to the top a vertex must be to pin |
+
+### 9.3 How the collision modes work
+
+- **Simple** — particles collide with a horizontal plane. Cheapest; the only
+  mode the GPU solver supports.
+- **World** — particles sphere-sweep against the level's static PhysX
+  colliders with MTD depenetration (rigid geometry cannot pass through the
+  soft body). Collider-AABB broadphase culling keeps the sweep count low.
+- **WorldAndRigid** — adds *two-way* coupling with dynamic rigid bodies: the
+  soft body is pushed by them and pushes back (impulse clamped by
+  *Rigid max push velocity*).
+
+### 9.4 CPU vs GPU solver
+
+The GPU solver runs the XPBD constraint solve in a compute shader — use it for
+high-resolution meshes where the CPU solve dominates the frame. Trade-off: GPU
+mode currently supports Simple collision only. The CPU solver parallelizes
+across cores via `AZ::ParallelFor` and supports every feature. The mode is a
+per-component dropdown, so you can A/B them live.
+
+---
+
+## 10. Particles (OpenParticleSystem)
+
+The engine ships the **OpenParticleSystem** gem (from o3de-extras): a full
+CPU-simulated particle system with an in-Editor authoring tool.
+
+1. Enable `OpenParticleSystem` for your project, reconfigure, rebuild, relaunch.
+2. Let the Asset Processor finish (the gem has shaders/materials/samples to
+   compile).
+3. Entity → **Add Component → Particle System → Particle**; assign a sample
+   `.particle` asset (search `firework` in the picker; samples live in
+   `Gems/OpenParticleSystem/Assets/Particles/`).
+4. Author your own: **Tools → (Preview) Particle Editor** — emitters with
+   spawn-rate/burst modules, shapes, forces, vortex, noise, color/size over
+   life, collision, events; sprite, ribbon-trail and mesh renderers.
+
+If the Particle component is missing from *Add Component*, the gem is not in
+your Editor build — see [§18.4](#184-a-gems-component-doesnt-appear-in-add-component).
+
+---
+
+## 11. Input and device detection
+
+Input flows through the `StartingPointInput` gem:
+
+1. An **`.inputbindings` asset** maps physical inputs (keys, mouse axes,
+   gamepad sticks/buttons) to named **input events** (e.g. `MoveForward`).
+   Multiple devices can map to the *same* event simultaneously — that's how
+   the example game supports keyboard/mouse and gamepad at once with zero
+   toggles.
+2. An **Input component** on an entity activates a bindings asset.
+3. Scripts/components listen for the named events
+   (`InputEventNotificationBus`), receiving pressed/held/released with an
+   analog value.
+
+The ArenaShooter kit's `arenashooter.inputbindings` defines:
+
+| Event | Keyboard/Mouse | Gamepad |
+| --- | --- | --- |
+| `MoveForward` | W/S | left stick Y |
+| `MoveRight` | A/D | left stick X |
+| `LookX` / `LookY` | mouse delta | right stick |
+| `Shoot` | left mouse button | right trigger |
+| `Jump` | Space | A button |
+| `KMActivity` / `PadActivity` | any KB/M input | any pad input |
+
+**Device detection**: `DeviceDetector.lua` listens to the two activity events
+and broadcasts a gameplay event `ActiveInputDevice` (1.0 = keyboard/mouse,
+2.0 = gamepad) whenever the player switches device — hook it to swap UI button
+prompts or aim sensitivity.
+
+---
+
+## 12. Animation
+
+Character animation uses **EMotionFX**:
+
+1. Import a rigged character (FBX) — the Asset Processor produces an **Actor**.
+2. Add **Actor** + **Anim Graph** components to the character entity.
+3. Author states/blends in the **Animation Editor**; expose **float
+   parameters** used as transition conditions.
+
+The example game's `AnimationDriver.lua` drives two parameters every frame:
+
+- `MoveSpeed` — planar speed in m/s → drive idle/walk/run blend trees.
+- `Shooting` — 1 while firing → drive a shoot/recoil state.
+
+Create parameters with those names in your anim graph, wire your transitions
+to them, and any rigged character animates correctly with zero extra code. If
+the Actor is a child of the moving entity, point the script's *SourceEntity*
+at the moving root.
+
+---
+
+## 13. Scripting and game logic
+
+Two first-class scripting options, usable together:
+
+- **Lua** (Lua Script component) — full API surface, best for gameplay systems.
+- **Script Canvas** — node-based visual scripting, same underlying buses.
+
+The core mental model is the **EBus**: components and scripts communicate by
+sending/handling events on addressable buses (per-entity or broadcast). The
+example game standardizes on **gameplay notification events** with a float
+payload — any Lua script, Script Canvas graph, or C++ component can raise or
+handle them:
+
+```lua
+-- send 25 damage to entity `target`
+GameplayNotificationBus.Event.OnEventBegin(
+    GameplayNotificationId(target, "Damage", typeid(0.0)), 25.0)
+```
+
+| Event | Channel entity | Meaning |
+| --- | --- | --- |
+| `Damage` | damaged entity | apply damage (value = amount) |
+| `Killed` | dying entity | entity just died |
+| `Respawned` | respawned entity | entity came back |
+| `MoveSpeed` | player entity | planar speed every tick |
+| `ActiveInputDevice` | detector entity | 1 = KB/M, 2 = gamepad |
+
+Copy-paste recipes (WASD movement, prefab spawning, triggers, timers, Script
+Events, camera control, debugging) and the anatomy of a Lua component are in
+`docs/aio3de/SCRIPTING_AND_GAME_LOGIC.md`.
+
+---
+
+## 14. AI: the AIBackbone gem
+
+`AIBackbone` puts a machine-learning workflow inside the Editor:
+
+- **AI Model Builder** (Editor tool): define an MLP — input/output widths,
+  hidden layers, activations — as a model spec.
+- **ML stack installer**: installs the required Python packages (PyTorch etc.)
+  into the engine's Python environment on demand.
+- **Dataset recorder**: record observation/action pairs from gameplay for
+  supervised/imitation training.
+- **Training**: trains with PyTorch; saves `.pt`, attempts `.onnx` export, and
+  **exports `<model>.weights.json>`** — a portable, dependency-free weights
+  format consumed at runtime by the NeuralBots gem.
+- **ONNX import** with automatic I/O shape detection.
+
+### The `.weights.json` format (`mlp-1`)
+
+```json
+{
+  "format": "mlp-1",
+  "layers": [
+    { "weights": [[...],[...]], "biases": [...], "activation": "relu" }
+  ]
+}
+```
+
+- `weights` is row-major `[out_units][in_units]`; `biases` has `out_units`
+  entries; layer widths must chain.
+- Supported activations: `relu`, `tanh`, `sigmoid`, `leaky_relu`, `none`.
+- The runtime loader (`NeuralBots`) validates format, widths, raggedness and
+  bias counts, and refuses (with a warning) rather than misbehave.
+
+---
+
+## 15. The example game: Arena Shooter
+
+The fork ships a complete example game in three gems, built in layers so each
+is useful alone. This section is the full walkthrough.
+
+### 15.1 Overview and architecture
+
+| Layer | Gem | What it adds |
+| --- | --- | --- |
+| Offline game | `ArenaShooter` (assets) | bindings, movement, shooting, health, HUD, device detection, animation driver |
+| AI opponents | `NeuralBots` (code) | neural-net Bot Agent with human constraints |
+| Multiplayer | `ArenaShooterNet` (code) | server-authoritative networked player + health |
+| Anti-tamper | engine + docs | DTLS encryption with RSA-authenticated handshake ([§17](#17-secure-networking-anti-tamper)) |
+
+Everything communicates through the shared gameplay events of §13, so humans,
+bots, offline scripts and networked components all damage and kill each other
+symmetrically.
+
+### 15.2 Phase 1 — the offline game (ArenaShooter kit)
+
+**Enable** (asset-only, no rebuild):
+
+```bat
+scripts\o3de.bat enable-gem -gn ArenaShooter -pp <your project path>
+```
+
+Restart the Editor; the files appear in the Asset Browser under
+`Gems/ArenaShooter/Assets`. Required gems in the project: `PhysX5`,
+`StartingPointInput`, `DebugDraw`.
+
+**Shipped example project files:**
+
+| File | Purpose |
+| --- | --- |
+| `InputBindings/arenashooter.inputbindings` | KB/M + gamepad bindings (both live at once) |
+| `Scripts/ArenaShooter/PlayerController.lua` | move/look/jump on the PhysX character controller |
+| `Scripts/ArenaShooter/Weapon.lua` | hitscan weapon: raycast from camera, damage + knockback, fire-rate limit |
+| `Scripts/ArenaShooter/Health.lua` | health, `Damage` handling, death, timed respawn at a spawn point |
+| `Scripts/ArenaShooter/ScoreHud.lua` | score + match timer HUD (DebugDraw), win condition |
+| `Scripts/ArenaShooter/DeviceDetector.lua` | broadcasts `ActiveInputDevice` on device switch |
+| `Scripts/ArenaShooter/AnimationDriver.lua` | feeds `MoveSpeed`/`Shooting` to an EMotionFX anim graph |
+
+**Build the arena level:**
+
+1. **Arena**: a large box (PhysX Static Rigid Body + Collider) or Terrain for
+   the floor; block out walls/ramps/cover with **White Box** components.
+2. **Player** entity:
+   - PhysX **Character Controller** + **Character Gameplay**
+   - **Input** component → `arenashooter.inputbindings`
+   - **Lua Script** → `PlayerController.lua` (set *CameraEntity*)
+   - **Lua Script** → `Weapon.lua` (same *CameraEntity*)
+   - **Lua Script** → `Health.lua`
+   - child entity with a **Camera** component at eye height
+3. **Targets**: any entity with a PhysX Collider (+ Dynamic Rigid Body if it
+   should be knocked around) + `Health.lua`. Set *SpawnPoint* to an empty
+   entity to control where it respawns.
+4. **Game manager** entity: `ScoreHud.lua` (add every target to *Targets*, set
+   *MatchTime*), `DeviceDetector.lua`, and an **Input** component with the same
+   bindings (so device-activity events reach the detector).
+5. **Ctrl+G** — WASD/left stick to move, mouse/right stick to aim, LMB/right
+   trigger to shoot, Space/A to jump. Score and timer render on screen; kill
+   all targets or run out the clock.
+
+**Animated characters**: give a rigged character (Actor + Anim Graph)
+`AnimationDriver.lua` and create `MoveSpeed`/`Shooting` float parameters in the
+anim graph ([§12](#12-animation)).
+
+### 15.3 Phase 2 — neural-net bots (NeuralBots gem)
+
+**Enable** (code gem → reconfigure + rebuild):
+
+```bat
+scripts\o3de.bat enable-gem -gn NeuralBots -pp <your project path>
+cmake build\windows
+cmake --build build\windows --target Editor --config profile
+```
+
+**Bot entity setup:**
+
+1. Entity with a PhysX **Character Controller**.
+2. **Add Component → AI → Bot Agent**.
+3. Set **Target entity** (the player, or another bot for AI-vs-AI matches).
+4. Add `Health.lua` so the bot can die and respawn.
+5. Leave **Model file** empty → the built-in chase/strafe/shoot heuristic
+   drives it; bots fight out of the box (and you can farm training data
+   against them).
+
+**Human constraints** (all tunable per bot):
+
+| Constraint | Default | Effect |
+| --- | --- | --- |
+| Reaction time | 0.20 s | the bot perceives a *delayed* world snapshot — it aims where you were 200 ms ago |
+| Aim error | 2.5° | Gaussian noise (Box-Muller) on every shot's yaw/pitch |
+| Max turn speed | 360°/s | hard cap on view rotation — no instant 180° flicks |
+| Max shots per second | 5 | fire-rate cap |
+
+Additionally the bot **only shoots with real line of sight** (physics
+raycast) — no wallhacks — and acts exclusively through player channels:
+character-controller movement, capped rotation, and hitscan shots that send
+the same `Damage` events as `Weapon.lua`. Bots and humans are mechanically
+symmetric.
+
+**Neural policy contract** (fixed):
+
+- **Inputs (8 floats)**: target direction in bot-local space (x, y, z),
+  distance/50, line-of-sight (0/1), own speed/10, cos(angle to target),
+  time-since-seen/2.
+- **Outputs (5 floats)**: strafe (−1..1), forward (−1..1), turn (−1..1 of max
+  turn speed), shoot (>0.5 fires), jump (reserved).
+
+**Training workflow** (AIBackbone, §14):
+
+1. AI Model Builder → new model, 8 float inputs, 5 float outputs (e.g. two
+   hidden layers of 32, `tanh` output).
+2. Record a dataset (e.g. your own play via the recorder) and train.
+3. Training exports `<model>.weights.json` next to the `.pt`.
+4. Put it in your project; set the Bot Agent's **Model file** to the
+   project-relative path (e.g. `AIModels/pvp_bot.weights.json`).
+5. Wrong widths or missing file → warning + automatic heuristic fallback.
+
+### 15.4 Phase 3 — multiplayer (ArenaShooterNet gem)
+
+See [§16](#16-multiplayer-networking) for the netcode model, then:
+
+**Enable** (code gem → reconfigure + rebuild). Requires `Multiplayer`,
+`PhysX5`, `StartingPointInput` and the `ArenaShooter` gem (for the bindings
+asset).
+
+**Networked player prefab** — one entity with, in order:
+
+1. PhysX **Character Controller**
+2. **Network Binding** (Multiplayer gem)
+3. **Network Transform**
+4. **Network Character**
+5. **Network Arena Player** (this gem)
+6. **Network Arena Health** (this gem)
+7. **Input** component → `arenashooter.inputbindings`
+
+Save as a prefab and register it as the spawnable player (e.g. **Simple
+Network Player Spawner** component on a level entity).
+
+**Component behavior:**
+
+- **Network Arena Player** — the autonomous client samples the ArenaShooter
+  input events (`MoveForward`, `MoveRight`, `LookX`, `LookY`, `Shoot`) into
+  network inputs each tick. Movement runs through the *networked* PhysX
+  character controller on both the predicting client and the server;
+  mispredictions are corrected automatically. **Shots resolve only on the
+  server**: the client transmits trigger state; the server enforces the fire
+  interval and performs the hitscan raycast itself. Tunables (archetype
+  properties): `MoveSpeed`, `EyeHeight`, `FireRange`, `FireDamage`,
+  `FireInterval`.
+- **Network Arena Health** — health lives on the server and replicates to all
+  clients (clients cannot write it). Damage comes only from server-side shot
+  resolution. Death stashes the body and respawns at the spawn point after
+  `RespawnDelay`. Tunables: `MaxHealth`, `RespawnDelay`.
+
+**Running server + client:**
+
+```bat
+:: machine A (server)
+<Project>.ServerLauncher.exe --console-command-file=server.cfg
+::   server.cfg:  host          (add "sv_port 33450" to pick a port)
+
+:: machine B (client)
+<Project>.GameLauncher.exe --console-command-file=client.cfg
+::   client.cfg:  connect <server ip>:33450
+```
+
+Test locally first (both on one machine, `connect 127.0.0.1`). For internet
+play: forward the UDP port on the server's router and verify it with an
+online port checker *before* trying remote clients.
+
+**Bots online**: spawn bot entities server-side; they act through the same
+validated gameplay channels, so they need no special netcode.
+
+### 15.5 Phase 4 — anti-tamper
+
+Covered in full in [§17](#17-secure-networking-anti-tamper). Summary of the
+two-layer model:
+
+1. **Server authority** (phase 3): the server owns position, health, damage
+   and fire rate; clients send only inputs. A tampered client can at most send
+   *legal* inputs.
+2. **Transport hardening** (phase 4): RSA-authenticated DTLS handshake +
+   AES-256-GCM encrypted and authenticated packets + replay windows + cert
+   pinning. Nobody between the client and server can read, alter, or replay
+   traffic.
+
+Both layers are required: encryption cannot stop a malicious client from
+sending valid-but-dishonest data — that is what server authority is for.
+
+---
+
+## 16. Multiplayer networking
+
+The `Multiplayer` gem (on `AzNetworking`) provides:
+
+- **Roles**: an entity is *authority* (server), *autonomous* (the owning
+  client), or *client* (everyone else's replica).
+- **Network inputs**: the autonomous client creates inputs
+  (`CreateInput`), sends them to the server, and both run `ProcessInput` —
+  the client predictively, the server authoritatively. Server results correct
+  client mispredictions automatically.
+- **Network properties**: state replicated authority → clients (e.g.
+  `Health`).
+- **Multiplayer auto-components**: components declared in XML
+  (`*.AutoComponent.xml`); codegen produces the networking plumbing. This is
+  how `ArenaShooterNet` defines its two components — copy that gem as a
+  template for your own networked gameplay.
+
+Key rules baked into the example (follow them in your own games):
+
+- Clients **never** send positions, hit results, or damage — only inputs.
+- Anything gameplay-critical (hit detection, cooldowns, health) executes on
+  the server, using server-side scene queries.
+- Movement of networked, physics-driven entities goes through the networked
+  character controller (`TryMoveWithVelocity`), never direct transform writes.
+
+Useful console commands/cvars: `host`, `connect <ip>:<port>`, `disconnect`,
+`sv_port` (server), plus the security cvars of §17.
+
+---
+
+## 17. Secure networking (anti-tamper)
+
+The engine's UDP transport ships DTLS support with the cipher suite
+`ECDHE-RSA-AES256-GCM-SHA384`. Once enabled you get, per connection:
+
+| Property | Mechanism |
+| --- | --- |
+| Server identity (anti-MITM) | **RSA-authenticated handshake** — the server proves possession of its RSA private key by signing the key exchange; clients verify against the certificate, optionally **pinned** (`net_SslEnablePinning`) |
+| Fresh session keys / forward secrecy | ECDHE — a new ephemeral key per session; recorded traffic can't be decrypted later even if the RSA key leaks |
+| Confidentiality + integrity | AES-256-GCM AEAD on every packet — a single flipped bit fails the auth tag and the packet is dropped |
+| Replay resistance | DTLS sequence numbers + replay window; handshake cookies rotate (`net_RotateCookieTimer`) |
+
+### 17.1 Setup
+
+1. **Generate the server's RSA key + certificate** (helper included):
+
+   ```bash
+   python scripts/generate_network_certs.py --out certs/
+   # options: --cn <name> --days <validity> --bits <RSA size>
+   ```
+
+   It creates `serverkey.pem` (private key — **server only, never commit,
+   never distribute**) and `servercert.pem` (public — ships with clients for
+   pinning). It refuses to overwrite existing keys.
+
+2. **Server cfg** additions:
+
+   ```text
+   net_UdpUseEncryption true
+   net_SslExternalCertificateFile Certificates/servercert.pem
+   net_SslExternalPrivateKeyFile Certificates/serverkey.pem
+   ```
+
+3. **Client cfg** additions (cert only — no private key):
+
+   ```text
+   net_UdpUseEncryption true
+   net_SslExternalCertificateFile Certificates/servercert.pem
+   ```
+
+   Cert paths resolve relative to the asset products folder (`@products@`).
+
+### 17.2 Hardening cvars
+
+| CVar | Default | Meaning |
+| --- | --- | --- |
+| `net_UdpUseEncryption` | false | master switch for DTLS on UDP connections |
+| `net_SslEnablePinning` | true | remote cert must exactly match the local copy |
+| `net_SslValidateExpiry` | true | reject expired certificates |
+| `net_SslAllowSelfSigned` | true | accept self-signed certs that are otherwise trusted (fine with pinning; use a CA for storefront distribution) |
+| `net_SslCertCiphers` | `ECDHE-RSA-AES256-GCM-SHA384` | cipher suite |
+| `net_SslMaxCertDepth` | 3 | max cert chain depth |
+| `net_RotateCookieTimer` | 50 ms | DTLS handshake cookie rotation |
+
+### 17.3 Threat model (honest version)
+
+| Threat | Stopped by |
+| --- | --- |
+| Reading traffic (sniffing) | AES-GCM encryption |
+| Modifying packets in flight | GCM auth tag (packet dropped) |
+| Replaying captured packets | DTLS replay window |
+| Impersonating the server (MITM) | RSA cert verification + pinning |
+| Decrypting recorded traffic later | ECDHE forward secrecy |
+| **Malicious client sending valid-but-dishonest data** | **NOT crypto — server authority (§15.4/§16)** |
+
+Key management rules: private key exists only on the server; never commit
+keys or certs with keys to source control; rotate periodically (regenerate +
+redistribute the public cert); use a real CA if you can't ship the pinned
+cert with clients.
+
+Full guide: `docs/aio3de/SECURE_NETWORKING.md`.
+
+---
+
+## 18. Troubleshooting
+
+### 18.1 MSVC out of heap (C1060)
+
+`error C1060: compiler is out of heap space` — the compiler ran out of
+virtual memory. In order of effectiveness:
+
+1. **Increase the Windows page file**: System → Advanced system settings →
+   Performance Settings → Advanced → Virtual memory → Change → untick
+   "Automatically manage", set Custom 16384–32768 MB → reboot. This is the
+   real fix.
+2. Build serially: `-- /m:1 /p:CL_MPCount=1` (`/m` limits parallel *projects*;
+   `CL_MPCount` limits parallel compiles *within* a project — you need both).
+3. Close other memory-heavy apps during the build.
+
+### 18.2 PDB errors (C1090 / C1033)
+
+`PDB API call failed` / `Cannot open program database` after a crashed build:
+the target's PDB is corrupt or locked.
+
+1. `taskkill /f /im mspdbsrv.exe` (kills the PDB server holding the file).
+2. Delete the target's intermediate dir, e.g.
+   `build\windows\Code\Framework\AzToolsFramework\CMakeFiles\AzToolsFramework.dir`.
+3. **Re-run the CMake configure** before building — deleting the intermediates
+   also deletes CMake-generated `unity_*.cxx` files, and MSBuild will not
+   regenerate them (you'd hit C1083 `Cannot open source file: unity_*.cxx`).
+4. Rebuild.
+
+### 18.3 Editor "freezes" before showing a window
+
+Almost always the **Asset Processor** reprocessing after a rebuild — check the
+AP tray icon's job count and let it finish (minutes, first time). If truly
+stuck >15 min with the AP idle: quit both, start AssetProcessor manually, let
+it settle, then start the Editor. Check
+`<project>\user\log\Editor.log` — the "Built on" date at the top tells you
+whether you're even running the new build, and the last lines show where it
+stalled.
+
+### 18.4 A gem's component doesn't appear in Add Component
+
+The Editor binary you're running doesn't contain the gem. Verify, in order:
+
+1. `<project>/project.json` → `gem_names` contains the gem.
+2. You **re-ran the CMake configure** after enabling it.
+3. You rebuilt the Editor and the build output showed the gem's targets
+   compiling.
+4. You relaunched the rebuilt Editor.
+
+### 18.5 Particles invisible / no `.particle` assets
+
+Stale Asset Processor: it must load the gem's asset builder. Fully quit the AP
+(tray → Quit) and the Editor, relaunch the Editor (spawns a fresh AP), let it
+finish processing `Gems/OpenParticleSystem/Assets/...`, then search `firework`
+in the Asset Browser. Check the Editor console for red `ParticleSystem` lines.
+
+### 18.6 Bot doesn't move / doesn't shoot
+
+- The entity needs a PhysX **Character Controller** (movement goes through it).
+- The bot only fires with line of sight — check nothing blocks the ray from
+  its eye height.
+- Model file set but heuristic behavior + a console warning → the
+  `.weights.json` widths don't match 8-in/5-out; fix the model spec.
+
+### 18.7 Multiplayer client can't connect
+
+- Test locally first (`connect 127.0.0.1:33450`).
+- Server actually hosting? (`host` in its console/cfg; check its log.)
+- Port/protocol: the transport is **UDP**; forward the UDP port and verify
+  with an online port checker before remote tests.
+- With encryption on: both sides need `net_UdpUseEncryption true` and the same
+  cert (pinning rejects mismatches); check the logs for SSL validation errors.
+
+### 18.8 Where the logs are
+
+- Editor: `<project>\user\log\Editor.log`
+- Launchers: `<project>\user\log\Game.log` / server log next to it
+- Asset Processor: its own window/GUI shows per-asset job results
+
+---
+
+## 19. Reference tables
+
+### 19.1 Rendering cvars
+
+| CVar | Purpose |
+| --- | --- |
+| `r_rayTracedShadows` | toggle ray-traced shadows |
+| `r_rayTracedShadowsRebuild` / `...AutoRebuild` / `...AutoRebuildPollFrames` | BVH rebuild control |
+| `r_rayTracedShadowsPrewarm` | build BVH at level load |
+| `r_rayTracedShadowsBias` / `...Factor` / `...MaxDistance` / `...MaxTriangles` | quality/budget |
+| `r_useBatchedSphereCulling` / `r_batchedSphereCullingMinEntries` | SIMD CPU culling |
+| `r_useEntryWorkListsForCulling` / `r_numEntriesPerCullingJob` / `r_numNodesPerCullingJob` | culling job granularity |
+| `r_debugTerrainLodLevels` / `r_debugTerrainAabbs` | terrain LOD debug views |
+
+### 19.2 Networking & security cvars
+
+| CVar | Purpose |
+| --- | --- |
+| `host` / `connect <ip>:<port>` / `disconnect` | session control (console commands) |
+| `sv_port` | server listen port |
+| `net_UdpUseEncryption` | enable DTLS |
+| `net_SslExternalCertificateFile` / `net_SslExternalPrivateKeyFile` | cert + key (key: server only) |
+| `net_SslEnablePinning` / `net_SslValidateExpiry` / `net_SslAllowSelfSigned` | validation policy |
+| `net_SslCertCiphers` / `net_SslMaxCertDepth` / `net_RotateCookieTimer` | suite/chain/cookie tuning |
+
+### 19.3 Gameplay events (ArenaShooter contract)
+
+| Event | Payload | Channel | Raised by | Handled by |
+| --- | --- | --- | --- | --- |
+| `Damage` | float amount | damaged entity | Weapon.lua, Bot Agent, server shot resolution | Health.lua, Network Arena Health |
+| `Killed` | float | dying entity | Health.lua | ScoreHud.lua, your scripts |
+| `Respawned` | float | respawned entity | Health.lua | your scripts |
+| `MoveSpeed` | float m/s | player entity | PlayerController.lua | AnimationDriver.lua |
+| `ActiveInputDevice` | 1.0 / 2.0 | detector entity | DeviceDetector.lua | UI/prompt scripts |
+
+### 19.4 Neural bot policy I/O
+
+| # | Input (8) | # | Output (5) |
+| --- | --- | --- | --- |
+| 0–2 | target dir, bot-local x/y/z | 0 | strafe (−1..1) |
+| 3 | distance / 50 | 1 | forward (−1..1) |
+| 4 | line of sight (0/1) | 2 | turn (−1..1 × max turn speed) |
+| 5 | own speed / 10 | 3 | shoot (>0.5 fires) |
+| 6 | cos(angle to target) | 4 | jump (reserved) |
+| 7 | time since seen / 2 | | |
+
+---
+
+## 20. Document index
+
+Deeper, per-topic documents in this repository:
+
+| Document | Topic |
+| --- | --- |
+| `docs/aio3de/QUICKSTART.md` | shortest path to a running Editor |
+| `docs/aio3de/BUILDING_LINUX.md` | Linux build specifics |
+| `docs/aio3de/GETTING_STARTED_TUTORIAL.md` | first playable level, step by step |
+| `docs/aio3de/SCRIPTING_AND_GAME_LOGIC.md` | Lua/Script Canvas recipes |
+| `docs/aio3de/RAY_TRACING.md` | BVH + ray-traced shadows internals |
+| `docs/aio3de/GPU_CULLING.md` | GPU-driven culling passes |
+| `docs/aio3de/SECURE_NETWORKING.md` | full transport-security guide |
+| `docs/aio3de/ENGINE_ANALYSIS.md` | fork engine analysis |
+| `Gems/ArenaShooter/README.md` | offline game kit |
+| `Gems/NeuralBots/README.md` | bot agent + training |
+| `Gems/ArenaShooterNet/README.md` | multiplayer setup |
+| `Gems/AIBackbone/README.md` | AI model builder & training tools |
