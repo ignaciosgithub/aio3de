@@ -51,6 +51,57 @@ MIN_PYTHON_VERSION = (3, 10)
 RECOMMENDED_FREE_GB = 60
 
 
+def engine_git_revision(engine_path: pathlib.Path) -> str:
+    """The engine checkout's exact git revision ('<hash> (<branch>, <date>[, modified])'), because
+    engine_version alone cannot distinguish two different checkouts of the same version.
+
+    Uses the git CLI when available and falls back to reading .git/HEAD directly, so it still
+    works on hosts without git (e.g. an engine copied as an archive). Returns '' when the
+    engine path is not a git checkout at all."""
+    git_dir = pathlib.Path(engine_path) / '.git'
+    if not git_dir.exists():
+        return ''
+    git_exe = shutil.which('git')
+    if git_exe:
+        def _git(*git_args):
+            try:
+                result = subprocess.run([git_exe, '-C', str(engine_path), *git_args],
+                                        capture_output=True, text=True, timeout=15)
+                return result.stdout.strip() if result.returncode == 0 else ''
+            except (OSError, subprocess.SubprocessError):
+                return ''
+        commit = _git('rev-parse', '--short=12', 'HEAD')
+        if commit:
+            branch = _git('rev-parse', '--abbrev-ref', 'HEAD')
+            date = _git('log', '-1', '--format=%cd', '--date=short')
+            dirty = _git('status', '--porcelain', '--untracked-files=no')
+            parts = [p for p in (branch if branch != 'HEAD' else 'detached', date) if p]
+            if dirty:
+                parts.append('modified')
+            return f'{commit} ({", ".join(parts)})' if parts else commit
+    # No usable git CLI: resolve HEAD by hand.
+    try:
+        head = (git_dir / 'HEAD').read_text(encoding='utf-8').strip()
+        if head.startswith('ref: '):
+            ref = head[len('ref: '):]
+            ref_file = git_dir / ref
+            if ref_file.exists():
+                commit = ref_file.read_text(encoding='utf-8').strip()
+            else:
+                commit = ''
+                packed = git_dir / 'packed-refs'
+                if packed.exists():
+                    for line in packed.read_text(encoding='utf-8').splitlines():
+                        if line.endswith(' ' + ref):
+                            commit = line.split(' ', 1)[0]
+                            break
+            branch = ref.rsplit('/', 1)[-1]
+            return f'{commit[:12]} ({branch})' if commit else ''
+        return head[:12]
+    except OSError:
+        return ''
+
+
 class CheckResult:
     """A single doctor check outcome plus an optional remediation hint."""
     def __init__(self, name: str, severity: str, detail: str, hint: str = ''):
@@ -352,7 +403,11 @@ def _resolve_engine_path(explicit_path) -> pathlib.Path:
 
 def _run_doctor(args) -> int:
     engine_path = _resolve_engine_path(args.engine_path)
-    print(f'Engine: {engine_path}\n')
+    print(f'Engine: {engine_path}')
+    revision = engine_git_revision(engine_path)
+    if revision:
+        print(f'Commit: {revision}')
+    print('')
     print('Build prerequisites:')
     return _print_checks(run_doctor(engine_path))
 
@@ -383,12 +438,15 @@ def _run_status(args) -> int:
     print(f'  path    : {this_engine}')
     print(f'  name    : {this_engine_json.get("engine_name", "<unknown>")}')
     print(f'  version : {this_engine_json.get("version", this_engine_json.get("O3DEVersion", "<unknown>"))}')
+    revision = engine_git_revision(pathlib.Path(this_engine)) if this_engine else ''
+    print(f'  commit  : {revision or "<not a git checkout>"}')
     print('')
 
     engines = manifest.get_manifest_engines()
     print(f'Registered engines ({len(engines)}):')
     for engine in engines:
-        print(f'  - {engine}')
+        engine_rev = engine_git_revision(pathlib.Path(engine))
+        print(f'  - {engine}' + (f'  [{engine_rev}]' if engine_rev else ''))
     print('')
 
     projects = manifest.get_all_projects()
