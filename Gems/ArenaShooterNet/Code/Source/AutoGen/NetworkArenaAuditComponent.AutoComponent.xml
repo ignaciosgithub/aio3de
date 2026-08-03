@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+
+<Component
+    Name="NetworkArenaAuditComponent"
+    Namespace="ArenaShooterNet"
+    OverrideComponent="false"
+    OverrideController="true"
+    OverrideInclude="Source/Components/NetworkArenaAuditComponent.h"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+
+    <Include File="AzCore/Math/Vector3.h"/>
+
+    <ComponentRelation Constraint="Required" HasController="true" Name="NetworkTransformComponent" Namespace="Multiplayer" Include="Multiplayer/Components/NetworkTransformComponent.h" />
+
+    <ArchetypeProperty Type="float" Name="MinChallengeInterval" Init="8.0f" Container="Object" ExposeToEditor="true" Description="Minimum seconds between audit challenges (actual interval is random within [min, max])" />
+    <ArchetypeProperty Type="float" Name="MaxChallengeInterval" Init="20.0f" Container="Object" ExposeToEditor="true" Description="Maximum seconds between audit challenges" />
+    <ArchetypeProperty Type="float" Name="ResponseDeadline" Init="2.0f" Container="Object" ExposeToEditor="true" Description="Seconds the client has to answer a challenge before it counts as a strike" />
+    <ArchetypeProperty Type="float" Name="PositionTolerance" Init="3.0f" Container="Object" ExposeToEditor="true" Description="Max meters the client-reported position may differ from the server's authoritative position" />
+    <ArchetypeProperty Type="float" Name="HealthTolerance" Init="1.0f" Container="Object" ExposeToEditor="true" Description="Max health difference tolerated between the client-reported and authoritative value" />
+    <ArchetypeProperty Type="uint32_t" Name="MaxStrikes" Init="3" Container="Object" ExposeToEditor="true" Description="Failed/missed audits before the client is flagged (and kicked if Kick On Failure is set)" />
+    <ArchetypeProperty Type="bool" Name="KickOnFailure" Init="true" Container="Object" ExposeToEditor="true" Description="Disconnect the client once Max Strikes is reached (otherwise only log)" />
+
+    <RemoteProcedure Name="SetAuditKey" InvokeFrom="Authority" HandleOn="Autonomous" IsPublic="false" IsReliable="true" GenerateEventBindings="false" Description="Delivers the per-session audit HMAC key (transport-protected by DTLS)">
+        <Param Type="uint64_t" Name="keyPart0" />
+        <Param Type="uint64_t" Name="keyPart1" />
+        <Param Type="uint64_t" Name="keyPart2" />
+        <Param Type="uint64_t" Name="keyPart3" />
+    </RemoteProcedure>
+
+    <RemoteProcedure Name="SendAuditChallenge" InvokeFrom="Authority" HandleOn="Autonomous" IsPublic="false" IsReliable="true" GenerateEventBindings="false" Description="Unpredictable audit challenge: random nonce the client must echo inside an authenticated snapshot">
+        <Param Type="uint32_t" Name="challengeId" />
+        <Param Type="uint64_t" Name="nonce" />
+    </RemoteProcedure>
+
+    <RemoteProcedure Name="SendAuditResponse" InvokeFrom="Autonomous" HandleOn="Authority" IsPublic="false" IsReliable="true" GenerateEventBindings="false" Description="HMAC-authenticated client state snapshot answering an audit challenge">
+        <Param Type="uint32_t" Name="challengeId" />
+        <Param Type="AZ::Vector3" Name="position" />
+        <Param Type="float" Name="health" />
+        <Param Type="uint64_t" Name="inputHash" />
+        <Param Type="uint64_t" Name="tag0" />
+        <Param Type="uint64_t" Name="tag1" />
+        <Param Type="uint64_t" Name="tag2" />
+        <Param Type="uint64_t" Name="tag3" />
+    </RemoteProcedure>
+
+</Component>

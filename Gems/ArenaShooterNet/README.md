@@ -69,3 +69,30 @@ first (server + client on one machine, `connect 127.0.0.1`).
 - Transport hardening (RSA-authenticated handshake + encrypted/authenticated
   packets via DTLS): see
   [`docs/aio3de/SECURE_NETWORKING.md`](../../docs/aio3de/SECURE_NETWORKING.md).
+- Detection layer: the **Network Arena Audit** component (below).
+
+## Network Arena Audit (audit challenges)
+
+Add the **Network Arena Audit** component to the player prefab (next to
+Network Arena Player) to enable unpredictable audit challenges:
+
+- On spawn the server generates a random per-session audit key (OS CSPRNG)
+  and delivers it over the reliable (DTLS-protected) channel.
+- At random intervals (`Min/Max Challenge Interval`) the server sends a
+  random nonce challenge with a response deadline.
+- The client answers with an HMAC-SHA256-authenticated snapshot: the nonce,
+  its position, its health, and a rolling FNV-1a hash of every raw local
+  input event.
+- The server verifies the tag (constant-time compare) and checks the
+  reported state against its authoritative simulation (`Position Tolerance`,
+  `Health Tolerance`).
+- Failed, missed, or mismatching audits accumulate strikes; at `Max Strikes`
+  the client is disconnected if `Kick On Failure` is set (otherwise logged).
+
+All audit RPCs are reliable, so packet loss delays but never drops a
+challenge or response — an honest client on a lossy link accumulates at most
+an occasional deadline strike, never `Max Strikes`.
+
+Honest scope: audits *detect* hooked or dishonest clients; they cannot
+*prevent* them (a sophisticated cheat can maintain a clean shadow state just
+for audits). Prevention is the server-authoritative simulation above.

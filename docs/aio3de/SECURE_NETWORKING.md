@@ -108,6 +108,45 @@ For server-to-server links use the equivalent `net_SslInternal*` cvars.
 | Impersonating the server | RSA cert signature + pinning |
 | Decrypting captured traffic later | ECDHE forward secrecy |
 | Hacked client sending dishonest but well-formed data | **not solvable by crypto** — server authority (ArenaShooterNet) validates inputs, fire rates, hits server-side |
+| Hooked client keeping the wire valid while lying locally | audit challenges (below) — detection, not prevention |
+
+## Audit challenges (detection layer)
+
+Even with an authenticated transport, a skilled attacker can hook the game
+*above* the encryption layer and let the legitimate client produce valid
+packets. Encryption cannot prove an untrusted client is honest — so the
+ArenaShooterNet gem adds an audit layer on top of server authority:
+
+```
+audit request  (server → client, reliable):
+    challenge_id | random_nonce            + response deadline
+
+audit response (client → server, reliable):
+    challenge_id | position | health | rolling_input_hash
+    | HMAC-SHA256(session_audit_key,
+                  challenge_id || nonce || position || health || input_hash)
+```
+
+- The per-session audit key comes from the OS CSPRNG and is delivered over
+  the DTLS-protected reliable channel at spawn.
+- Challenges arrive at unpredictable random intervals; the response must
+  echo the fresh nonce, so answers cannot be precomputed or replayed.
+- The server verifies the HMAC in constant time, then checks the reported
+  state against its own authoritative simulation.
+- Failed, missed, or divergent audits accumulate strikes; enough strikes
+  disconnects the client.
+
+Per-packet integrity, sequence numbers, the replay window, and session-key
+rotation for the *gameplay* traffic itself are already provided by DTLS
+(`net_UdpUseEncryption true`) — the AES-256-GCM tag on every datagram is the
+per-packet MAC, and with AES-NI hardware its cost is negligible.
+
+Honest caveat: audits are a *detection* mechanism. An attacker can maintain a
+fake "clean" state solely for answering audits; the real defense remains the
+server-authoritative simulation, which never trusts client-reported hits,
+positions, or health in the first place. See the Network Arena Audit section
+of [`Gems/ArenaShooterNet/README.md`](../../Gems/ArenaShooterNet/README.md)
+for component setup.
 
 ## Key management rules
 
