@@ -188,6 +188,11 @@ Then:
   constraints (reaction time, aim error, turn/fire-rate caps), driven by an
   AIBackbone-trained MLP or a built-in heuristic. See
   [`Gems/NeuralBots/README.md`](../../Gems/NeuralBots/README.md).
+- **Multiplayer:** enable the **ArenaShooterNet** gem (code gem) for
+  server-authoritative networked arena-shooter play: client-predicted movement
+  (networked character controller), server-validated hitscan shots and
+  replicated health. See
+  [`Gems/ArenaShooterNet/README.md`](../../Gems/ArenaShooterNet/README.md).
 - **Scripting and game logic:**
   [`SCRIPTING_AND_GAME_LOGIC.md`](SCRIPTING_AND_GAME_LOGIC.md) — Lua, Script
   Canvas, input, spawning, triggers, timers, and links to every sample script

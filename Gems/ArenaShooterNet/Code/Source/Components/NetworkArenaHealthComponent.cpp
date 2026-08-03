@@ -1,0 +1,92 @@
+/*
+ * Copyright (c) Contributors to the Open 3D Engine Project.
+ * For complete copyright and license terms please see the LICENSE at the root of this distribution.
+ *
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
+ *
+ */
+#include "NetworkArenaHealthComponent.h"
+
+#include <AzCore/Component/TransformBus.h>
+
+namespace ArenaShooterNet
+{
+    NetworkArenaHealthComponentController::NetworkArenaHealthComponentController(NetworkArenaHealthComponent& parent)
+        : NetworkArenaHealthComponentControllerBase(parent)
+    {
+    }
+
+    void NetworkArenaHealthComponentController::OnActivate([[maybe_unused]] Multiplayer::EntityIsMigrating entityIsMigrating)
+    {
+        if (IsNetEntityRoleAuthority())
+        {
+            AZ::TransformBus::EventResult(m_spawnPoint, GetEntityId(), &AZ::TransformBus::Events::GetWorldTranslation);
+            SetHealth(GetMaxHealth());
+            m_dead = false;
+            AZ::GameplayNotificationBus::Handler::BusConnect(
+                AZ::GameplayNotificationId(GetEntityId(), AZ_CRC_CE("Damage"), azrtti_typeid<float>()));
+        }
+    }
+
+    void NetworkArenaHealthComponentController::OnDeactivate([[maybe_unused]] Multiplayer::EntityIsMigrating entityIsMigrating)
+    {
+        AZ::GameplayNotificationBus::Handler::BusDisconnect();
+        AZ::TickBus::Handler::BusDisconnect();
+    }
+
+    void NetworkArenaHealthComponentController::OnEventBegin(const AZStd::any& value)
+    {
+        if (m_dead || !IsNetEntityRoleAuthority())
+        {
+            return;
+        }
+
+        float damage = 0.0f;
+        if (const float* asFloat = AZStd::any_cast<float>(&value))
+        {
+            damage = *asFloat;
+        }
+        else if (const double* asDouble = AZStd::any_cast<double>(&value))
+        {
+            damage = static_cast<float>(*asDouble);
+        }
+        if (damage <= 0.0f)
+        {
+            return;
+        }
+
+        const float newHealth = AZStd::max(GetHealth() - damage, 0.0f);
+        SetHealth(newHealth);
+        if (newHealth <= 0.0f)
+        {
+            Die();
+        }
+    }
+
+    void NetworkArenaHealthComponentController::Die()
+    {
+        m_dead = true;
+        m_respawnTimer = GetRespawnDelay();
+        // stash the body out of play until respawn
+        AZ::TransformBus::Event(GetEntityId(), &AZ::TransformBus::Events::SetWorldTranslation,
+            m_spawnPoint - AZ::Vector3(0.0f, 0.0f, 1000.0f));
+        AZ::TickBus::Handler::BusConnect();
+    }
+
+    void NetworkArenaHealthComponentController::OnTick(float deltaTime, [[maybe_unused]] AZ::ScriptTimePoint time)
+    {
+        m_respawnTimer -= deltaTime;
+        if (m_respawnTimer <= 0.0f)
+        {
+            AZ::TickBus::Handler::BusDisconnect();
+            Respawn();
+        }
+    }
+
+    void NetworkArenaHealthComponentController::Respawn()
+    {
+        AZ::TransformBus::Event(GetEntityId(), &AZ::TransformBus::Events::SetWorldTranslation, m_spawnPoint);
+        SetHealth(GetMaxHealth());
+        m_dead = false;
+    }
+} // namespace ArenaShooterNet

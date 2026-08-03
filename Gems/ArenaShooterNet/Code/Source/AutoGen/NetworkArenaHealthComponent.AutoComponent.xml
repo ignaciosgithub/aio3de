@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+
+<Component
+    Name="NetworkArenaHealthComponent"
+    Namespace="ArenaShooterNet"
+    OverrideComponent="false"
+    OverrideController="true"
+    OverrideInclude="Source/Components/NetworkArenaHealthComponent.h"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+
+    <ComponentRelation Constraint="Required" HasController="true" Name="NetworkTransformComponent" Namespace="Multiplayer" Include="Multiplayer/Components/NetworkTransformComponent.h" />
+
+    <ArchetypeProperty Type="float" Name="MaxHealth" Init="100.0f" Container="Object" ExposeToEditor="true" Description="Health restored on spawn" />
+    <ArchetypeProperty Type="float" Name="RespawnDelay" Init="3.0f" Container="Object" ExposeToEditor="true" Description="Seconds between death and respawn" />
+
+    <NetworkProperty Type="float" Name="Health" Init="100.0f" ReplicateFrom="Authority" ReplicateTo="Client" IsRewindable="false" IsPredictable="false" IsPublic="true" Container="Object" ExposeToEditor="false" ExposeToScript="true" GenerateEventBindings="true" Description="Current health, replicated to all clients" />
+
+</Component>

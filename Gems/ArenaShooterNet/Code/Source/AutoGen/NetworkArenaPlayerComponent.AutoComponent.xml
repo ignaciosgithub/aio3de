@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+
+<Component
+    Name="NetworkArenaPlayerComponent"
+    Namespace="ArenaShooterNet"
+    OverrideComponent="false"
+    OverrideController="true"
+    OverrideInclude="Source/Components/NetworkArenaPlayerComponent.h"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+
+    <ComponentRelation Constraint="Required" HasController="true" Name="NetworkTransformComponent" Namespace="Multiplayer" Include="Multiplayer/Components/NetworkTransformComponent.h" />
+    <ComponentRelation Constraint="Required" HasController="true" Name="NetworkCharacterComponent" Namespace="Multiplayer" Include="Multiplayer/Components/NetworkCharacterComponent.h" />
+
+    <ArchetypeProperty Type="float" Name="MoveSpeed" Init="6.0f" Container="Object" ExposeToEditor="true" Description="Run speed in m/s" />
+    <ArchetypeProperty Type="float" Name="EyeHeight" Init="1.6f" Container="Object" ExposeToEditor="true" Description="Shot origin above the entity origin" />
+    <ArchetypeProperty Type="float" Name="FireRange" Init="200.0f" Container="Object" ExposeToEditor="true" Description="Hitscan range in meters" />
+    <ArchetypeProperty Type="float" Name="FireDamage" Init="10.0f" Container="Object" ExposeToEditor="true" Description="Damage per shot" />
+    <ArchetypeProperty Type="float" Name="FireInterval" Init="0.2f" Container="Object" ExposeToEditor="true" Description="Server-enforced minimum seconds between shots" />
+
+    <NetworkInput Type="float" Name="FwdBack" Init="0.0f" />
+    <NetworkInput Type="float" Name="LeftRight" Init="0.0f" />
+    <NetworkInput Type="float" Name="ViewYaw" Init="0.0f" />
+    <NetworkInput Type="float" Name="ViewPitch" Init="0.0f" />
+    <NetworkInput Type="float" Name="Shoot" Init="0.0f" />
+
+</Component>
