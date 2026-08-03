@@ -13,18 +13,105 @@ SPDX-License-Identifier: Apache-2.0 OR MIT
 # messages: list of {"role": "system"|"user"|"assistant", "content": str}
 
 import json
+import os
 import urllib.request
 import urllib.error
 
 from . import keystore
 
-DEFAULT_MODELS = {
-    "openai": "gpt-4o",
-    "anthropic": "claude-opus-4-6",
-    "kimi": "moonshot-v1-32k",
+# Built-in model lineup per provider (first entry = default). Users can extend
+# these without touching engine code via ~/.o3de/llmassist_models.json:
+#   { "openai": ["some-new-model"], "anthropic": [...], "kimi": [...] }
+# User-added models are listed first, and any model id can also be typed
+# directly in the UI's editable model box.
+KNOWN_MODELS = {
+    "openai": [
+        "gpt-5",
+        "gpt-5-mini",
+        "gpt-5-nano",
+        "gpt-4.1",
+        "gpt-4.1-mini",
+        "o3",
+        "o4-mini",
+        "gpt-4o",
+    ],
+    "anthropic": [
+        "claude-opus-4-6",
+        "claude-sonnet-4-5",
+        "claude-haiku-4-5",
+        "claude-opus-4-1",
+    ],
+    "kimi": [
+        "kimi-k2-0905-preview",
+        "kimi-k2-turbo-preview",
+        "kimi-latest",
+        "moonshot-v1-32k",
+    ],
 }
 
-PROVIDERS = tuple(DEFAULT_MODELS)
+PROVIDERS = tuple(KNOWN_MODELS)
+
+
+def _user_models_path():
+    return os.path.join(os.path.expanduser("~"), ".o3de", "llmassist_models.json")
+
+
+def user_models():
+    """User-added models from ~/.o3de/llmassist_models.json ({provider: [ids]})."""
+    path = _user_models_path()
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    result = {}
+    for provider in PROVIDERS:
+        entries = data.get(provider, [])
+        if isinstance(entries, list):
+            result[provider] = [str(m) for m in entries if m]
+    return result
+
+
+def add_user_model(provider, model):
+    """Persist a user-added model id so it appears in the dropdown from now on."""
+    model = model.strip()
+    if provider not in PROVIDERS or not model:
+        return
+    path = _user_models_path()
+    data = {}
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            data = {}
+    models = [m for m in data.get(provider, []) if isinstance(m, str)]
+    if model not in models:
+        models.insert(0, model)
+    data[provider] = models
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
+def models_for(provider):
+    """User-added models first, then the built-in lineup (deduplicated)."""
+    merged = list(user_models().get(provider, []))
+    for model in KNOWN_MODELS.get(provider, []):
+        if model not in merged:
+            merged.append(model)
+    return merged
+
+
+def default_model(provider):
+    models = models_for(provider)
+    return models[0] if models else ""
+
+
+# Backwards-compatible mapping of provider -> default model id.
+DEFAULT_MODELS = {provider: KNOWN_MODELS[provider][0] for provider in PROVIDERS}
 
 _TIMEOUT_SECONDS = 120
 
@@ -53,16 +140,20 @@ def _post_json(url, headers, payload):
         raise LlmError(f"Network error contacting provider: {e.reason}") from e
 
 
-def _chat_openai_style(base_url, key, model, messages, max_tokens, temperature):
+def _chat_openai_style(base_url, key, model, messages, max_tokens, temperature,
+                       reasoning_style=False):
+    payload = {"model": model, "messages": messages}
+    if reasoning_style:
+        # Newer OpenAI models (gpt-5*, o-series) reject `max_tokens` and only
+        # accept the default temperature.
+        payload["max_completion_tokens"] = max_tokens
+    else:
+        payload["max_tokens"] = max_tokens
+        payload["temperature"] = temperature
     data = _post_json(
         base_url + "/chat/completions",
         {"Authorization": f"Bearer {key}"},
-        {
-            "model": model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-        })
+        payload)
     try:
         return data["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as e:
@@ -100,10 +191,11 @@ def chat(provider, messages, model=None, max_tokens=2048, temperature=0.3):
         raise LlmError(
             f"No API key configured for '{provider}'. Add one in the Settings tab "
             "of the AI Assistant (Tools > AI Assistant).")
-    model = model or DEFAULT_MODELS[provider]
+    model = model or default_model(provider)
     if provider == "openai":
+        reasoning_style = model.startswith(("gpt-5", "o1", "o3", "o4"))
         return _chat_openai_style("https://api.openai.com/v1", key, model, messages,
-                                  max_tokens, temperature)
+                                  max_tokens, temperature, reasoning_style)
     if provider == "kimi":
         return _chat_openai_style("https://api.moonshot.ai/v1", key, model, messages,
                                   max_tokens, temperature)
