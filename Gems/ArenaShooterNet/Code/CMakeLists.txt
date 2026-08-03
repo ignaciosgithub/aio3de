@@ -27,6 +27,7 @@ ly_add_target(
             Gem::Multiplayer.Unified.Static
             Gem::LmbrCentral.API
             Gem::StartingPointInput.Static
+            3rdParty::OpenSSL
     AUTOGEN_RULES
         *.AutoComponent.xml,AutoComponent_Header.jinja,$path/$fileprefix.AutoComponent.h
         *.AutoComponent.xml,AutoComponent_Source.jinja,$path/$fileprefix.AutoComponent.cpp

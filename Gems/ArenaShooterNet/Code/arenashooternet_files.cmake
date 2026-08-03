@@ -14,6 +14,9 @@ set(FILES
     Source/Components/NetworkArenaPlayerComponent.cpp
     Source/Components/NetworkArenaHealthComponent.h
     Source/Components/NetworkArenaHealthComponent.cpp
+    Source/Components/NetworkArenaAuditComponent.h
+    Source/Components/NetworkArenaAuditComponent.cpp
     Source/AutoGen/NetworkArenaPlayerComponent.AutoComponent.xml
     Source/AutoGen/NetworkArenaHealthComponent.AutoComponent.xml
+    Source/AutoGen/NetworkArenaAuditComponent.AutoComponent.xml
 )
