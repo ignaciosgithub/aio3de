@@ -56,6 +56,7 @@ namespace AZ
 
             // Overriding methods
             void BuildInternal() override;
+            void SetupFrameGraphDependencies(RHI::FrameGraphInterface frameGraph) override;
             void BuildCommandListInternal(const RHI::FrameGraphExecuteContext& context) override;
 
             // ShaderReloadNotificationBus::Handler overrides...

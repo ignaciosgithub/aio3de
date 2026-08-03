@@ -100,6 +100,16 @@ namespace AZ
             }
         }
 
+        void MultiDispatchComputePass::SetupFrameGraphDependencies(RHI::FrameGraphInterface frameGraph)
+        {
+            // Declare the real amount of dispatches so the RHI's submit ranges match
+            // m_dispatchItems. Without this the scope defaults to a single item and
+            // BuildCommandListInternal dereferences past the end of an empty set
+            // whenever no meshlet objects were registered this frame.
+            frameGraph.SetEstimatedItemCount(aznumeric_cast<uint32_t>(m_dispatchItems.size()));
+            RPI::ComputePass::SetupFrameGraphDependencies(frameGraph);
+        }
+
         // [To Do] Important remark
         //-------------------------
         // When the work load / amount of dispatches is high, the RHI will split work and distribute it
@@ -117,16 +127,25 @@ namespace AZ
             // This includes the PerView, PerScene and PerPass srgs (what about per draw?)
             SetSrgsForDispatch(context);
 
-            auto it = m_dispatchItems.begin();
-            AZStd::advance(it, context.GetSubmitRange().m_startIndex);
+            const uint32_t itemCount = aznumeric_cast<uint32_t>(m_dispatchItems.size());
+            const uint32_t startIndex = AZStd::min(context.GetSubmitRange().m_startIndex, itemCount);
+            const uint32_t endIndex = AZStd::min(context.GetSubmitRange().m_endIndex, itemCount);
 
-            for (uint32_t index = context.GetSubmitRange().m_startIndex; index < context.GetSubmitRange().m_endIndex; ++index, ++it)
+            auto it = m_dispatchItems.begin();
+            AZStd::advance(it, startIndex);
+
+            for (uint32_t index = startIndex; index < endIndex; ++index, ++it)
             {
                 commandList->Submit((*it)->GetDeviceDispatchItem(context.GetDeviceIndex()), index);
             }
 
-            // Clear the dispatch items. They will need to be re-populated next frame
-            m_dispatchItems.clear();
+            // Clear the dispatch items only once the last command list of the scope
+            // was built - with split submission several threads run this method for
+            // different ranges of the same set. They will be re-populated next frame.
+            if (context.GetCommandListIndex() == context.GetCommandListCount() - 1)
+            {
+                m_dispatchItems.clear();
+            }
         }
 
         // [To Do] - implement in order to support hot reloading of the shaders
