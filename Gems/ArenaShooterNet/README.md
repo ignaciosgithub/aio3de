@@ -66,6 +66,6 @@ first (server + client on one machine, `connect 127.0.0.1`).
 - The server owns all gameplay state: position (character controller runs
   server-side), health, damage, fire rate.
 - Clients send only inputs; a tampered client can at most send legal inputs.
-- Transport hardening (encrypted/authenticated packets via DTLS and session
-  handshakes) is the next layer — see the Multiplayer gem's `net_UdpUseEncryption`
-  and the AzNetworking DTLS support.
+- Transport hardening (RSA-authenticated handshake + encrypted/authenticated
+  packets via DTLS): see
+  [`docs/aio3de/SECURE_NETWORKING.md`](../../docs/aio3de/SECURE_NETWORKING.md).
