@@ -806,6 +806,23 @@ Key rules baked into the example (follow them in your own games):
 Useful console commands/cvars: `host`, `connect <ip>:<port>`, `disconnect`,
 `sv_port` (server), plus the security cvars of §17.
 
+### Remote server administration (rcon)
+
+The **ServerAdmin** gem gives dedicated servers an rcon-style remote
+console: set `admin_password <secret>` and `admin_enable true` in the
+server cfg (default TCP port `admin_port 33470`), then run any engine
+console command from another machine with the shipped client:
+
+```
+python scripts/rcon.py --host <server ip>            # interactive console
+python scripts/rcon.py --host <server ip> -c "LoadLevel Levels/Arena2/Arena2.spawnable"
+```
+
+Authentication is HMAC-SHA256 challenge-response — the password never
+crosses the wire. Alternatively administer over plain SSH (run the server
+in `tmux` and attach), or tunnel the rcon port through SSH for full
+encryption; see `Gems/ServerAdmin/README.md`.
+
 ---
 
 ## 17. Secure networking (anti-tamper)
