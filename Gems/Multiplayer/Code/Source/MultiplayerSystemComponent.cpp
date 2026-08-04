@@ -130,9 +130,49 @@ namespace Multiplayer
 
     AZ_CVAR(bool, sv_multithreadedConnectionUpdates, false, nullptr, AZ::ConsoleFunctorFlags::DontReplicate,
         "If true, the server will send updates to clients on different threads, which improves performance with large number of clients");
+    AZ_CVAR(uint32_t, cl_serverConsoleCommandPolicy, 1, nullptr, AZ::ConsoleFunctorFlags::DontReplicate,
+        "Which console commands a connected server may execute on this client: 0 = none, 1 = cvar assignments only (console functions rejected), 2 = anything (legacy, unsafe)");
+
     AZ_CVAR(bool, bg_parallelNotifyPreRender, false, nullptr, AZ::ConsoleFunctorFlags::DontReplicate,
         "If true, OnPreRender events will be sent in parallel from job threads. Please make sure the handlers of the event are thread safe.");
-    
+
+    namespace
+    {
+        //! Decides whether a console command sent by the server may run on this client. Console
+        //! functions (level loading, script execution, bundle loading, audio file playback) are
+        //! rejected under the default policy; only cvar assignments, which are data, are honored.
+        bool IsServerConsoleCommandAllowed(AZStd::string_view commandString)
+        {
+            const uint32_t policy = static_cast<uint32_t>(cl_serverConsoleCommandPolicy);
+            if (policy == 0)
+            {
+                return false;
+            }
+
+            AZStd::string_view commandName = commandString;
+            if (const size_t separator = commandName.find_first_of(" \t\n\r"); separator != AZStd::string_view::npos)
+            {
+                commandName = commandName.substr(0, separator);
+            }
+            if (commandName.empty())
+            {
+                return false;
+            }
+            if (policy >= 2)
+            {
+                return true;
+            }
+
+            AZ::IConsole* console = AZ::Interface<AZ::IConsole>::Get();
+            AZ::ConsoleFunctorBase* functor = console != nullptr ? console->FindCommand(commandName) : nullptr;
+            if (functor == nullptr || functor->GetTypeId().IsNull())
+            {
+                return false;
+            }
+            return (functor->GetFlags() & AZ::ConsoleFunctorFlags::DontReplicate) != AZ::ConsoleFunctorFlags::DontReplicate;
+        }
+    } // namespace
+
 
     void MultiplayerSystemComponent::Reflect(AZ::ReflectContext* context)
     {
@@ -969,6 +1009,11 @@ namespace Multiplayer
     )
     {
         const bool isClient = (GetAgentType() == MultiplayerAgentType::Client);
+        if (isClient && !IsServerConsoleCommandAllowed(packet.GetCommand().c_str()))
+        {
+            AZLOG_WARN("Rejected console command '%s' pushed by the server (cl_serverConsoleCommandPolicy)", packet.GetCommand().c_str());
+            return true;
+        }
         const AZ::ConsoleFunctorFlags requiredSet = isClient ? AZ::ConsoleFunctorFlags::Null : AZ::ConsoleFunctorFlags::AllowClientSet;
         AZ::Interface<AZ::IConsole>::Get()->PerformCommand(packet.GetCommand().c_str(), AZ::ConsoleSilentMode::NotSilent, AZ::ConsoleInvokedFrom::AzNetworking, requiredSet);
         return true;
@@ -1712,6 +1757,11 @@ namespace Multiplayer
         const AZ::ConsoleFunctorFlags requiredSet = isAcceptor ? AZ::ConsoleFunctorFlags::AllowClientSet : AZ::ConsoleFunctorFlags::Null;
         for (auto& command : commands)
         {
+            if (!isAcceptor && !IsServerConsoleCommandAllowed(command.c_str()))
+            {
+                AZLOG_WARN("Rejected console command '%s' pushed by the server (cl_serverConsoleCommandPolicy)", command.c_str());
+                continue;
+            }
             console->PerformCommand(command.c_str(), AZ::ConsoleSilentMode::NotSilent, AZ::ConsoleInvokedFrom::AzNetworking, requiredSet);
         }
     }

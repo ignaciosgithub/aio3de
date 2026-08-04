@@ -895,6 +895,45 @@ keys or certs with keys to source control; rotate periodically (regenerate +
 redistribute the public cert); use a real CA if you can't ship the pinned
 cert with clients.
 
+### 17.4 Protecting the client from the server
+
+Everything above protects the *server* from clients. The reverse direction
+matters too: a client trusts the server it connects to, and a server that is
+malicious (or taken over — e.g. leaked rcon/SSH credentials) should not be able
+to make clients do arbitrary things.
+
+Upstream O3DE lets the server push console commands to clients (cvar sync on
+connect plus the `ConsoleCommand` packet), historically with **no restriction on
+which command** — including console *functions* that load levels, asset bundles,
+audio files or Lua scripts from the client's disk. This fork restricts it:
+
+| CVar | Default | Meaning |
+| --- | --- | --- |
+| `cl_serverConsoleCommandPolicy` | 1 | 0 = ignore every console command the server sends; 1 = accept **cvar assignments only** (console functions are rejected and logged); 2 = legacy upstream behavior, accept anything |
+
+Under the default policy a server can still tune replicated gameplay cvars —
+which is what the mechanism exists for — but cannot invoke `LoadLevel`,
+`loadbundles`, `ExecuteLuaScript`, `s_PlayFile` or any other function on a
+client. Rejections are logged with the command name, so a server trying it is
+visible in the client log. Set it to `0` when connecting to servers you don't
+control at all.
+
+Other client-side rules the fork applies to server-supplied data:
+
+- **Server browser**: addresses from the master server are validated as plain
+  host/IP literals (and names/maps truncated, list length capped) before they
+  are shown or used to build the `connect` command.
+- **Voice relay**: the client only accepts voice datagrams from the relay
+  address it joined, rejects packets larger than one audio frame, and caps the
+  number of concurrent talker playback objects.
+- **rcon**: admin commands execute only on the server that authenticated them;
+  there is no path from the admin channel to a connected client's console.
+
+Residual risk (be honest about it): the engine is C++ and asset/media parsers
+are memory-unsafe, so a hostile server can still attack a client through the
+data it sends. Server-side, run the dedicated server as an unprivileged user;
+client-side, only connect to servers you have some reason to trust.
+
 Full guide: `docs/aio3de/SECURE_NETWORKING.md`.
 
 ---
