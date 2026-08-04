@@ -21,6 +21,7 @@
         "Gems/NeuralBots",
         "Gems/ServerAdmin",
         "Gems/GameSettings",
+        "Gems/ServerBrowser",
         "Gems/LLMAssist",
         "Gems/AssetValidation",
         "Gems/Atom",
