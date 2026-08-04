@@ -19,6 +19,7 @@
         "Gems/ArenaShooter",
         "Gems/ArenaShooterNet",
         "Gems/NeuralBots",
+        "Gems/ServerAdmin",
         "Gems/LLMAssist",
         "Gems/AssetValidation",
         "Gems/Atom",
