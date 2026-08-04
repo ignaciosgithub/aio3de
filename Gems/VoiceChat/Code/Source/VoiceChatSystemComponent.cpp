@@ -51,6 +51,13 @@ namespace VoiceChat
         constexpr float KeepaliveInterval = 5.0f;
         constexpr float TalkerSilenceTimeout = 0.5f;   // HUD "talking" indicator decay
         constexpr AZ::u32 RingBufferFrames = SampleRate; // 1 s of buffered audio per talker
+        constexpr size_t MaxRelayClients = 64;
+        constexpr size_t MaxTalkers = 32;
+        constexpr size_t VoiceToServerHeader = 7;        // magic + type + sequence
+        constexpr size_t VoiceToClientHeader = 9;        // magic + type + talker id + sequence
+        constexpr size_t MaxVoiceToServer = VoiceToServerHeader + FrameSamples;
+        constexpr size_t MaxVoiceToClient = VoiceToClientHeader + FrameSamples;
+        static_assert(MaxVoiceToClient <= MaxDatagram, "a relayed voice packet must fit the datagram buffer");
 
         void WriteU16(AZ::u8* dest, AZ::u16 value)
         {
@@ -350,7 +357,7 @@ namespace VoiceChat
             {
                 if (client == m_relayClients.end())
                 {
-                    if (m_relayClients.size() >= 64)
+                    if (m_relayClients.size() >= MaxRelayClients)
                     {
                         continue;
                     }
@@ -368,7 +375,8 @@ namespace VoiceChat
             {
                 m_relayClients.erase(client);
             }
-            else if (type == TypeVoiceToServer && received > 7 && client != m_relayClients.end())
+            else if (type == TypeVoiceToServer && received > static_cast<int32_t>(VoiceToServerHeader) &&
+                     received <= static_cast<int32_t>(MaxVoiceToServer) && client != m_relayClients.end())
             {
                 client->m_lastSeen = m_serverTime;
                 // rewrite: [magic][TypeVoiceToClient][talkerId u16][seq u16][payload]
@@ -379,6 +387,7 @@ namespace VoiceChat
                 const size_t remainder = received - 5; // seq + payload
                 memcpy(outPacket + 7, buffer + 5, remainder);
                 const AZ::u32 outSize = aznumeric_cast<AZ::u32>(7 + remainder);
+                AZ_Assert(outSize <= MaxDatagram, "relayed voice packet exceeds the datagram buffer");
                 for (RelayClient& other : m_relayClients)
                 {
                     if (other.m_talkerId != client->m_talkerId && other.m_channel == client->m_channel)
@@ -413,10 +422,15 @@ namespace VoiceChat
             {
                 break;
             }
-            if (received > 9 && ReadU32(buffer) == Magic && buffer[4] == TypeVoiceToClient && !m_muted)
+            if (from != m_serverAddress)
+            {
+                continue; // only the relay we joined may deliver voice to us
+            }
+            if (received > static_cast<int32_t>(VoiceToClientHeader) && received <= static_cast<int32_t>(MaxVoiceToClient) &&
+                ReadU32(buffer) == Magic && buffer[4] == TypeVoiceToClient && !m_muted)
             {
                 const AZ::u32 talkerId = ReadU16(buffer + 5);
-                PlayIncoming(talkerId, buffer + 9, received - 9); // skip seq too
+                PlayIncoming(talkerId, buffer + VoiceToClientHeader, received - VoiceToClientHeader);
             }
         }
 
@@ -492,6 +506,11 @@ namespace VoiceChat
         if (!engine)
         {
             return;
+        }
+
+        if (m_talkers.find(talkerId) == m_talkers.end() && m_talkers.size() >= MaxTalkers)
+        {
+            return; // a hostile relay cannot make us allocate playback state without bound
         }
 
         Talker& talker = m_talkers[talkerId];

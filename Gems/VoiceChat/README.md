@@ -57,3 +57,10 @@ the game's DTLS transport. It carries only compressed audio (no gameplay
 state), and the relay only forwards audio from addresses that joined a channel.
 For confidentiality, tunnel it (VPN/WireGuard) or keep voice on trusted
 networks; integrating voice into the encrypted game transport is future work.
+
+Because the stream is unauthenticated, both ends validate what they receive:
+the relay accepts only well-formed packets no larger than one audio frame and
+caps concurrent clients, and the client ignores voice from any address other
+than the relay it joined and caps how many talker playback objects it will
+allocate. So a hostile sender can waste bandwidth but cannot inject audio into
+a client that never joined its relay, nor grow client memory without bound.
