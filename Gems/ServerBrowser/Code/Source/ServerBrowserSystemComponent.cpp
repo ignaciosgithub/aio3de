@@ -135,6 +135,40 @@ namespace ServerBrowser
             return true;
         }
 
+        constexpr size_t MaxListEntries = 256;
+        constexpr size_t MaxDisplayStringLength = 64;
+        constexpr size_t MaxAddressLength = 63;
+
+        //! The master server is untrusted input: an address is only usable if it is a plain host or
+        //! IP literal, so it can never smuggle extra tokens into the console command that joins it.
+        bool IsSafeServerAddress(const AZStd::string& address)
+        {
+            if (address.empty() || address.size() > MaxAddressLength)
+            {
+                return false;
+            }
+            for (const char character : address)
+            {
+                const bool allowed = (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+                    (character >= '0' && character <= '9') || character == '.' || character == '-' || character == ':';
+                if (!allowed)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        AZStd::string TruncateForDisplay(const char* text)
+        {
+            AZStd::string value = text;
+            if (value.size() > MaxDisplayStringLength)
+            {
+                value.resize(MaxDisplayStringLength);
+            }
+            return value;
+        }
+
         struct ServerEntry
         {
             AZStd::string m_name;
@@ -249,6 +283,10 @@ namespace ServerBrowser
                         parsed = true;
                         for (const auto& item : doc.GetArray())
                         {
+                            if (entries.size() >= MaxListEntries)
+                            {
+                                break;
+                            }
                             if (!item.IsObject())
                             {
                                 continue;
@@ -256,7 +294,7 @@ namespace ServerBrowser
                             ServerEntry entry;
                             if (auto it = item.FindMember("name"); it != item.MemberEnd() && it->value.IsString())
                             {
-                                entry.m_name = it->value.GetString();
+                                entry.m_name = TruncateForDisplay(it->value.GetString());
                             }
                             if (auto it = item.FindMember("address"); it != item.MemberEnd() && it->value.IsString())
                             {
@@ -268,7 +306,7 @@ namespace ServerBrowser
                             }
                             if (auto it = item.FindMember("map"); it != item.MemberEnd() && it->value.IsString())
                             {
-                                entry.m_map = it->value.GetString();
+                                entry.m_map = TruncateForDisplay(it->value.GetString());
                             }
                             if (auto it = item.FindMember("players"); it != item.MemberEnd() && it->value.IsUint())
                             {
@@ -278,7 +316,7 @@ namespace ServerBrowser
                             {
                                 entry.m_maxPlayers = it->value.GetUint();
                             }
-                            if (!entry.m_address.empty() && entry.m_port != 0)
+                            if (IsSafeServerAddress(entry.m_address) && entry.m_port != 0 && entry.m_port <= 65535)
                             {
                                 entries.push_back(AZStd::move(entry));
                             }
@@ -316,6 +354,11 @@ namespace ServerBrowser
 
     void ServerBrowserSystemComponent::JoinServer(const AZStd::string& address, AZ::u32 port)
     {
+        if (!IsSafeServerAddress(address) || port == 0 || port > 65535)
+        {
+            AZLOG_WARN("ServerBrowser: refusing to join malformed server address '%s:%u'", address.c_str(), port);
+            return;
+        }
         if (auto* console = AZ::Interface<AZ::IConsole>::Get())
         {
             const AZStd::string command = AZStd::string::format("connect %s:%u", address.c_str(), port);
