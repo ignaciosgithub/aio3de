@@ -85,8 +85,11 @@ Setting up the engine and your first project is five steps that work the same on
 [`docs/aio3de/QUICKSTART.md`](docs/aio3de/QUICKSTART.md).**
 
 **The complete manual — every fork feature, the full example arena shooter game
-(offline, neural bots, multiplayer, secure networking), reference tables and
-troubleshooting: [`docs/aio3de/MANUAL.md`](docs/aio3de/MANUAL.md).**
+(offline, neural bots, multiplayer, match flow, weapons, settings, server
+browser, voice chat, secure networking), reference tables and troubleshooting:
+[`docs/aio3de/MANUAL.md`](docs/aio3de/MANUAL.md).** For engine areas the fork
+leaves unchanged, use the official
+[O3DE documentation](https://docs.o3de.org/) (see manual §1.1).
 
 Once the Editor runs: build your first level with
 [`docs/aio3de/GETTING_STARTED_TUTORIAL.md`](docs/aio3de/GETTING_STARTED_TUTORIAL.md),

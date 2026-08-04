@@ -6,7 +6,12 @@ shadows, GPU culling, terrain auto-LOD/streaming/occlusion, soft body physics,
 the Python AI backbone), scripting and game logic, and a full, end-to-end
 walkthrough of the shipped **Arena Shooter example game** — offline play,
 neural-network bots with human constraints, server-authoritative internet
-multiplayer, and encrypted anti-tamper networking.
+multiplayer, match flow, weapons, settings, server browser, team voice chat,
+and encrypted anti-tamper networking.
+
+This manual documents **what the fork changes or adds**. For the parts of the
+engine the fork leaves as upstream O3DE, use the official O3DE documentation —
+see [§1.1 Upstream O3DE documentation](#11-upstream-o3de-documentation).
 
 ---
 
@@ -29,9 +34,11 @@ multiplayer, and encrypted anti-tamper networking.
 15. [The example game: Arena Shooter](#15-the-example-game-arena-shooter)
 16. [Multiplayer networking](#16-multiplayer-networking)
 17. [Secure networking (anti-tamper)](#17-secure-networking-anti-tamper)
-18. [Troubleshooting](#18-troubleshooting)
-19. [Reference tables](#19-reference-tables)
-20. [Document index](#20-document-index)
+18. [Match flow, weapons and audio](#18-match-flow-weapons-and-audio)
+19. [Settings, server browser and voice chat](#19-settings-server-browser-and-voice-chat)
+20. [Troubleshooting](#20-troubleshooting)
+21. [Reference tables](#21-reference-tables)
+22. [Document index](#22-document-index)
 
 ---
 
@@ -46,13 +53,46 @@ practical and demonstrable out of the box. On top of upstream O3DE it adds:
 | Terrain | Error-driven automatic terrain LOD bounded by screen-space error, terrain as an automatic software occluder, height-aware streamable level chunks (LevelStreaming gem) |
 | Physics | Full XPBD soft body system (SoftBodyPhysics gem): CPU and GPU compute solvers, world/rigid/soft-soft collision, in-Editor component |
 | AI | AIBackbone gem: in-Editor AI Model Builder, ML stack installer, dataset recorder, ONNX import, portable weights export; NeuralBots gem: runtime MLP bot agent with human constraints |
-| Gameplay | ArenaShooter example game kit (input bindings + Lua gameplay scripts), ArenaShooterNet server-authoritative multiplayer |
+| Gameplay | ArenaShooter example game kit (input bindings + Lua gameplay scripts), ArenaShooterNet server-authoritative multiplayer, match flow (warm-up/live/win condition/map vote), multiple weapons with scroll-wheel switching, death animation + spatial audio wiring |
+| Player-facing systems | GameSettings gem (persistent FOV/sensitivity, runtime key rebinding, in-game settings menu), ServerBrowser gem (master-server discovery + in-game list), VoiceChat gem (team voice with mic capture, mu-law compression, UDP relay) |
+| Server operations | ServerAdmin gem: rcon-style remote administration with HMAC challenge-response auth, plus SSH/tunnel guidance |
 | Networking | Setup and tooling for the engine's DTLS transport security: RSA-authenticated handshake, AES-GCM encrypted/authenticated packets, replay protection, cert pinning |
 | Tooling & onboarding | `o3de doctor/status/resolve` CLI, auto-bootstrapping Python venv, Tkinter pre-build GUI hub, cross-platform quick start, feature test/benchmark harness |
 | Parallelism | `AZ::ParallelFor` TaskGraph primitive used across hot paths |
+| Client hardening | Server-pushed console commands restricted on clients (`cl_serverConsoleCommandPolicy`), validated master-server and voice-relay input |
 
 Everything is delivered as standard O3DE gems and engine code — nothing needs
 external services.
+
+### 1.1 Upstream O3DE documentation
+
+The fork changes a small slice of a very large engine. Anything not covered
+here behaves exactly like upstream O3DE 2.7, and the official documentation is
+the authoritative reference for it:
+
+| Topic (unchanged by this fork) | Upstream reference |
+| --- | --- |
+| Editor UI, viewport, manipulators, prefabs | <https://docs.o3de.org/docs/user-guide/editor/> |
+| Asset pipeline, Asset Processor, scene settings (FBX/glTF import) | <https://docs.o3de.org/docs/user-guide/assets/> |
+| Atom renderer: materials, shaders, lighting, post effects, render pipelines | <https://docs.o3de.org/docs/atom-guide/> |
+| Components reference (every built-in component) | <https://docs.o3de.org/docs/user-guide/components/reference/> |
+| Script Canvas and Lua scripting APIs | <https://docs.o3de.org/docs/user-guide/scripting/> |
+| EMotionFX animation editor and anim graphs | <https://docs.o3de.org/docs/user-guide/visualization/animation/> |
+| PhysX rigid bodies, colliders, character controllers | <https://docs.o3de.org/docs/user-guide/interactivity/physics/> |
+| Multiplayer gem concepts (net components, autonomous entities, RPCs) | <https://docs.o3de.org/docs/user-guide/networking/> |
+| Packaging, project export, platform deployment | <https://docs.o3de.org/docs/user-guide/packaging/> |
+| C++ API reference | <https://docs.o3de.org/docs/api/> |
+| Gem reference (all shipped gems) | <https://docs.o3de.org/docs/user-guide/gems/reference/> |
+
+There is no official single-file O3DE PDF; the docs site is versioned HTML.
+To get an offline/PDF copy, open the section you need and use the browser's
+**Print → Save as PDF** (each docs page prints cleanly), or clone
+<https://github.com/o3de/o3de.org> and build the site locally. A PDF of *this*
+manual can be produced from the Markdown with
+`pandoc docs/aio3de/MANUAL.md -o aio3de_manual.pdf`.
+
+When upstream docs and this manual disagree about a fork feature, this manual
+wins; for everything else, upstream wins.
 
 ---
 
@@ -67,7 +107,7 @@ external services.
 - **CMake 3.22+** (bundled with VS or standalone).
 - **Git** (with LFS if you clone large asset repos).
 - **RAM**: 16 GB minimum; **strongly recommended**: a page file of
-  16–32 GB (see [§18.1](#181-msvc-out-of-heap-c1060)). Compiling the Editor is
+  16–32 GB (see [§20.1](#201-msvc-out-of-heap-c1060)). Compiling the Editor is
   memory-hungry.
 - **Disk**: ~100 GB free for engine + build + 3rd-party packages.
 - GPU with DirectX 12 or Vulkan support.
@@ -141,7 +181,7 @@ cmake --build build\windows --target Editor --config profile -- /m
 ```
 
 On memory-constrained machines use serial compilation (see
-[§18.1](#181-msvc-out-of-heap-c1060)):
+[§20.1](#201-msvc-out-of-heap-c1060)):
 
 ```bat
 cmake --build build\windows --target Editor --config profile -- /m:1 /p:CL_MPCount=1
@@ -216,6 +256,12 @@ GUI: Project Manager → project card → **⋮ → Configure Gems** → toggle 
 | `LevelStreaming` | code | streamable chunk grid component |
 | `OpenParticleSystem` | code | Particle component + Particle Editor |
 | `Multiplayer` | code | netcode foundation (dependency of ArenaShooterNet) |
+| `GameSettings` | code | persistent settings + Remappable Input component |
+| `ServerBrowser` | code | master-server announce/browse + join |
+| `VoiceChat` | code | team voice capture, relay and playback |
+| `ServerAdmin` | code | rcon-style remote server administration |
+| `Microphone` | code | microphone capture (dependency of VoiceChat) |
+| `MiniAudio` | code | sound playback, 3D/positional audio |
 | `PhysX5` | code | rigid bodies, character controller, scene queries |
 | `StartingPointInput` | code | Input component / input event buses |
 | `EMotionFX` | code | Actor + Anim Graph animation |
@@ -460,7 +506,7 @@ CPU-simulated particle system with an in-Editor authoring tool.
    life, collision, events; sprite, ribbon-trail and mesh renderers.
 
 If the Particle component is missing from *Add Component*, the gem is not in
-your Editor build — see [§18.4](#184-a-gems-component-doesnt-appear-in-add-component).
+your Editor build — see [§20.4](#204-a-gems-component-doesnt-appear-in-add-component).
 
 ---
 
@@ -938,9 +984,149 @@ Full guide: `docs/aio3de/SECURE_NETWORKING.md`.
 
 ---
 
-## 18. Troubleshooting
+## 18. Match flow, weapons and audio
 
-### 18.1 MSVC out of heap (C1060)
+These live in `ArenaShooterNet` (server-authoritative) plus kit scripts in
+`ArenaShooter`.
+
+### 18.1 Match flow (Network Arena Match)
+
+Add the **Network Arena Match** component to a network-bound level entity. The
+server owns the phase machine and replicates it, so every client's HUD agrees:
+
+```text
+Warm-up ──(WarmupSeconds)──▶ Live ──(ScoreLimit or TimeLimit)──▶ Intermission
+   ▲                                                                  │
+   └──────────────── map vote resolves, LoadLevel ────────────────────┘
+```
+
+| Property | Meaning |
+| --- | --- |
+| `WarmupSeconds` | free-roam period before the round starts; combat disabled |
+| `TimeLimit` / `ScoreLimit` | win conditions, whichever hits first |
+| `IntermissionSeconds` | end-of-match downtime during which the vote runs |
+| `MapList` | comma-separated level names offered in the vote |
+
+During intermission players vote with **1–4** or the gamepad **d-pad**; the
+winning level is loaded with a `LoadLevel` on the server, which cycles every
+connected client. Replicated phase, remaining time, scores and vote tallies are
+available to the HUD scripts. Warm-up and intermission are also the natural
+windows for changing settings or keybinds (§19.1) — those never require a
+reconnect.
+
+### 18.2 Weapons
+
+Weapons are configured on the networked player as a single string, so the
+server is the only source of weapon stats:
+
+```text
+Rifle,12,0.15,200|Shotgun,70,0.9,25|Sniper,90,1.4,500
+     ^  ^    ^    ^
+     |  |    |    └ range (m)
+     |  |    └ minimum interval between shots (s)
+     |  └ damage
+     └ display name
+```
+
+The client sends only the *slot index* it wants; damage, fire rate and range
+always come from the server's config, and the server rejects shots that arrive
+faster than the configured interval. Switching works while alive, including
+mid-match downtime:
+
+| Input | Action |
+| --- | --- |
+| Mouse **scroll wheel** | next / previous weapon |
+| **E** / **Q** | next / previous weapon |
+| Gamepad **RB** / **LB** | next / previous weapon |
+
+Offline play gets the same behavior from `WeaponSwitcher.lua` driving
+`Weapon.lua`'s per-weapon parameters.
+
+### 18.3 Death animation
+
+`NetworkArenaHealthComponent` replicates an `IsDead` flag; the body stays in
+place while dead instead of teleporting. `DeathFx.lua` maps the flag onto an
+anim-graph `Dead` parameter (add a death state/transition in the anim graph —
+see upstream EMotionFX docs) and optionally triggers a death sound.
+
+### 18.4 Spatial and stereo audio
+
+Weapon fire, weapon switch and death sounds are raised as gameplay events that
+kit scripts turn into MiniAudio playback:
+
+- **Positional (3D)**: enable spatialization on the sound component and put a
+  listener on the camera — you get distance attenuation and panning.
+- **Stereo/flat**: leave spatialization off for UI and music.
+- **Independent volume**: each sound source carries its own volume; concurrent
+  sources never sum into a louder mix. The same rule is applied per remote
+  talker in voice chat (§19.3).
+
+---
+
+## 19. Settings, server browser and voice chat
+
+### 19.1 GameSettings: FOV, sensitivity, keybinds
+
+The **GameSettings** gem persists per-user settings to `gamesettings.json` in
+the project's user folder and exposes them on a Lua/Script Canvas bus. Its
+**Remappable Input** component performs runtime rebinding: it captures the next
+key pressed and applies the new binding immediately — no restart, no
+reconnect, so it works mid-match during warm-up or intermission.
+
+`SettingsMenu.lua` in the kit is the ready-made UI: **F10** / gamepad **Start**
+opens it, arrows or d-pad navigate, left/right adjust **FOV** and
+**mouse/gamepad sensitivity**, Enter/A starts a rebind capture. All changes
+apply instantly and survive restarts.
+
+### 19.2 ServerBrowser: discovery and joining
+
+Two halves:
+
+1. **Listing service** — `scripts/master_server.py`, stdlib-only, runs on any
+   VPS: servers `POST /announce` heartbeats, clients `GET /servers`, entries
+   expire after `--ttl` seconds without a heartbeat.
+2. **Gem** — dedicated servers announce with `sb_announce true` +
+   `sb_master_url` (reporting `sb_server_name`, `sb_game_port`, `sb_map`,
+   `sb_players`, `sb_max_players`, all settable from game logic or rcon);
+   clients call `RefreshServerList()` / `JoinServer(address, port)`.
+
+`ServerBrowserMenu.lua`: **F9** / gamepad **Back** opens and refreshes the
+list, up/down selects, Enter/A joins. Direct `connect <ip>:<port>` remains as
+a fallback. Addresses coming from the master server are validated before use
+(§17.4) — the master server is untrusted input.
+
+### 19.3 VoiceChat: team voice
+
+| Piece | Behavior |
+| --- | --- |
+| Capture | push-to-talk opens a Microphone-gem session; 20 ms mono 16 kHz frames, optional RMS gate (`voice_vad_threshold`) |
+| Compression | G.711 mu-law, ~16 kB/s upstream while talking |
+| Transport | plain UDP to a relay hosted by the dedicated server (`voice_host true`, `voice_port`, default **33452** — forward it alongside the game port) |
+| Routing | the relay forwards audio only to clients on the **same channel**; set the channel to the team id for team-only voice |
+| Playback | one ring buffer + sound per remote talker through MiniAudio, each with independent volume; `OnTalkerActive` drives HUD speaker indicators |
+
+`VoiceChat.lua`: hold **V** / d-pad **up** to talk, **M** / d-pad **down**
+mutes incoming voice; set the relay address, port, team channel and volume as
+properties.
+
+The voice stream is a separate plain UDP channel and is **not** covered by the
+game's DTLS transport — it carries audio only. Both ends validate what they
+receive (frame-size bounds, relay-address check, talker cap); for
+confidentiality, tunnel it (VPN/WireGuard).
+
+### 19.4 Remote administration recap
+
+Server operators get the rcon channel from §16 (`admin_enable`,
+`admin_password`, `scripts/rcon.py`), which can drive all of the above at
+runtime: change maps, adjust match cvars, update the announced player count,
+kick players. Admin commands execute only on the server that authenticated
+them.
+
+---
+
+## 20. Troubleshooting
+
+### 20.1 MSVC out of heap (C1060)
 
 `error C1060: compiler is out of heap space` — the compiler ran out of
 virtual memory. In order of effectiveness:
@@ -953,7 +1139,7 @@ virtual memory. In order of effectiveness:
    `CL_MPCount` limits parallel compiles *within* a project — you need both).
 3. Close other memory-heavy apps during the build.
 
-### 18.2 PDB errors (C1090 / C1033)
+### 20.2 PDB errors (C1090 / C1033)
 
 `PDB API call failed` / `Cannot open program database` after a crashed build:
 the target's PDB is corrupt or locked.
@@ -966,7 +1152,7 @@ the target's PDB is corrupt or locked.
    regenerate them (you'd hit C1083 `Cannot open source file: unity_*.cxx`).
 4. Rebuild.
 
-### 18.3 Editor "freezes" before showing a window
+### 20.3 Editor "freezes" before showing a window
 
 Almost always the **Asset Processor** reprocessing after a rebuild — check the
 AP tray icon's job count and let it finish (minutes, first time). If truly
@@ -976,7 +1162,7 @@ it settle, then start the Editor. Check
 whether you're even running the new build, and the last lines show where it
 stalled.
 
-### 18.4 A gem's component doesn't appear in Add Component
+### 20.4 A gem's component doesn't appear in Add Component
 
 The Editor binary you're running doesn't contain the gem. Verify, in order:
 
@@ -986,14 +1172,14 @@ The Editor binary you're running doesn't contain the gem. Verify, in order:
    compiling.
 4. You relaunched the rebuilt Editor.
 
-### 18.5 Particles invisible / no `.particle` assets
+### 20.5 Particles invisible / no `.particle` assets
 
 Stale Asset Processor: it must load the gem's asset builder. Fully quit the AP
 (tray → Quit) and the Editor, relaunch the Editor (spawns a fresh AP), let it
 finish processing `Gems/OpenParticleSystem/Assets/...`, then search `firework`
 in the Asset Browser. Check the Editor console for red `ParticleSystem` lines.
 
-### 18.6 Bot doesn't move / doesn't shoot
+### 20.6 Bot doesn't move / doesn't shoot
 
 - The entity needs a PhysX **Character Controller** (movement goes through it).
 - The bot only fires with line of sight — check nothing blocks the ray from
@@ -1001,7 +1187,7 @@ in the Asset Browser. Check the Editor console for red `ParticleSystem` lines.
 - Model file set but heuristic behavior + a console warning → the
   `.weights.json` widths don't match 8-in/5-out; fix the model spec.
 
-### 18.7 Multiplayer client can't connect
+### 20.7 Multiplayer client can't connect
 
 - Test locally first (`connect 127.0.0.1:33450`).
 - Server actually hosting? (`host` in its console/cfg; check its log.)
@@ -1010,7 +1196,7 @@ in the Asset Browser. Check the Editor console for red `ParticleSystem` lines.
 - With encryption on: both sides need `net_UdpUseEncryption true` and the same
   cert (pinning rejects mismatches); check the logs for SSL validation errors.
 
-### 18.8 Where the logs are
+### 20.8 Where the logs are
 
 - Editor: `<project>\user\log\Editor.log`
 - Launchers: `<project>\user\log\Game.log` / server log next to it
@@ -1018,9 +1204,9 @@ in the Asset Browser. Check the Editor console for red `ParticleSystem` lines.
 
 ---
 
-## 19. Reference tables
+## 21. Reference tables
 
-### 19.1 Rendering cvars
+### 21.1 Rendering cvars
 
 | CVar | Purpose |
 | --- | --- |
@@ -1032,7 +1218,7 @@ in the Asset Browser. Check the Editor console for red `ParticleSystem` lines.
 | `r_useEntryWorkListsForCulling` / `r_numEntriesPerCullingJob` / `r_numNodesPerCullingJob` | culling job granularity |
 | `r_debugTerrainLodLevels` / `r_debugTerrainAabbs` | terrain LOD debug views |
 
-### 19.2 Networking & security cvars
+### 21.2 Networking & security cvars
 
 | CVar | Purpose |
 | --- | --- |
@@ -1042,8 +1228,19 @@ in the Asset Browser. Check the Editor console for red `ParticleSystem` lines.
 | `net_SslExternalCertificateFile` / `net_SslExternalPrivateKeyFile` | cert + key (key: server only) |
 | `net_SslEnablePinning` / `net_SslValidateExpiry` / `net_SslAllowSelfSigned` | validation policy |
 | `net_SslCertCiphers` / `net_SslMaxCertDepth` / `net_RotateCookieTimer` | suite/chain/cookie tuning |
+| `cl_serverConsoleCommandPolicy` | which console commands a server may run on this client (0 none / 1 cvars only / 2 legacy) |
 
-### 19.3 Gameplay events (ArenaShooter contract)
+### 21.3 Game systems cvars
+
+| CVar | Gem | Purpose |
+| --- | --- | --- |
+| `admin_enable` / `admin_password` / `admin_port` | ServerAdmin | rcon channel on the dedicated server |
+| `sb_announce` / `sb_master_url` | ServerBrowser | announce this server to the master list |
+| `sb_server_name` / `sb_game_port` / `sb_map` / `sb_players` / `sb_max_players` | ServerBrowser | what the announcement reports |
+| `voice_host` / `voice_port` | VoiceChat | host the voice relay (server side) |
+| `voice_vad_threshold` | VoiceChat | RMS gate while talking (0 = send everything) |
+
+### 21.4 Gameplay events (ArenaShooter contract)
 
 | Event | Payload | Channel | Raised by | Handled by |
 | --- | --- | --- | --- | --- |
@@ -1053,7 +1250,7 @@ in the Asset Browser. Check the Editor console for red `ParticleSystem` lines.
 | `MoveSpeed` | float m/s | player entity | PlayerController.lua | AnimationDriver.lua |
 | `ActiveInputDevice` | 1.0 / 2.0 | detector entity | DeviceDetector.lua | UI/prompt scripts |
 
-### 19.4 Neural bot policy I/O
+### 21.5 Neural bot policy I/O
 
 | # | Input (8) | # | Output (5) |
 | --- | --- | --- | --- |
@@ -1066,7 +1263,7 @@ in the Asset Browser. Check the Editor console for red `ParticleSystem` lines.
 
 ---
 
-## 20. Document index
+## 22. Document index
 
 Deeper, per-topic documents in this repository:
 
@@ -1084,3 +1281,10 @@ Deeper, per-topic documents in this repository:
 | `Gems/NeuralBots/README.md` | bot agent + training |
 | `Gems/ArenaShooterNet/README.md` | multiplayer setup |
 | `Gems/AIBackbone/README.md` | AI model builder & training tools |
+| `Gems/ServerAdmin/README.md` | rcon setup + SSH guidance |
+| `Gems/GameSettings/README.md` | settings persistence & rebinding |
+| `Gems/ServerBrowser/README.md` | master server + browser setup |
+| `Gems/VoiceChat/README.md` | voice chat setup & security notes |
+
+For everything the fork does **not** change, use the upstream O3DE docs — see
+[§1.1](#11-upstream-o3de-documentation).
