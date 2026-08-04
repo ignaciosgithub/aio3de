@@ -36,6 +36,9 @@ namespace ArenaShooterNet
         void CreateInput(Multiplayer::NetworkInput& input, float deltaTime) override;
         void ProcessInput(Multiplayer::NetworkInput& input, float deltaTime) override;
 
+        //! Authority-side map-vote relay to the match controller.
+        void HandleSendMapVote(AzNetworking::IConnection* invokingConnection, const uint8_t& mapIndex) override;
+
     private:
         // StartingPointInput::InputEventNotificationBus
         void OnPressed(float value) override;

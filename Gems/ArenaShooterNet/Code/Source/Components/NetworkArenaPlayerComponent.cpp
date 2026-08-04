@@ -15,6 +15,8 @@
 #include <LmbrCentral/Scripting/GameplayNotificationBus.h>
 #include <Multiplayer/Components/NetworkCharacterComponent.h>
 
+#include <Source/ArenaMatchInterface.h>
+
 namespace ArenaShooterNet
 {
     namespace
@@ -24,6 +26,10 @@ namespace ArenaShooterNet
         const StartingPointInput::InputEventNotificationId LookXEventId("LookX");
         const StartingPointInput::InputEventNotificationId LookYEventId("LookY");
         const StartingPointInput::InputEventNotificationId ShootEventId("Shoot");
+        const StartingPointInput::InputEventNotificationId Vote1EventId("Vote1");
+        const StartingPointInput::InputEventNotificationId Vote2EventId("Vote2");
+        const StartingPointInput::InputEventNotificationId Vote3EventId("Vote3");
+        const StartingPointInput::InputEventNotificationId Vote4EventId("Vote4");
     } // namespace
 
     NetworkArenaPlayerComponentController::NetworkArenaPlayerComponentController(NetworkArenaPlayerComponent& parent)
@@ -40,6 +46,10 @@ namespace ArenaShooterNet
             StartingPointInput::InputEventNotificationBus::MultiHandler::BusConnect(LookXEventId);
             StartingPointInput::InputEventNotificationBus::MultiHandler::BusConnect(LookYEventId);
             StartingPointInput::InputEventNotificationBus::MultiHandler::BusConnect(ShootEventId);
+            StartingPointInput::InputEventNotificationBus::MultiHandler::BusConnect(Vote1EventId);
+            StartingPointInput::InputEventNotificationBus::MultiHandler::BusConnect(Vote2EventId);
+            StartingPointInput::InputEventNotificationBus::MultiHandler::BusConnect(Vote3EventId);
+            StartingPointInput::InputEventNotificationBus::MultiHandler::BusConnect(Vote4EventId);
         }
     }
 
@@ -81,10 +91,33 @@ namespace ArenaShooterNet
         {
             m_shooting = true;
         }
+        else if (*busId == Vote1EventId)
+        {
+            SendMapVote(0);
+        }
+        else if (*busId == Vote2EventId)
+        {
+            SendMapVote(1);
+        }
+        else if (*busId == Vote3EventId)
+        {
+            SendMapVote(2);
+        }
+        else if (*busId == Vote4EventId)
+        {
+            SendMapVote(3);
+        }
     }
 
     void NetworkArenaPlayerComponentController::OnHeld(float value)
     {
+        const StartingPointInput::InputEventNotificationId* busId =
+            StartingPointInput::InputEventNotificationBus::GetCurrentBusId();
+        if (busId &&
+            (*busId == Vote1EventId || *busId == Vote2EventId || *busId == Vote3EventId || *busId == Vote4EventId))
+        {
+            return; // votes fire once on press, never repeat while held
+        }
         OnPressed(value);
     }
 
@@ -173,6 +206,15 @@ namespace ArenaShooterNet
         }
     }
 
+    void NetworkArenaPlayerComponentController::HandleSendMapVote(
+        [[maybe_unused]] AzNetworking::IConnection* invokingConnection, const uint8_t& mapIndex)
+    {
+        if (auto* match = AZ::Interface<IArenaMatch>::Get())
+        {
+            match->SubmitMapVote(GetEntityId(), mapIndex);
+        }
+    }
+
     void NetworkArenaPlayerComponentController::ServerShoot()
     {
         auto* physicsSystem = AZ::Interface<AzPhysics::SystemInterface>::Get();
@@ -222,7 +264,7 @@ namespace ArenaShooterNet
             AZ::GameplayNotificationBus::Event(
                 AZ::GameplayNotificationId(closest->m_entityId, AZ_CRC_CE("Damage"), azrtti_typeid<float>()),
                 &AZ::GameplayNotificationBus::Events::OnEventBegin,
-                AZStd::any(GetFireDamage()));
+                AZStd::any(ArenaDamage{ GetFireDamage(), GetEntityId() }));
         }
     }
 } // namespace ArenaShooterNet

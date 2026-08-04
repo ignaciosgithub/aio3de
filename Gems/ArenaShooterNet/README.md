@@ -16,6 +16,32 @@ engine's **Multiplayer** gem (AzNetworking). Two multiplayer components:
   clients (clients cannot set it). Damage comes from server-local `Damage`
   events raised by the player component's server-side shot resolution. Death
   stashes the body and respawns at the spawn point after a delay.
+- **Network Arena Match** — server-authoritative match flow (below).
+
+## Match flow (warm-up, win condition, map vote)
+
+Add the **Network Arena Match** component to a network-bound level entity
+(one per level: an entity with **Network Binding** + this component). The
+server runs a three-phase state machine, all replicated to clients:
+
+1. **Warm-up** (`Warmup Duration`, default 20 s) — players can move and
+   shoot, but damage is disabled and kills don't count.
+2. **Live** (`Match Duration`, default 300 s; 0 = untimed) — full combat.
+   The match ends when a player reaches `Score Limit` kills (0 = no limit)
+   or the timer runs out.
+3. **Map vote** (`Vote Duration`, default 15 s) — clients vote by pressing
+   **1–4** (keyboard) or the **d-pad** (gamepad); `Map List` is a
+   comma-separated list of level paths (e.g.
+   `Levels/Arena1/Arena1.spawnable, Levels/Arena2/Arena2.spawnable`). The
+   winning map is loaded server-side (the Multiplayer gem forwards the level
+   change to every client). With an empty map list the flow restarts on the
+   current level.
+
+Replicated properties for HUD scripting (`ExposeToScript`): `Phase`
+(0 warm-up / 1 live / 2 vote), `PhaseTimeRemaining`, `LeadingScore`,
+`WinnerNetId`, and `WinningMapIndex`. Kill attribution flows from the player
+component's server-side shot resolution, so only server-confirmed kills
+score.
 
 ## Enable
 
