@@ -23,4 +23,8 @@
     <NetworkInput Type="float" Name="ViewPitch" Init="0.0f" />
     <NetworkInput Type="float" Name="Shoot" Init="0.0f" />
 
+    <RemoteProcedure Name="SendMapVote" InvokeFrom="Autonomous" HandleOn="Authority" IsPublic="false" IsReliable="true" GenerateEventBindings="false" Description="Vote for a map during the end-of-match vote phase">
+        <Param Type="uint8_t" Name="mapIndex" />
+    </RemoteProcedure>
+
 </Component>

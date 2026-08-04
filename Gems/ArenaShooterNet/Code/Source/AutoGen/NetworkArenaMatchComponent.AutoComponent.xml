@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+
+<Component
+    Name="NetworkArenaMatchComponent"
+    Namespace="ArenaShooterNet"
+    OverrideComponent="false"
+    OverrideController="true"
+    OverrideInclude="Source/Components/NetworkArenaMatchComponent.h"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+
+    <ArchetypeProperty Type="float" Name="WarmupDuration" Init="20.0f" Container="Object" ExposeToEditor="true" Description="Warm-up seconds before the match goes live (damage disabled)" />
+    <ArchetypeProperty Type="float" Name="MatchDuration" Init="300.0f" Container="Object" ExposeToEditor="true" Description="Live match length in seconds (0 = no time limit)" />
+    <ArchetypeProperty Type="uint32_t" Name="ScoreLimit" Init="20" Container="Object" ExposeToEditor="true" Description="Kills needed to win instantly (0 = no score limit)" />
+    <ArchetypeProperty Type="float" Name="VoteDuration" Init="15.0f" Container="Object" ExposeToEditor="true" Description="Seconds the end-of-match map vote stays open" />
+    <ArchetypeProperty Type="AZStd::string" Name="MapList" Init="" Container="Object" ExposeToEditor="true" Description="Comma-separated level paths offered in the map vote (empty = restart the current level)" />
+
+    <NetworkProperty Type="uint8_t" Name="Phase" Init="0" ReplicateFrom="Authority" ReplicateTo="Client" IsRewindable="false" IsPredictable="false" IsPublic="true" Container="Object" ExposeToEditor="false" ExposeToScript="true" GenerateEventBindings="true" Description="Match phase: 0 warm-up, 1 live, 2 map vote" />
+    <NetworkProperty Type="float" Name="PhaseTimeRemaining" Init="0.0f" ReplicateFrom="Authority" ReplicateTo="Client" IsRewindable="false" IsPredictable="false" IsPublic="true" Container="Object" ExposeToEditor="false" ExposeToScript="true" GenerateEventBindings="true" Description="Seconds left in the current phase" />
+    <NetworkProperty Type="uint32_t" Name="LeadingScore" Init="0" ReplicateFrom="Authority" ReplicateTo="Client" IsRewindable="false" IsPredictable="false" IsPublic="true" Container="Object" ExposeToEditor="false" ExposeToScript="true" GenerateEventBindings="true" Description="Highest kill count this match" />
+    <NetworkProperty Type="uint32_t" Name="WinnerNetId" Init="0" ReplicateFrom="Authority" ReplicateTo="Client" IsRewindable="false" IsPredictable="false" IsPublic="true" Container="Object" ExposeToEditor="false" ExposeToScript="true" GenerateEventBindings="true" Description="Network entity id of the current leader / winner (0 = none)" />
+    <NetworkProperty Type="uint8_t" Name="WinningMapIndex" Init="0" ReplicateFrom="Authority" ReplicateTo="Client" IsRewindable="false" IsPredictable="false" IsPublic="true" Container="Object" ExposeToEditor="false" ExposeToScript="true" GenerateEventBindings="true" Description="Index into the map list currently winning the vote" />
+
+</Component>

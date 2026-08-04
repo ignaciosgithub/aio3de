@@ -8,6 +8,9 @@
 #include "NetworkArenaHealthComponent.h"
 
 #include <AzCore/Component/TransformBus.h>
+#include <AzCore/Interface/Interface.h>
+
+#include <Source/ArenaMatchInterface.h>
 
 namespace ArenaShooterNet
 {
@@ -41,8 +44,20 @@ namespace ArenaShooterNet
             return;
         }
 
+        // during warm-up / map-vote downtime damage is disabled
+        if (auto* match = AZ::Interface<IArenaMatch>::Get(); match && !match->IsCombatEnabled())
+        {
+            return;
+        }
+
         float damage = 0.0f;
-        if (const float* asFloat = AZStd::any_cast<float>(&value))
+        AZ::EntityId attacker;
+        if (const ArenaDamage* asArena = AZStd::any_cast<ArenaDamage>(&value))
+        {
+            damage = asArena->m_damage;
+            attacker = asArena->m_attacker;
+        }
+        else if (const float* asFloat = AZStd::any_cast<float>(&value))
         {
             damage = *asFloat;
         }
@@ -59,6 +74,10 @@ namespace ArenaShooterNet
         SetHealth(newHealth);
         if (newHealth <= 0.0f)
         {
+            if (auto* match = AZ::Interface<IArenaMatch>::Get())
+            {
+                match->ReportKill(attacker, GetEntityId());
+            }
             Die();
         }
     }
