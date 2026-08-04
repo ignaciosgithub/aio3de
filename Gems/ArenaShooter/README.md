@@ -46,6 +46,14 @@ Required gems in your project: **PhysX5** (character/rigid bodies),
      (1 = keyboard/mouse, 2 = gamepad) whenever the player switches device.
    - **Input** component → `arenashooter.inputbindings` (needed so the
      device-activity events reach the detector).
+   - **Lua Script** → `SettingsMenu.lua` (requires the **GameSettings** gem):
+     in-game settings menu — **F10**/gamepad **start** toggles it, arrows or
+     d-pad navigate, left/right adjust **FOV** and **mouse/gamepad
+     sensitivity**, Enter/**A** rebinds keys (press the new key/button).
+     Changes apply live and persist per user. Set *CameraEntity* to the
+     player camera. On the player, set *DeviceDetectorEntity* in
+     `PlayerController.lua` to this entity so sensitivity follows the active
+     device.
 5. Press **Ctrl+G**. WASD/left stick to move, mouse/right stick to aim,
    LMB/right trigger to shoot, Space/A to jump.
 

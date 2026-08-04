@@ -10,6 +10,7 @@ local PlayerController =
         LookSensitivity = { default = 0.15, description = "Degrees per mouse count / stick unit" },
         JumpSpeed = { default = 6.0, suffix = " m/s" },
         MaxPitch = { default = 85.0, suffix = " deg" },
+        DeviceDetectorEntity = { default = EntityId(), description = "Entity running DeviceDetector.lua (for per-device sensitivity); optional" },
         CameraEntity = { default = EntityId(), description = "Child entity carrying the Camera component (pitch is applied here)" },
     },
 }
@@ -54,13 +55,38 @@ function PlayerController:OnActivate()
     table.insert(self.handlers, InputEventNotificationBus.Connect(lookYHandler, InputEventNotificationId("LookY")))
     table.insert(self.handlers, InputEventNotificationBus.Connect(jumpHandler, InputEventNotificationId("Jump")))
 
+    -- with the GameSettings gem, sensitivity comes from the user's saved
+    -- settings (per active device, via DeviceDetector's broadcast)
+    self.activeDevice = 1
+    local deviceHandler = {
+        OnEventBegin = function(_, v) self.activeDevice = v end,
+        OnEventUpdating = function(_, v) self.activeDevice = v end,
+        OnEventEnd = function(_, v) end,
+    }
+    local detector = self.Properties.DeviceDetectorEntity
+    if not detector:IsValid() then
+        detector = self.entityId
+    end
+    table.insert(self.handlers, GameplayNotificationBus.Connect(
+        deviceHandler, GameplayNotificationId(detector, "ActiveInputDevice", "float")))
+
     self.tickHandler = TickBus.Connect(self)
+end
+
+function PlayerController:Sensitivity()
+    local sens = self.Properties.LookSensitivity
+    if GameSettingsRequestBus ~= nil then
+        local setting = (self.activeDevice == 2) and "pad_sensitivity" or "mouse_sensitivity"
+        sens = sens * GameSettingsRequestBus.Broadcast.GetValue(setting, 1.0)
+    end
+    return sens
 end
 
 function PlayerController:OnTick(deltaTime, timePoint)
     -- look: yaw the player, pitch the camera child
-    self.yaw = self.yaw - self.input.lookX * self.Properties.LookSensitivity
-    self.pitch = self.pitch - self.input.lookY * self.Properties.LookSensitivity
+    local sensitivity = self:Sensitivity()
+    self.yaw = self.yaw - self.input.lookX * sensitivity
+    self.pitch = self.pitch - self.input.lookY * sensitivity
     local maxPitch = self.Properties.MaxPitch
     if self.pitch > maxPitch then self.pitch = maxPitch end
     if self.pitch < -maxPitch then self.pitch = -maxPitch end
