@@ -54,6 +54,10 @@ Required gems in your project: **PhysX5** (character/rigid bodies),
      player camera. On the player, set *DeviceDetectorEntity* in
      `PlayerController.lua` to this entity so sensitivity follows the active
      device.
+   - **Lua Script** → `ServerBrowserMenu.lua` (requires the **ServerBrowser**
+     gem and `sb_master_url` set on the client): **F9**/gamepad **back**
+     opens the server list and refreshes, up/down select, Enter/**A** joins.
+     See `Gems/ServerBrowser/README.md` for running the master server.
 5. Press **Ctrl+G**. WASD/left stick to move, mouse/right stick to aim,
    LMB/right trigger to shoot, Space/A to jump.
 
