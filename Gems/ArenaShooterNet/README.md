@@ -15,8 +15,26 @@ engine's **Multiplayer** gem (AzNetworking). Two multiplayer components:
 - **Network Arena Health** — health lives on the server and replicates to all
   clients (clients cannot set it). Damage comes from server-local `Damage`
   events raised by the player component's server-side shot resolution. Death
-  stashes the body and respawns at the spawn point after a delay.
+  leaves the body in place (for the death animation) and respawns at the
+  spawn point after a delay.
 - **Network Arena Match** — server-authoritative match flow (below).
+
+## Weapons
+
+Give the player component a loadout via **Weapon Configs**:
+`Name,damage,interval,range` entries separated by `|`, e.g.
+`Rifle,12,0.15,200|Shotgun,70,0.9,25|Sniper,90,1.4,500` (empty = one weapon
+from the legacy Fire Damage/Interval/Range properties). Switch with the
+mouse **scroll wheel**, **Q/E**, or gamepad **LB/RB**. The client only ever
+transmits the selected *slot index* as part of its input — damage, fire
+interval and range always come from the server's config for that slot, so a
+tampered client can't buff its gun. The server-confirmed `ActiveWeapon`
+slot replicates to all clients for HUD/animation.
+
+The health component replicates an `IsDead` flag (true from death until
+respawn): drive death animations/FX from it on clients — the body stays in
+place while dead so the animation is visible (it takes no damage until
+respawn).
 
 ## Match flow (warm-up, win condition, map vote)
 

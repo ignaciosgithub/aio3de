@@ -14,5 +14,6 @@
     <ArchetypeProperty Type="float" Name="RespawnDelay" Init="3.0f" Container="Object" ExposeToEditor="true" Description="Seconds between death and respawn" />
 
     <NetworkProperty Type="float" Name="Health" Init="100.0f" ReplicateFrom="Authority" ReplicateTo="Client" IsRewindable="false" IsPredictable="false" IsPublic="true" Container="Object" ExposeToEditor="false" ExposeToScript="true" GenerateEventBindings="true" Description="Current health, replicated to all clients" />
+    <NetworkProperty Type="bool" Name="IsDead" Init="false" ReplicateFrom="Authority" ReplicateTo="Client" IsRewindable="false" IsPredictable="false" IsPublic="true" Container="Object" ExposeToEditor="false" ExposeToScript="true" GenerateEventBindings="true" Description="True from death until respawn, replicated to all clients for death animation/FX" />
 
 </Component>

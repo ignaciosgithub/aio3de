@@ -16,12 +16,16 @@
     <ArchetypeProperty Type="float" Name="FireRange" Init="200.0f" Container="Object" ExposeToEditor="true" Description="Hitscan range in meters" />
     <ArchetypeProperty Type="float" Name="FireDamage" Init="10.0f" Container="Object" ExposeToEditor="true" Description="Damage per shot" />
     <ArchetypeProperty Type="float" Name="FireInterval" Init="0.2f" Container="Object" ExposeToEditor="true" Description="Server-enforced minimum seconds between shots" />
+    <ArchetypeProperty Type="AZStd::string" Name="WeaponConfigs" Init="" Container="Object" ExposeToEditor="true" Description="Weapon loadout as 'Name,damage,interval,range' entries separated by '|' (e.g. 'Rifle,12,0.15,200|Shotgun,70,0.9,25|Sniper,90,1.4,500'). Empty = single weapon from Fire Damage/Interval/Range" />
 
     <NetworkInput Type="float" Name="FwdBack" Init="0.0f" />
     <NetworkInput Type="float" Name="LeftRight" Init="0.0f" />
     <NetworkInput Type="float" Name="ViewYaw" Init="0.0f" />
     <NetworkInput Type="float" Name="ViewPitch" Init="0.0f" />
     <NetworkInput Type="float" Name="Shoot" Init="0.0f" />
+    <NetworkInput Type="uint8_t" Name="WeaponIndex" Init="0" />
+
+    <NetworkProperty Type="uint8_t" Name="ActiveWeapon" Init="0" ReplicateFrom="Authority" ReplicateTo="Client" IsRewindable="false" IsPredictable="false" IsPublic="true" Container="Object" ExposeToEditor="false" ExposeToScript="true" GenerateEventBindings="true" Description="Server-confirmed active weapon slot, replicated to all clients for HUD/animation" />
 
     <RemoteProcedure Name="SendMapVote" InvokeFrom="Autonomous" HandleOn="Authority" IsPublic="false" IsReliable="true" GenerateEventBindings="false" Description="Vote for a map during the end-of-match vote phase">
         <Param Type="uint8_t" Name="mapIndex" />

@@ -11,14 +11,22 @@ local Weapon =
         Damage = { default = 25.0 },
         ImpactImpulse = { default = 250.0, suffix = " N s" },
         FireInterval = { default = 0.15, suffix = " s", description = "Minimum time between shots" },
+        Slot = { default = 0, description = "Weapon slot for WeaponSwitcher.lua (0 = always active, no switching)" },
+        FireSoundEntity = { default = EntityId(), description = "Optional entity with a MiniAudio Playback component to play on each shot (enable spatialization on it for 3D audio)" },
     },
 }
 
 function Weapon:OnActivate()
     self.cooldown = 0.0
     self.triggerHeld = false
+    self.active = (self.Properties.Slot <= 0) -- slot 1 is enabled by the switcher's initial broadcast
     self.shootHandler = InputEventNotificationBus.Connect(self, InputEventNotificationId("Shoot"))
     self.tickHandler = TickBus.Connect(self)
+    if self.Properties.Slot > 0 then
+        self.slotHandler = GameplayNotificationBus.Connect(
+            { OnEventBegin = function(_, slot) self.active = (slot == self.Properties.Slot) end },
+            GameplayNotificationId(self.entityId, "WeaponSlot", "float"))
+    end
 end
 
 function Weapon:OnPressed(value)
@@ -35,7 +43,7 @@ end
 
 function Weapon:OnTick(deltaTime, timePoint)
     self.cooldown = self.cooldown - deltaTime
-    if self.triggerHeld and self.cooldown <= 0.0 then
+    if self.active and self.triggerHeld and self.cooldown <= 0.0 then
         self.cooldown = self.Properties.FireInterval
         self:Fire()
     end
@@ -55,6 +63,10 @@ function Weapon:Fire()
     local scene = physicsSystem:GetScene(sceneHandle)
     if scene == nil then
         return
+    end
+
+    if self.Properties.FireSoundEntity:IsValid() then
+        MiniAudioPlaybackRequestBus.Event.Play(self.Properties.FireSoundEntity)
     end
 
     local request = SceneQueries.CreateRayCastRequest(start, direction, self.Properties.Range, "All")
@@ -81,6 +93,9 @@ end
 function Weapon:OnDeactivate()
     self.tickHandler:Disconnect()
     self.shootHandler:Disconnect()
+    if self.slotHandler then
+        self.slotHandler:Disconnect()
+    end
 end
 
 return Weapon
