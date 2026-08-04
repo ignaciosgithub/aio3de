@@ -37,10 +37,8 @@ function Health:Die()
     self.respawnTimer = self.Properties.RespawnDelay
     GameplayNotificationBus.Event.OnEventBegin(
         GameplayNotificationId(self.entityId, "Killed", "float"), 1.0)
-    -- park the body out of sight until respawn
-    local tm = TransformBus.Event.GetWorldTM(self.entityId)
-    tm:SetTranslation(tm:GetTranslation() + Vector3(0.0, 0.0, -1000.0))
-    TransformBus.Event.SetWorldTM(self.entityId, tm)
+    -- the body stays in place while dead (it takes no further damage) so a
+    -- death animation can play — see DeathFx.lua
 end
 
 function Health:OnTick(deltaTime, timePoint)

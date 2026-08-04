@@ -85,10 +85,10 @@ namespace ArenaShooterNet
     void NetworkArenaHealthComponentController::Die()
     {
         m_dead = true;
+        SetIsDead(true); // clients play the death animation off this flag
         m_respawnTimer = GetRespawnDelay();
-        // stash the body out of play until respawn
-        AZ::TransformBus::Event(GetEntityId(), &AZ::TransformBus::Events::SetWorldTranslation,
-            m_spawnPoint - AZ::Vector3(0.0f, 0.0f, 1000.0f));
+        // the body stays in place while dead so the death animation is visible;
+        // it takes no damage (m_dead) and respawns at the spawn point below
         AZ::TickBus::Handler::BusConnect();
     }
 
@@ -106,6 +106,7 @@ namespace ArenaShooterNet
     {
         AZ::TransformBus::Event(GetEntityId(), &AZ::TransformBus::Events::SetWorldTranslation, m_spawnPoint);
         SetHealth(GetMaxHealth());
+        SetIsDead(false);
         m_dead = false;
     }
 } // namespace ArenaShooterNet

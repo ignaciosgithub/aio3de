@@ -9,6 +9,8 @@
 
 #include <Source/AutoGen/NetworkArenaPlayerComponent.AutoComponent.h>
 
+#include <AzCore/std/containers/fixed_vector.h>
+#include <AzCore/std/string/string.h>
 #include <StartingPointInput/InputEventNotificationBus.h>
 
 namespace ArenaShooterNet
@@ -40,10 +42,24 @@ namespace ArenaShooterNet
         void HandleSendMapVote(AzNetworking::IConnection* invokingConnection, const uint8_t& mapIndex) override;
 
     private:
+        //! One server-side weapon configuration parsed from WeaponConfigs.
+        struct Weapon
+        {
+            AZStd::string m_name;
+            float m_damage = 10.0f;
+            float m_interval = 0.2f;
+            float m_range = 200.0f;
+        };
+        static constexpr size_t MaxWeapons = 8;
+
         // StartingPointInput::InputEventNotificationBus
         void OnPressed(float value) override;
         void OnHeld(float value) override;
         void OnReleased(float value) override;
+
+        void ParseWeaponConfigs();
+        void SelectWeapon(int index); // client-side, wraps/clamps
+        const Weapon& CurrentServerWeapon() const;
 
         void ServerShoot();
 
@@ -57,5 +73,9 @@ namespace ArenaShooterNet
 
         // server-side fire-rate enforcement
         float m_fireCooldown = 0.0f;
+
+        // weapon loadout (parsed identically on every role from WeaponConfigs)
+        AZStd::fixed_vector<Weapon, MaxWeapons> m_weapons;
+        uint8_t m_localWeaponIndex = 0; // client-selected slot, sent as input
     };
 } // namespace ArenaShooterNet
