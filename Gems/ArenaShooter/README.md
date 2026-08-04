@@ -58,6 +58,12 @@ Required gems in your project: **PhysX5** (character/rigid bodies),
      gem and `sb_master_url` set on the client): **F9**/gamepad **back**
      opens the server list and refreshes, up/down select, Enter/**A** joins.
      See `Gems/ServerBrowser/README.md` for running the master server.
+   - **Lua Script** → `VoiceChat.lua` (requires the **VoiceChat** and
+     **Microphone** gems): team voice — hold **V**/d-pad **up** to talk,
+     **M**/d-pad **down** mutes incoming voice. Set *VoiceServerAddress* to
+     the game server (which runs the relay with `voice_host true`) and
+     *TeamChannel* to the player's team id — only same-channel players hear
+     each other. See `Gems/VoiceChat/README.md`.
 5. Press **Ctrl+G**. WASD/left stick to move, mouse/right stick to aim,
    LMB/right trigger to shoot, Space/A to jump.
 
