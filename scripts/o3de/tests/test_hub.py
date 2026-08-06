@@ -250,7 +250,8 @@ def test_build_fix_plan_linux_packages_and_user_steps():
         _check('Ninja', hub.WARN),
         _check('Git LFS', hub.FAIL),
         _check('3rd party packages', hub.WARN),
-        _check('Engine registration', hub.WARN, 'engine tooling not bootstrapped yet'),
+        _check('Engine Python venv', hub.FAIL, 'exists but is missing its dependencies'),
+        _check('Engine registration', hub.WARN, 'this engine is not registered'),
         _check('Runtime lib: xcb-cursor (Qt/XCB)', hub.WARN),
     ]
     with patch.object(sys, 'platform', 'linux'), \
@@ -265,8 +266,12 @@ def test_build_fix_plan_linux_packages_and_user_steps():
         assert package in package_step.command
     assert any('Git LFS' in d for d in descriptions)
     assert any('3rd party' in d for d in descriptions)
-    assert any('Bootstrap' in d for d in descriptions)
+    assert any('repair the engine Python' in d for d in descriptions)
     assert any('Register' in d for d in descriptions)
+    # get_python repair must run before registration
+    repair_index = next(i for i, d in enumerate(descriptions) if 'repair the engine Python' in d)
+    register_index = next(i for i, d in enumerate(descriptions) if 'Register' in d)
+    assert repair_index < register_index
     # non-package steps never run elevated
     assert all(not s.elevated for s in steps[1:])
 
@@ -328,3 +333,28 @@ def test_o3de_sh_handles_paths_with_spaces(tmp_path):
                                capture_output=True, text=True, timeout=30)
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert 'ARGS:hub|two words' in completed.stdout
+
+
+def test_check_engine_python_venv_broken(tmp_path):
+    fake_python = tmp_path / 'bin' / 'python'
+    with patch.object(hub, 'get_engine_venv_python', return_value=fake_python), \
+         patch.object(hub.subprocess, 'run') as mock_run:
+        mock_run.return_value.returncode = 1
+        result = hub.check_engine_python_venv(tmp_path)
+    assert result.severity == hub.FAIL
+    assert 'missing its dependencies' in result.detail
+
+
+def test_check_engine_python_venv_healthy(tmp_path):
+    fake_python = tmp_path / 'bin' / 'python'
+    with patch.object(hub, 'get_engine_venv_python', return_value=fake_python), \
+         patch.object(hub.subprocess, 'run') as mock_run:
+        mock_run.return_value.returncode = 0
+        result = hub.check_engine_python_venv(tmp_path)
+    assert result.severity == hub.OK
+
+
+def test_check_engine_python_venv_not_set_up():
+    with patch.object(hub, 'get_engine_venv_python', return_value=None):
+        result = hub.check_engine_python_venv(pathlib.Path('/engine'))
+    assert result.severity == hub.WARN

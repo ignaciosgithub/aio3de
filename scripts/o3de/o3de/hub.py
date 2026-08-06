@@ -388,6 +388,54 @@ def check_windows_code_integrity() -> CheckResult or None:
     return CheckResult('Code integrity policy', OK, 'not enforced (unsigned binaries allowed)')
 
 
+def get_engine_venv_python(engine_path: pathlib.Path) -> pathlib.Path or None:
+    """Locates the per-engine Python venv interpreter (~/.o3de/Python/venv/<engine id>), or None
+    when it can't be determined (no cmake to compute the engine id) or doesn't exist yet."""
+    if not shutil.which('cmake'):
+        return None
+    calc = pathlib.Path(engine_path) / 'cmake' / 'CalculateEnginePathId.cmake'
+    if not calc.is_file():
+        return None
+    # python/python.sh|cmd pass "<engine>/python/.." to this script; the ID is a hash of the
+    # normalized path *string* (which keeps a trailing slash for ".."), so the exact same
+    # argument must be used here to land on the same venv folder.
+    hash_argument = str(pathlib.Path(engine_path).resolve() / 'python' / '..')
+    try:
+        completed = subprocess.run(['cmake', '-P', str(calc), hash_argument],
+                                   capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    engine_id = ((completed.stdout or '') + (completed.stderr or '')).strip()
+    if completed.returncode != 0 or not engine_id:
+        return None
+    home = pathlib.Path(os.environ.get('USERPROFILE') or pathlib.Path.home())
+    venv = home / '.o3de' / 'Python' / 'venv' / engine_id
+    python = venv / ('Scripts/python.exe' if sys.platform.startswith('win') else 'bin/python')
+    return python if python.is_file() else None
+
+
+def check_engine_python_venv(engine_path: pathlib.Path) -> CheckResult:
+    """Detects a half-created engine venv: it exists (so the launcher considers Python 'ready')
+    but the dependency install failed/was interrupted, which then surfaces later as
+    "ModuleNotFoundError: No module named 'packaging'" from every o3de command."""
+    venv_python = get_engine_venv_python(engine_path)
+    if venv_python is None:
+        return CheckResult('Engine Python venv', WARN, 'not set up yet',
+                           'Created automatically by the first "scripts/o3de" command '
+                           '(or run python/get_python.sh / get_python.bat).')
+    try:
+        completed = subprocess.run([str(venv_python), '-c', 'import packaging, resolvelib, o3de'],
+                                   capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return CheckResult('Engine Python venv', FAIL, f'{venv_python} could not be run',
+                           'Re-run python/get_python.sh (Linux/macOS) or python\\get_python.bat (Windows).')
+    if completed.returncode != 0:
+        return CheckResult('Engine Python venv', FAIL, 'exists but is missing its dependencies',
+                           'A previous setup was interrupted. Re-run python/get_python.sh '
+                           '(Linux/macOS) or python\\get_python.bat (Windows) to repair it.')
+    return CheckResult('Engine Python venv', OK, 'dependencies import correctly')
+
+
 def check_engine_path_sanity(engine_path: pathlib.Path) -> CheckResult:
     """Paths with spaces or non-ASCII characters break assorted build scripts and third-party
     tooling; warn early instead of letting the failure surface as a cryptic build error."""
@@ -415,6 +463,7 @@ def run_doctor(engine_path: pathlib.Path) -> list:
         check_git_lfs(),
         check_third_party(),
         check_disk_space(engine_path),
+        check_engine_python_venv(engine_path),
         check_engine_registration(engine_path),
     ]
     checks.extend(check_linux_runtime_libraries())
@@ -525,15 +574,18 @@ def build_fix_plan(checks: list, engine_path: pathlib.Path) -> list:
                                  [sys.executable, '-c',
                                   f'import pathlib; pathlib.Path({str(third_party)!r}).mkdir(parents=True, exist_ok=True)']))
 
+    if sys.platform.startswith('win'):
+        launcher = engine_path / 'scripts' / 'o3de.bat'
+        get_python = engine_path / 'python' / 'get_python.bat'
+    else:
+        launcher = engine_path / 'scripts' / 'o3de.sh'
+        get_python = engine_path / 'python' / 'get_python.sh'
+
+    if needs_fix('Engine Python venv'):
+        steps.append(FixStep('Set up / repair the engine Python environment (can take several minutes)',
+                             [str(get_python)], cwd=str(engine_path)))
+
     if needs_fix('Engine registration'):
-        registration_check = by_name['Engine registration']
-        if sys.platform.startswith('win'):
-            launcher = engine_path / 'scripts' / 'o3de.bat'
-        else:
-            launcher = engine_path / 'scripts' / 'o3de.sh'
-        if 'not bootstrapped' in registration_check.detail:
-            steps.append(FixStep('Bootstrap the engine Python environment (can take several minutes)',
-                                 [str(launcher), '--help'], cwd=str(engine_path)))
         steps.append(FixStep('Register this engine',
                              [str(launcher), 'register', '--this-engine'], cwd=str(engine_path)))
 

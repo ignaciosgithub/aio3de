@@ -103,6 +103,13 @@ o3de_python_env_ready ()
     venv_hash=$(cat "$PYTHON_VENV_HASH_FILE")
     current_hash=$(cmake -P "$DIR/get_python_package_hash.cmake" "$DIR/.." $PAL $ARCH)
     [ "$venv_hash" == "$current_hash" ] || return 1
+    # The hash only proves the venv was created from the right package; a failed/interrupted
+    # dependency install can still leave it unusable, so verify the core deps actually import.
+    # Skipped while get_python.sh is bootstrapping (pip itself runs through this script before
+    # those dependencies exist).
+    if [ -z "$O3DE_PYTHON_BOOTSTRAPPING" ]; then
+        "$PYTHON_VENV_PYTHON" -c "import packaging, resolvelib, o3de" > /dev/null 2>&1 || return 1
+    fi
     return 0
 }
 

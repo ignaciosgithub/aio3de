@@ -106,7 +106,9 @@ compiler, Editor runtime libraries), runs `git lfs install` + `git lfs pull`,
 creates the 3rdParty folder, bootstraps the engine's Python environment and
 registers the engine — then re-runs the checks. Add `--dry-run` to only see the
 plan. The GUI hub (`scripts/o3de_hub.sh` / `.bat`) has the same thing as an
-**Install missing** button on the Preflight tab.
+**Install missing** button on the Preflight tab, plus a **Build & Run** tab
+that configures and builds a project's Editor and launches the Asset
+Processor/Editor with one click each.
 
 > Avoid engine paths containing spaces or non-ASCII characters (e.g.
 > `~/Área de trabalho/...`) — the doctor warns about them because assorted

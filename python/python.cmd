@@ -76,6 +76,15 @@ IF "%VENV_PACKAGE_HASH%" == "%CURRENT_PACKAGE_HASH%" GOTO PYTHON_VENV_MATCHES
 GOTO PYTHON_SETUP_REQUIRED
 
 :PYTHON_VENV_MATCHES
+REM The hash only proves the venv was created from the right package; a failed/interrupted
+REM dependency install can still leave it unusable, so verify the core deps actually import.
+REM Skipped while get_python.bat is bootstrapping (pip itself runs through this script before
+REM those dependencies exist).
+IF DEFINED O3DE_PYTHON_BOOTSTRAPPING GOTO PYTHON_VENV_READY
+call "%PYTHON_VENV_PYTHON%" -c "import packaging, resolvelib, o3de" >NUL 2>&1
+IF ERRORLEVEL 1 GOTO PYTHON_SETUP_REQUIRED
+:PYTHON_VENV_READY
+
 REM Execute the python call from the arguments within the python venv environment
 
 call "%PYTHON_VENV_ACTIVATE%"

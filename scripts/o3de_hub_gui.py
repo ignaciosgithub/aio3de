@@ -78,6 +78,42 @@ def first_url(text: str) -> str or None:
     return match.group(0).rstrip('.)') if match else None
 
 
+def project_build_dir(project_path: pathlib.Path) -> pathlib.Path:
+    return project_path / 'build' / ('windows' if sys.platform.startswith('win') else 'linux')
+
+
+def build_configure_command(project_path: pathlib.Path) -> list:
+    """CMake configure for a project, matching the quick-start docs."""
+    third_party = str(hub.get_third_party_path() or (pathlib.Path.home() / '.o3de' / '3rdParty'))
+    command = ['cmake', '-B', str(project_build_dir(project_path)), '-S', str(project_path),
+               f'-DLY_3RDPARTY_PATH={third_party}']
+    if sys.platform.startswith('win'):
+        return command
+    return command + ['-G', 'Ninja Multi-Config']
+
+
+def build_build_command(project_path: pathlib.Path, target: str, config: str = 'profile') -> list:
+    return ['cmake', '--build', str(project_build_dir(project_path)),
+            '--target', target, '--config', config]
+
+
+def binary_path(project_path: pathlib.Path, name: str, config: str = 'profile') -> pathlib.Path:
+    executable = f'{name}.exe' if sys.platform.startswith('win') else name
+    return project_build_dir(project_path) / 'bin' / config / executable
+
+
+def registered_projects() -> list:
+    """Project paths from ~/.o3de/o3de_manifest.json (stdlib-only, works pre-bootstrap)."""
+    import json
+    manifest_file = pathlib.Path(os.environ.get('USERPROFILE') or pathlib.Path.home()) / '.o3de' / 'o3de_manifest.json'
+    try:
+        data = json.loads(manifest_file.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return []
+    projects = data.get('projects', [])
+    return [str(p) for p in projects] if isinstance(projects, list) else []
+
+
 # Everything below is GUI-only; importing this module for unit tests of the helpers above must not
 # require a display, so Tkinter is imported lazily inside main().
 
@@ -101,11 +137,14 @@ class HubGui:
 
         self.preflight_frame = self.ttk.Frame(notebook)
         self.project_frame = self.ttk.Frame(notebook)
+        self.build_frame = self.ttk.Frame(notebook)
         notebook.add(self.preflight_frame, text='Preflight')
         notebook.add(self.project_frame, text='Create Project')
+        notebook.add(self.build_frame, text='Build & Run')
 
         self._build_preflight(self.preflight_frame)
         self._build_project(self.project_frame)
+        self._build_build_tab(self.build_frame)
         self._build_log(root)
 
         self.run_preflight()
@@ -267,6 +306,91 @@ class HubGui:
     def _register_engine(self):
         self._run_command(build_register_engine_command(ENGINE_ROOT), 'Registering this engine')
 
+    # ---- Build & Run tab -----------------------------------------------------------------------
+    def _build_build_tab(self, parent):
+        form = self.ttk.Frame(parent)
+        form.pack(fill='x', padx=8, pady=8)
+
+        self.ttk.Label(form, text='Project').grid(row=0, column=0, sticky='w', pady=4)
+        self.build_project_var = self.tk.StringVar()
+        self.project_combo = self.ttk.Combobox(form, textvariable=self.build_project_var, width=52)
+        self.project_combo.grid(row=0, column=1, sticky='w', pady=4)
+        self.ttk.Button(form, text='Browse...', command=self._browse_build_project).grid(row=0, column=2, padx=4)
+        self.ttk.Button(form, text='Refresh list', command=self._refresh_projects).grid(row=0, column=3, padx=4)
+
+        buttons = self.ttk.Frame(parent)
+        buttons.pack(fill='x', padx=8, pady=8)
+        self.configure_button = self.ttk.Button(buttons, text='1. Configure',
+                                                command=self._configure_project)
+        self.configure_button.pack(side='left')
+        self.build_button = self.ttk.Button(buttons, text='2. Build Editor',
+                                            command=self._build_editor)
+        self.build_button.pack(side='left', padx=8)
+        self.ap_button = self.ttk.Button(buttons, text='3. Asset Processor',
+                                         command=lambda: self._run_binary('AssetProcessor'))
+        self.ap_button.pack(side='left')
+        self.editor_button = self.ttk.Button(buttons, text='4. Open Editor',
+                                             command=lambda: self._run_binary('Editor'))
+        self.editor_button.pack(side='left', padx=8)
+
+        self.ttk.Label(parent,
+                       text='Configure once (and again after enabling gems), then Build Editor - the '
+                            'first build downloads 3rd party packages and takes a long time. Asset '
+                            'Processor and the Editor launch detached once built.',
+                       wraplength=760, justify='left', foreground='#57606a').pack(fill='x', padx=8)
+        self._refresh_projects()
+
+    def _refresh_projects(self):
+        projects = registered_projects()
+        self.project_combo['values'] = projects
+        if projects and not self.build_project_var.get():
+            self.build_project_var.set(projects[-1])
+
+    def _browse_build_project(self):
+        chosen = self.filedialog.askdirectory(initialdir=self.build_project_var.get() or
+                                              str(pathlib.Path.home()))
+        if chosen:
+            self.build_project_var.set(chosen)
+
+    def _selected_project(self) -> pathlib.Path or None:
+        raw = self.build_project_var.get().strip()
+        if not raw:
+            self.messagebox.showerror('No project', 'Select or browse to a project folder first.')
+            return None
+        project_path = pathlib.Path(raw).expanduser()
+        if not (project_path / 'project.json').is_file():
+            self.messagebox.showerror('Not a project', f'No project.json found in {project_path}.')
+            return None
+        return project_path
+
+    def _configure_project(self):
+        project_path = self._selected_project()
+        if project_path:
+            self._run_command(build_configure_command(project_path),
+                              f'Configuring {project_path.name}')
+
+    def _build_editor(self):
+        project_path = self._selected_project()
+        if project_path:
+            self._run_command(build_build_command(project_path, 'Editor'),
+                              f'Building Editor for {project_path.name} (this takes a while)')
+
+    def _run_binary(self, name: str):
+        project_path = self._selected_project()
+        if not project_path:
+            return
+        executable = binary_path(project_path, name)
+        if not executable.is_file():
+            self.messagebox.showerror('Not built yet',
+                                      f'{executable} does not exist - run Configure and Build first.')
+            return
+        self.log(f'$ Launching {executable}')
+        try:
+            subprocess.Popen([str(executable), '--project-path', str(project_path)],
+                             cwd=str(executable.parent))
+        except OSError as exc:
+            self.log(f'  ERROR: could not launch: {exc}')
+
     # ---- shared log + command runner -----------------------------------------------------------
     def _build_log(self, parent):
         frame = self.ttk.Frame(parent)
@@ -285,6 +409,8 @@ class HubGui:
         state = 'disabled' if busy else 'normal'
         self.create_button.configure(state=state)
         self.register_button.configure(state=state)
+        self.configure_button.configure(state=state)
+        self.build_button.configure(state=state)
 
     def _run_command(self, command: list, description: str):
         if self._proc_thread and self._proc_thread.is_alive():
