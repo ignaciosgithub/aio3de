@@ -358,3 +358,45 @@ def test_check_engine_python_venv_not_set_up():
     with patch.object(hub, 'get_engine_venv_python', return_value=None):
         result = hub.check_engine_python_venv(pathlib.Path('/engine'))
     assert result.severity == hub.WARN
+
+
+def test_check_linux_build_dependencies_missing_pkg_config():
+    with patch.object(sys, 'platform', 'linux'), \
+         patch.object(hub.shutil, 'which', return_value=None):
+        result = hub.check_linux_build_dependencies()
+    assert result.severity == hub.FAIL
+    assert 'pkg-config' in result.detail
+
+
+def test_check_linux_build_dependencies_missing_modules():
+    with patch.object(sys, 'platform', 'linux'), \
+         patch.object(hub.shutil, 'which', return_value='/usr/bin/pkg-config'), \
+         patch.object(hub.subprocess, 'run') as mock_run:
+        mock_run.return_value.returncode = 1
+        result = hub.check_linux_build_dependencies()
+    assert result.severity == hub.FAIL
+    assert 'libunwind' in result.detail
+
+
+def test_check_linux_build_dependencies_ok():
+    with patch.object(sys, 'platform', 'linux'), \
+         patch.object(hub.shutil, 'which', return_value='/usr/bin/pkg-config'), \
+         patch.object(hub.subprocess, 'run') as mock_run:
+        mock_run.return_value.returncode = 0
+        assert hub.check_linux_build_dependencies().severity == hub.OK
+
+
+def test_check_linux_build_dependencies_skipped_off_linux():
+    with patch.object(sys, 'platform', 'win32'):
+        assert hub.check_linux_build_dependencies() is None
+
+
+def test_build_fix_plan_installs_linux_build_libraries():
+    checks = [_check('Build libraries (Linux)', hub.FAIL, 'pkg-config not found')]
+    with patch.object(sys, 'platform', 'linux'), \
+         patch.object(hub, 'detect_linux_package_manager', return_value='apt-get'):
+        steps = hub.build_fix_plan(checks, pathlib.Path('/engine'))
+    package_step = steps[0]
+    assert package_step.elevated
+    for package in ('pkg-config', 'libunwind-dev', 'libzstd-dev', 'libegl1-mesa-dev'):
+        assert package in package_step.command
