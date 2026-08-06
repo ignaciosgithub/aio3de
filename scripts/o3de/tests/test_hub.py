@@ -114,11 +114,22 @@ def test_check_engine_registration(tmp_path):
 
 
 def test_check_engine_registration_warns_when_manifest_unavailable(tmp_path):
-    # Pre-bootstrap: the manifest module (and its venv-only deps) cannot be imported yet.
-    with patch.object(hub, '_try_import_manifest', return_value=None):
+    # Pre-bootstrap: neither the manifest module nor the manifest json file are available yet.
+    with patch.object(hub, '_try_import_manifest', return_value=None), \
+         patch.object(hub, '_manifest_engines_fallback', return_value=None):
         result = hub.check_engine_registration(tmp_path)
     assert result.severity == hub.WARN
     assert 'bootstrapped' in result.detail
+
+
+def test_check_engine_registration_uses_manifest_json_fallback(tmp_path):
+    # Pre-bootstrap but the manifest json exists: registration is read straight from it.
+    with patch.object(hub, '_try_import_manifest', return_value=None), \
+         patch.object(hub, '_manifest_engines_fallback', return_value=[str(tmp_path)]):
+        assert hub.check_engine_registration(tmp_path).severity == hub.OK
+    with patch.object(hub, '_try_import_manifest', return_value=None), \
+         patch.object(hub, '_manifest_engines_fallback', return_value=[]):
+        assert hub.check_engine_registration(tmp_path).severity == hub.WARN
 
 
 def test_get_third_party_path_fallback_without_manifest(monkeypatch):
@@ -208,3 +219,112 @@ def test_run_resolve_incompatible_objects(tmp_path):
             'name': 'P', 'requested_engine': 'o3de',
             'resolved_engine': pathlib.Path('/engine'), 'incompatible': {'GemX'}}):
         assert hub._run_resolve(Args()) == 1
+
+
+# ---- engine path sanity ----------------------------------------------------------------------
+
+@pytest.mark.parametrize("path_text, expected_severity", [
+    ("/home/user/o3de", hub.OK),
+    ("/home/user/my engine/o3de", hub.WARN),
+    ("/home/user/Área de trabalho/o3de", hub.WARN),
+])
+def test_check_engine_path_sanity(path_text, expected_severity):
+    result = hub.check_engine_path_sanity(pathlib.Path(path_text))
+    assert result.severity == expected_severity
+
+
+# ---- fix plan ("install missing") ------------------------------------------------------------
+
+def _check(name, severity, detail=''):
+    return hub.CheckResult(name, severity, detail)
+
+
+def test_build_fix_plan_empty_when_all_ok():
+    checks = [_check('CMake', hub.OK), _check('Git LFS', hub.OK)]
+    assert hub.build_fix_plan(checks, pathlib.Path('/engine')) == []
+
+
+def test_build_fix_plan_linux_packages_and_user_steps():
+    checks = [
+        _check('CMake', hub.FAIL),
+        _check('Ninja', hub.WARN),
+        _check('Git LFS', hub.FAIL),
+        _check('3rd party packages', hub.WARN),
+        _check('Engine registration', hub.WARN, 'engine tooling not bootstrapped yet'),
+        _check('Runtime lib: xcb-cursor (Qt/XCB)', hub.WARN),
+    ]
+    with patch.object(sys, 'platform', 'linux'), \
+         patch.object(hub, 'detect_linux_package_manager', return_value='apt-get'), \
+         patch.object(hub, 'get_third_party_path', return_value=pathlib.Path('/tp')):
+        steps = hub.build_fix_plan(checks, pathlib.Path('/engine'))
+    descriptions = [s.description for s in steps]
+    package_step = steps[0]
+    assert package_step.elevated
+    assert package_step.command[:3] == ['apt-get', 'install', '-y']
+    for package in ('cmake', 'ninja-build', 'git-lfs', 'libxcb-cursor0'):
+        assert package in package_step.command
+    assert any('Git LFS' in d for d in descriptions)
+    assert any('3rd party' in d for d in descriptions)
+    assert any('Bootstrap' in d for d in descriptions)
+    assert any('Register' in d for d in descriptions)
+    # non-package steps never run elevated
+    assert all(not s.elevated for s in steps[1:])
+
+
+def test_build_fix_plan_windows_uses_winget():
+    checks = [_check('CMake', hub.FAIL), _check('Git LFS', hub.FAIL)]
+    with patch.object(sys, 'platform', 'win32'):
+        steps = hub.build_fix_plan(checks, pathlib.Path('C:/engine'))
+    winget_steps = [s for s in steps if s.command and s.command[0] == 'winget']
+    installed_ids = [s.command[s.command.index('--id') + 1] for s in winget_steps]
+    assert 'Kitware.CMake' in installed_ids
+    assert 'GitHub.GitLFS' in installed_ids
+
+
+def test_run_fix_plan_skips_elevated_without_wrapper():
+    step = hub.FixStep('needs root', ['apt-get', 'install', '-y', 'cmake'], elevated=True)
+    lines = []
+    with patch.object(hub, 'elevation_wrapper', return_value=None):
+        assert hub.run_fix_plan([step], log=lines.append) == 0
+    assert any('SKIP' in line for line in lines)
+
+
+def test_run_fix_plan_runs_commands():
+    step = hub.FixStep('say hi', [sys.executable, '-c', 'print("hi")'])
+    lines = []
+    assert hub.run_fix_plan([step], log=lines.append) == 0
+    assert any('hi' in line for line in lines)
+
+
+def test_run_fix_plan_stops_on_failure():
+    steps = [
+        hub.FixStep('fail', [sys.executable, '-c', 'import sys; sys.exit(3)']),
+        hub.FixStep('never runs', [sys.executable, '-c', 'print("nope")']),
+    ]
+    lines = []
+    assert hub.run_fix_plan(steps, log=lines.append) == 3
+    assert not any('nope' in line for line in lines)
+
+
+def test_o3de_sh_handles_paths_with_spaces(tmp_path):
+    """Regression test: scripts/o3de.sh must work when the engine lives in a path containing
+    spaces / non-ASCII characters (it used to break with an unquoted expansion)."""
+    if sys.platform.startswith('win'):
+        pytest.skip('bash launcher test')
+    engine = tmp_path / 'Área de trabalho' / 'engine'
+    (engine / 'scripts').mkdir(parents=True)
+    (engine / 'python').mkdir()
+    repo_root = pathlib.Path(hub.__file__).resolve().parents[3]
+    script = (repo_root / 'scripts' / 'o3de.sh').read_text(encoding='utf-8')
+    (engine / 'scripts' / 'o3de.sh').write_text(script, encoding='utf-8')
+    (engine / 'scripts' / 'o3de.py').write_text(
+        'import sys; print("ARGS:" + "|".join(sys.argv[1:]))', encoding='utf-8')
+    python_stub = engine / 'python' / 'python.sh'
+    python_stub.write_text('#!/bin/bash\nexec python3 "$@"\n', encoding='utf-8')
+    python_stub.chmod(0o755)
+    (engine / 'scripts' / 'o3de.sh').chmod(0o755)
+    import subprocess
+    completed = subprocess.run(['bash', str(engine / 'scripts' / 'o3de.sh'), 'hub', 'two words'],
+                               capture_output=True, text=True, timeout=30)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert 'ARGS:hub|two words' in completed.stdout

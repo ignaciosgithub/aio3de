@@ -72,7 +72,7 @@ fi
 # Calculate the engine ID
 CALC_PATH=$DIR/../cmake/CalculateEnginePathId.cmake
 LY_ROOT_FOLDER=$DIR/..
-ENGINE_ID=$(cmake -P $CALC_PATH $LY_ROOT_FOLDER)
+ENGINE_ID=$(cmake -P "$CALC_PATH" "$LY_ROOT_FOLDER")
 if [ $? -ne 0 ]
 then
     echo "Unable to calculate engine ID"
@@ -101,7 +101,7 @@ o3de_python_env_ready ()
     [ -f "$PYTHON_VENV_HASH_FILE" ] || return 1
     local venv_hash current_hash
     venv_hash=$(cat "$PYTHON_VENV_HASH_FILE")
-    current_hash=$(cmake -P $DIR/get_python_package_hash.cmake $DIR/.. $PAL $ARCH)
+    current_hash=$(cmake -P "$DIR/get_python_package_hash.cmake" "$DIR/.." $PAL $ARCH)
     [ "$venv_hash" == "$current_hash" ] || return 1
     return 0
 }
