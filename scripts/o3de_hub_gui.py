@@ -117,6 +117,9 @@ class HubGui:
         self.ttk.Label(top, text='Build prerequisites for this machine',
                        font=('TkDefaultFont', 11, 'bold')).pack(side='left')
         self.ttk.Button(top, text='Re-run checks', command=self.run_preflight).pack(side='right')
+        self.install_button = self.ttk.Button(top, text='Install missing',
+                                              command=self._install_missing, state='disabled')
+        self.install_button.pack(side='right', padx=6)
 
         columns = ('status', 'check', 'detail')
         self.tree = self.ttk.Treeview(parent, columns=columns, show='headings', height=12)
@@ -164,6 +167,8 @@ class HubGui:
         fails = sum(1 for c in checks if c.severity == hub.FAIL)
         warns = sum(1 for c in checks if c.severity == hub.WARN)
         self.log(f'Preflight: {len(checks)} checks, {fails} failed, {warns} warnings.')
+        fixable = hub.build_fix_plan(checks, hub.engine_path_fallback())
+        self.install_button.configure(state=('normal' if fixable else 'disabled'))
 
     def _on_check_selected(self, _event):
         selection = self.tree.selection()
@@ -180,6 +185,37 @@ class HubGui:
     def _open_fix_link(self):
         if self._selected_url:
             webbrowser.open(self._selected_url)
+
+    def _install_missing(self):
+        """Runs the doctor's fix plan (system packages via pkexec/sudo, then the per-user steps:
+        git lfs, 3rdParty folder, engine Python bootstrap, engine registration)."""
+        if self._proc_thread and self._proc_thread.is_alive():
+            self.messagebox.showinfo('Busy', 'A command is already running; please wait for it to finish.')
+            return
+        steps = hub.build_fix_plan(self._checks, hub.engine_path_fallback())
+        if not steps:
+            self.messagebox.showinfo('Nothing to install', 'All actionable checks are already OK.')
+            return
+        summary = '\n'.join(f'  - {step.description}' for step in steps)
+        if not self.messagebox.askyesno(
+                'Install missing prerequisites',
+                f'The following will be installed/run (you may get a password prompt for '
+                f'system packages):\n\n{summary}\n\nProceed?'):
+            return
+        self.log('$ Installing missing prerequisites')
+        self.install_button.configure(state='disabled')
+        self._set_busy(True)
+
+        def worker():
+            def gui_log(line):
+                self.root.after(0, lambda l=line: self.log(l))
+            result = hub.run_fix_plan(steps, gui=True, log=gui_log)
+            self.root.after(0, lambda: self.log(f'  (install finished with exit code {result})'))
+            self.root.after(0, lambda: self._set_busy(False))
+            self.root.after(0, self.run_preflight)
+
+        self._proc_thread = threading.Thread(target=worker, daemon=True)
+        self._proc_thread.start()
 
     # ---- Create Project tab --------------------------------------------------------------------
     def _build_project(self, parent):

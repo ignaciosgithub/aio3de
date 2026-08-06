@@ -92,6 +92,26 @@ Guard) is blocking unsigned binaries, and on **Linux** the runtime libraries the
 Editor needs — each with a one-line fix. Resolve any `FAIL` before continuing;
 `WARN`s are advisory.
 
+To fix everything automatically instead of by hand, run:
+
+```bash
+# Windows (installs missing tools via winget)
+scripts\o3de.bat hub install
+# Linux / macOS (installs system packages via sudo/pkexec)
+scripts/o3de.sh hub install
+```
+
+`hub install` installs the missing system packages (CMake, Ninja, Git, Git LFS,
+compiler, Editor runtime libraries), runs `git lfs install` + `git lfs pull`,
+creates the 3rdParty folder, bootstraps the engine's Python environment and
+registers the engine — then re-runs the checks. Add `--dry-run` to only see the
+plan. The GUI hub (`scripts/o3de_hub.sh` / `.bat`) has the same thing as an
+**Install missing** button on the Preflight tab.
+
+> Avoid engine paths containing spaces or non-ASCII characters (e.g.
+> `~/Área de trabalho/...`) — the doctor warns about them because assorted
+> build tools mishandle such paths. Prefer plain paths like `~/o3de`.
+
 ## 3. Register the engine
 
 Registration is what lets projects find this engine. Run it once:

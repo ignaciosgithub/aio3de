@@ -276,11 +276,32 @@ def check_disk_space(engine_path: pathlib.Path) -> CheckResult:
     return CheckResult('Disk space', OK, f'{free_gb:.0f} GB free')
 
 
+def _manifest_engines_fallback() -> list or None:
+    """Reads registered engines straight out of ~/.o3de/o3de_manifest.json with the stdlib, for
+    when the o3de manifest module (and its venv-only dependencies) can't be imported.
+    Returns None when the manifest file does not exist or can't be parsed."""
+    import json
+    manifest_file = pathlib.Path(os.environ.get('USERPROFILE') or pathlib.Path.home()) / '.o3de' / 'o3de_manifest.json'
+    try:
+        data = json.loads(manifest_file.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    engines = data.get('engines', [])
+    return engines if isinstance(engines, list) else None
+
+
 def check_engine_registration(engine_path: pathlib.Path) -> CheckResult:
     manifest = _try_import_manifest()
     if manifest is None:
-        return CheckResult('Engine registration', WARN, 'engine tooling not bootstrapped yet',
-                           'Run any "scripts/o3de" command first to set up the bundled Python, then re-check.')
+        engines = _manifest_engines_fallback()
+        if engines is None:
+            return CheckResult('Engine registration', WARN, 'engine tooling not bootstrapped yet',
+                               'Run any "scripts/o3de" command first to set up the bundled Python, then re-check.')
+        registered = [pathlib.Path(p).resolve() for p in engines]
+        if pathlib.Path(engine_path).resolve() in registered:
+            return CheckResult('Engine registration', OK, 'this engine is registered')
+        return CheckResult('Engine registration', WARN, 'this engine is not registered',
+                           'Run "scripts/o3de register --this-engine" so projects can resolve it.')
     registered = [pathlib.Path(p).resolve() for p in manifest.get_manifest_engines()]
     if pathlib.Path(engine_path).resolve() in registered:
         return CheckResult('Engine registration', OK, 'this engine is registered')
@@ -292,15 +313,28 @@ def check_linux_runtime_libraries() -> list:
     """Linux-only: probe a few shared libraries whose absence commonly breaks the Editor at runtime."""
     if not sys.platform.startswith('linux'):
         return []
+    import ctypes
     import ctypes.util
-    # (human name, library base name passed to find_library, remediation package)
+    # (human name, find_library base name, soname to try loading, remediation package)
     probes = [
-        ('xcb-cursor (Qt/XCB)', 'xcb-cursor', 'libxcb-cursor0'),
-        ('EGL (Qt rendering)', 'EGL', 'libegl1 / libegl-mesa0'),
+        ('xcb-cursor (Qt/XCB)', 'xcb-cursor', 'libxcb-cursor.so.0', 'libxcb-cursor0'),
+        ('EGL (Qt rendering)', 'EGL', 'libEGL.so.1', 'libegl1 / libegl-mesa0'),
     ]
-    results = []
-    for human_name, lib_name, package in probes:
+
+    def _library_present(lib_name, soname):
+        # find_library shells out to ldconfig/gcc and can miss libraries the dynamic loader
+        # finds fine, so fall back to actually dlopen-ing the soname.
         if ctypes.util.find_library(lib_name):
+            return True
+        try:
+            ctypes.CDLL(soname)
+            return True
+        except OSError:
+            return False
+
+    results = []
+    for human_name, lib_name, soname, package in probes:
+        if _library_present(lib_name, soname):
             results.append(CheckResult(f'Runtime lib: {human_name}', OK, 'present'))
         else:
             results.append(CheckResult(f'Runtime lib: {human_name}', WARN, 'not found',
@@ -354,9 +388,26 @@ def check_windows_code_integrity() -> CheckResult or None:
     return CheckResult('Code integrity policy', OK, 'not enforced (unsigned binaries allowed)')
 
 
+def check_engine_path_sanity(engine_path: pathlib.Path) -> CheckResult:
+    """Paths with spaces or non-ASCII characters break assorted build scripts and third-party
+    tooling; warn early instead of letting the failure surface as a cryptic build error."""
+    path_text = str(engine_path)
+    problems = []
+    if ' ' in path_text:
+        problems.append('contains spaces')
+    if not path_text.isascii():
+        problems.append('contains non-ASCII characters')
+    if problems:
+        return CheckResult('Engine path', WARN, f'{path_text} ({", ".join(problems)})',
+                           'Some build tools mishandle such paths; if you hit odd build/setup errors, '
+                           'move the engine to a plain path like ~/o3de or C:\\o3de.')
+    return CheckResult('Engine path', OK, path_text)
+
+
 def run_doctor(engine_path: pathlib.Path) -> list:
     checks = [
         check_python(),
+        check_engine_path_sanity(engine_path),
         check_cmake(engine_path),
         check_compiler(),
         check_ninja(),
@@ -371,6 +422,186 @@ def run_doctor(engine_path: pathlib.Path) -> list:
         if windows_check is not None:
             checks.append(windows_check)
     return checks
+
+
+# ---- automatic remediation ("install missing") --------------------------------------------------
+#
+# Maps each failing/warning doctor check onto concrete install actions so both the CLI
+# ("o3de hub install") and the GUI hub's "Install missing" button can fix the machine in one go.
+# Two kinds of action exist:
+#   * system packages, installed in a single elevated package-manager invocation, and
+#   * per-user steps (git lfs install, creating the 3rdParty dir, bootstrapping the engine venv,
+#     registering the engine) that must NOT run as root.
+
+_LINUX_PACKAGE_NAMES = {
+    # check name -> {package manager: [packages]}
+    'CMake': {'apt-get': ['cmake'], 'dnf': ['cmake'], 'pacman': ['cmake']},
+    'Ninja': {'apt-get': ['ninja-build'], 'dnf': ['ninja-build'], 'pacman': ['ninja']},
+    'Git': {'apt-get': ['git'], 'dnf': ['git'], 'pacman': ['git']},
+    'Git LFS': {'apt-get': ['git-lfs'], 'dnf': ['git-lfs'], 'pacman': ['git-lfs']},
+    'C++ compiler': {'apt-get': ['clang', 'lld'], 'dnf': ['clang', 'lld'], 'pacman': ['clang', 'lld']},
+    'Runtime lib: xcb-cursor (Qt/XCB)': {'apt-get': ['libxcb-cursor0'], 'dnf': ['xcb-util-cursor'],
+                                         'pacman': ['xcb-util-cursor']},
+    'Runtime lib: EGL (Qt rendering)': {'apt-get': ['libegl1'], 'dnf': ['mesa-libEGL'],
+                                        'pacman': ['libglvnd']},
+}
+
+_WINGET_IDS = {
+    'CMake': ['Kitware.CMake'],
+    'Ninja': ['Ninja-build.Ninja'],
+    'Git': ['Git.Git'],
+    'Git LFS': ['GitHub.GitLFS'],
+    'VC++ redistributable': ['Microsoft.VCRedist.2015+.x64'],
+}
+
+
+def detect_linux_package_manager() -> str or None:
+    for manager in ('apt-get', 'dnf', 'pacman'):
+        if shutil.which(manager):
+            return manager
+    return None
+
+
+def _package_install_command(manager: str, packages: list) -> list:
+    if manager == 'apt-get':
+        return ['apt-get', 'install', '-y'] + packages
+    if manager == 'dnf':
+        return ['dnf', 'install', '-y'] + packages
+    if manager == 'pacman':
+        return ['pacman', '-S', '--noconfirm'] + packages
+    raise ValueError(f'unsupported package manager: {manager}')
+
+
+class FixStep:
+    """One command to run to remediate the machine. 'elevated' steps need root/admin."""
+    def __init__(self, description: str, command: list, elevated: bool = False, cwd: str = None):
+        self.description = description
+        self.command = command
+        self.elevated = elevated
+        self.cwd = cwd
+
+
+def build_fix_plan(checks: list, engine_path: pathlib.Path) -> list:
+    """Turns the failing/warning doctor checks into an ordered list of FixSteps.
+    Returns an empty list when there is nothing to fix (everything actionable is OK)."""
+    engine_path = pathlib.Path(engine_path)
+    by_name = {check.name: check for check in checks}
+
+    def needs_fix(name):
+        check = by_name.get(name)
+        return check is not None and check.severity != OK
+
+    steps = []
+    if sys.platform.startswith('win'):
+        winget_ids = []
+        for name, ids in _WINGET_IDS.items():
+            if needs_fix(name):
+                winget_ids.extend(ids)
+        for winget_id in winget_ids:
+            # winget triggers its own UAC elevation prompt per package; no wrapper needed.
+            steps.append(FixStep(f'Install {winget_id} (winget)',
+                                 ['winget', 'install', '--id', winget_id, '-e',
+                                  '--accept-source-agreements', '--accept-package-agreements'],
+                                 elevated=False))
+    else:
+        manager = detect_linux_package_manager()
+        packages = []
+        for name, per_manager in _LINUX_PACKAGE_NAMES.items():
+            if needs_fix(name) and manager in per_manager:
+                packages.extend(per_manager[manager])
+        if packages and manager:
+            steps.append(FixStep(f'Install system packages: {" ".join(packages)}',
+                                 _package_install_command(manager, packages), elevated=True))
+
+    if needs_fix('Git LFS'):
+        steps.append(FixStep('Enable Git LFS for this user', ['git', 'lfs', 'install']))
+        steps.append(FixStep('Fetch LFS content for this checkout', ['git', 'lfs', 'pull'],
+                             cwd=str(engine_path)))
+
+    if needs_fix('3rd party packages'):
+        third_party = get_third_party_path()
+        if third_party:
+            steps.append(FixStep(f'Create 3rd party package folder {third_party}',
+                                 [sys.executable, '-c',
+                                  f'import pathlib; pathlib.Path({str(third_party)!r}).mkdir(parents=True, exist_ok=True)']))
+
+    if needs_fix('Engine registration'):
+        registration_check = by_name['Engine registration']
+        if sys.platform.startswith('win'):
+            launcher = engine_path / 'scripts' / 'o3de.bat'
+        else:
+            launcher = engine_path / 'scripts' / 'o3de.sh'
+        if 'not bootstrapped' in registration_check.detail:
+            steps.append(FixStep('Bootstrap the engine Python environment (can take several minutes)',
+                                 [str(launcher), '--help'], cwd=str(engine_path)))
+        steps.append(FixStep('Register this engine',
+                             [str(launcher), 'register', '--this-engine'], cwd=str(engine_path)))
+
+    return steps
+
+
+def elevation_wrapper(gui: bool) -> list or None:
+    """How to run an elevated command on this host: a command prefix, [] when already root,
+    or None when no usable elevation mechanism exists."""
+    if sys.platform.startswith('win'):
+        return []  # winget handles its own UAC elevation.
+    if hasattr(os, 'geteuid') and os.geteuid() == 0:
+        return []
+    if gui and os.environ.get('DISPLAY') and shutil.which('pkexec'):
+        return ['pkexec']
+    if shutil.which('sudo'):
+        return ['sudo']
+    if shutil.which('pkexec'):
+        return ['pkexec']
+    return None
+
+
+def run_fix_plan(steps: list, gui: bool = False, log=print) -> int:
+    """Executes the FixSteps in order, streaming output through 'log'. Stops at the first
+    hard failure and returns its exit code; 0 when everything succeeded."""
+    wrapper = elevation_wrapper(gui)
+    for step in steps:
+        command = list(step.command)
+        if step.elevated:
+            if wrapper is None:
+                log(f'SKIP (needs root, no sudo/pkexec found): {step.description}')
+                log(f'  run manually: sudo {" ".join(command)}')
+                continue
+            command = wrapper + command
+        log(f'==> {step.description}')
+        log(f'    $ {" ".join(command)}')
+        try:
+            process = subprocess.Popen(command, cwd=step.cwd, stdout=subprocess.PIPE,
+                                       stderr=subprocess.STDOUT, text=True)
+        except OSError as exc:
+            log(f'    ERROR: could not start: {exc}')
+            return 1
+        for line in process.stdout:
+            log('    ' + line.rstrip('\n'))
+        process.wait()
+        if process.returncode != 0:
+            log(f'    FAILED (exit code {process.returncode})')
+            return process.returncode
+    return 0
+
+
+def _run_install(args) -> int:
+    engine_path = _resolve_engine_path(args.engine_path)
+    print(f'Engine: {engine_path}')
+    checks = run_doctor(engine_path)
+    steps = build_fix_plan(checks, engine_path)
+    if not steps:
+        print('Nothing to install - all actionable checks are OK.')
+        return _print_checks(checks)
+    print(f'Planned fixes ({len(steps)}):')
+    for step in steps:
+        print(f'  - {step.description}')
+    if args.dry_run:
+        return 0
+    result = run_fix_plan(steps)
+    print('')
+    print('Re-running checks:')
+    return _print_checks(run_doctor(engine_path)) or result
 
 
 def _print_checks(checks: list) -> int:
@@ -513,6 +744,15 @@ def add_parser_args(parser):
     resolve_parser.add_argument('-pp', '--project-path', type=pathlib.Path, required=True,
                                 help='Path to the project to resolve.')
     resolve_parser.set_defaults(func=_run_resolve)
+
+    install_parser = subparsers.add_parser(
+        'install', help='Install everything the doctor reports as missing (packages, Git LFS, '
+                        '3rdParty folder, engine Python bootstrap, engine registration).')
+    install_parser.add_argument('-ep', '--engine-path', type=pathlib.Path, default=None,
+                                help='Path to the engine to fix (defaults to this engine).')
+    install_parser.add_argument('--dry-run', action='store_true',
+                                help='Only print what would be installed/run.')
+    install_parser.set_defaults(func=_run_install)
 
     # When "o3de hub" is run with no sub-command, print help instead of failing silently.
     def _print_hub_help(_args):
