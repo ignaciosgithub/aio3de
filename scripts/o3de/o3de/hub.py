@@ -309,6 +309,33 @@ def check_engine_registration(engine_path: pathlib.Path) -> CheckResult:
                        'Run "scripts/o3de register --this-engine" so projects can resolve it.')
 
 
+# pkg-config modules the engine's CMake configure requires (cmake/Platform/Linux + Qt tooling),
+# with the human-readable source of each requirement.
+_LINUX_BUILD_PC_MODULES = ['libunwind', 'libzstd', 'fontconfig', 'xkbcommon', 'egl', 'glesv2', 'glu']
+
+
+def check_linux_build_dependencies() -> CheckResult or None:
+    """Linux-only: the engine's CMake configure hard-requires pkg-config and a set of development
+    libraries; missing ones fail configure with errors like 'Could NOT find PkgConfig'."""
+    if not sys.platform.startswith('linux'):
+        return None
+    if not shutil.which('pkg-config'):
+        return CheckResult('Build libraries (Linux)', FAIL, 'pkg-config not found',
+                           'Required by the engine CMake configure; install "pkg-config" plus the '
+                           'development libraries listed in docs/aio3de/BUILDING_LINUX.md.')
+    missing = []
+    for module in _LINUX_BUILD_PC_MODULES:
+        completed = subprocess.run(['pkg-config', '--exists', module], capture_output=True)
+        if completed.returncode != 0:
+            missing.append(module)
+    if missing:
+        return CheckResult('Build libraries (Linux)', FAIL,
+                           f'missing development libraries: {", ".join(missing)}',
+                           'The engine CMake configure needs these; install the package list in '
+                           'docs/aio3de/BUILDING_LINUX.md.')
+    return CheckResult('Build libraries (Linux)', OK, 'pkg-config and development libraries present')
+
+
 def check_linux_runtime_libraries() -> list:
     """Linux-only: probe a few shared libraries whose absence commonly breaks the Editor at runtime."""
     if not sys.platform.startswith('linux'):
@@ -466,6 +493,9 @@ def run_doctor(engine_path: pathlib.Path) -> list:
         check_engine_python_venv(engine_path),
         check_engine_registration(engine_path),
     ]
+    build_deps_check = check_linux_build_dependencies()
+    if build_deps_check is not None:
+        checks.append(build_deps_check)
     checks.extend(check_linux_runtime_libraries())
     for windows_check in (check_windows_vcredist(), check_windows_code_integrity()):
         if windows_check is not None:
@@ -493,6 +523,24 @@ _LINUX_PACKAGE_NAMES = {
                                          'pacman': ['xcb-util-cursor']},
     'Runtime lib: EGL (Qt rendering)': {'apt-get': ['libegl1'], 'dnf': ['mesa-libEGL'],
                                         'pacman': ['libglvnd']},
+    # Everything the engine CMake configure needs (the verified list from BUILDING_LINUX.md).
+    'Build libraries (Linux)': {
+        'apt-get': ['pkg-config', 'binutils', 'libglu1-mesa-dev', 'libxcb-xinerama0',
+                    'libfontconfig1-dev', 'libxcb-xkb-dev', 'libxcb-randr0-dev',
+                    'libxkbcommon-x11-dev', 'libxkbcommon-dev', 'libxcb-xfixes0-dev',
+                    'libxcb-xinput-dev', 'libxcb-xinput0', 'libxcb-icccm4-dev',
+                    'libxcb-image0-dev', 'libxcb-keysyms1-dev', 'libxcb-render-util0-dev',
+                    'libpcre2-16-0', 'libunwind-dev', 'libzstd-dev', 'mesa-common-dev',
+                    'libvulkan1', 'libegl1-mesa-dev', 'libgles2-mesa-dev'],
+        'dnf': ['pkgconf-pkg-config', 'binutils', 'mesa-libGLU-devel', 'fontconfig-devel',
+                'libxkbcommon-x11-devel', 'libxkbcommon-devel', 'xcb-util-keysyms-devel',
+                'xcb-util-image-devel', 'xcb-util-wm-devel', 'xcb-util-renderutil-devel',
+                'pcre2-utf16', 'libunwind-devel', 'libzstd-devel', 'mesa-libGL-devel',
+                'vulkan-loader', 'mesa-libEGL-devel', 'mesa-libGLES-devel'],
+        'pacman': ['pkgconf', 'binutils', 'glu', 'fontconfig', 'libxkbcommon-x11',
+                   'libxkbcommon', 'xcb-util-keysyms', 'xcb-util-image', 'xcb-util-wm',
+                   'xcb-util-renderutil', 'pcre2', 'libunwind', 'zstd', 'mesa', 'vulkan-icd-loader'],
+    },
 }
 
 _WINGET_IDS = {

@@ -41,6 +41,12 @@ from o3de import hub  # noqa: E402  (path set up above)
 # Mirror of the project-name rules enforced by o3de create-project (engine_template.py), reproduced
 # here with the stdlib so name validation works in the GUI before the engine tooling is available.
 _PROJECT_NAME_RE = re.compile(r'^[A-Za-z][A-Za-z0-9_-]*$')
+
+# CMake reserves these target names (with CTest enabled); a project so named fails configure with
+# 'The target name "test" is reserved'.
+_RESERVED_CMAKE_NAMES = {'all', 'all_build', 'clean', 'help', 'install', 'package',
+                         'package_source', 'test', 'run_tests', 'edit_cache', 'rebuild_cache',
+                         'zero_check', 'list_install_components'}
 _URL_RE = re.compile(r'https?://\S+')
 
 
@@ -60,6 +66,9 @@ def validate_project_name(name: str) -> str or None:
     if not _PROJECT_NAME_RE.match(name):
         return ('Project name must start with a letter and contain only letters, '
                 'digits, "_" or "-".')
+    if name.lower() in _RESERVED_CMAKE_NAMES:
+        return (f'"{name}" is a reserved CMake target name and the project would fail to '
+                f'configure - pick another name (e.g. {name.capitalize()}Game).')
     return None
 
 
@@ -100,6 +109,16 @@ def build_build_command(project_path: pathlib.Path, target: str, config: str = '
 def binary_path(project_path: pathlib.Path, name: str, config: str = 'profile') -> pathlib.Path:
     executable = f'{name}.exe' if sys.platform.startswith('win') else name
     return project_build_dir(project_path) / 'bin' / config / executable
+
+
+def configure_succeeded(project_path: pathlib.Path) -> bool:
+    """True when a previous Configure completed (a failed configure leaves CMakeCache.txt behind
+    but never writes the generator's build files)."""
+    build_dir = project_build_dir(project_path)
+    if sys.platform.startswith('win'):
+        return bool(list(build_dir.glob('*.sln'))) or (build_dir / 'build.ninja').is_file()
+    return (build_dir / 'build-profile.ninja').is_file() or (build_dir / 'build.ninja').is_file() \
+        or (build_dir / 'Makefile').is_file()
 
 
 def registered_projects() -> list:
@@ -371,9 +390,16 @@ class HubGui:
 
     def _build_editor(self):
         project_path = self._selected_project()
-        if project_path:
-            self._run_command(build_build_command(project_path, 'Editor'),
-                              f'Building Editor for {project_path.name} (this takes a while)')
+        if not project_path:
+            return
+        if not configure_succeeded(project_path):
+            self.messagebox.showerror(
+                'Configure first',
+                'No successful Configure found for this project - run "1. Configure" and make sure '
+                'it finishes without errors (see the log) before building.')
+            return
+        self._run_command(build_build_command(project_path, 'Editor'),
+                          f'Building Editor for {project_path.name} (this takes a while)')
 
     def _run_binary(self, name: str):
         project_path = self._selected_project()

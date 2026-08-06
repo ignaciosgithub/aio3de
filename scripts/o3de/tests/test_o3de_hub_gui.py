@@ -106,3 +106,21 @@ def test_registered_projects_missing_manifest(gui, tmp_path, monkeypatch):
     monkeypatch.setenv('USERPROFILE', str(tmp_path))
     monkeypatch.setattr(pathlib.Path, 'home', staticmethod(lambda: tmp_path))
     assert gui.registered_projects() == []
+
+def test_configure_succeeded(gui, tmp_path):
+    project = tmp_path / 'proj'
+    build_dir = gui.project_build_dir(project)
+    build_dir.mkdir(parents=True)
+    assert not gui.configure_succeeded(project)
+    (build_dir / 'build-profile.ninja').write_text('')
+    (build_dir / 'proj.sln').write_text('')
+    assert gui.configure_succeeded(project)
+
+
+@pytest.mark.parametrize("name", ["test", "Test", "install", "package", "clean", "all"])
+def test_validate_project_name_rejects_reserved_cmake_names(gui, name):
+    assert gui.validate_project_name(name) is not None
+
+
+def test_validate_project_name_allows_testgame(gui):
+    assert gui.validate_project_name('TestGame') is None
