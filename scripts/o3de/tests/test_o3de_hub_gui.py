@@ -124,3 +124,32 @@ def test_validate_project_name_rejects_reserved_cmake_names(gui, name):
 
 def test_validate_project_name_allows_testgame(gui):
     assert gui.validate_project_name('TestGame') is None
+
+
+def test_build_build_command_all_targets(gui):
+    command = gui.build_build_command(pathlib.Path('/projects/MyGame'))
+    assert '--target' not in command
+    assert command[:2] == ['cmake', '--build']
+    assert 'profile' in command
+
+
+def test_project_gem_names(gui, tmp_path):
+    (tmp_path / 'project.json').write_text(
+        '{"gem_names": ["Atom", {"name": "PhysX5", "optional": false}, "EMotionFX"]}')
+    assert gui.project_gem_names(tmp_path) == ['Atom', 'PhysX5', 'EMotionFX']
+
+
+def test_project_gem_names_missing_file(gui, tmp_path):
+    assert gui.project_gem_names(tmp_path) == []
+
+
+def test_build_target_choices(gui, tmp_path):
+    project = tmp_path / 'MyGame'
+    project.mkdir()
+    (project / 'project.json').write_text('{"gem_names": ["ZGem", "AGem"]}')
+    choices = gui.build_target_choices(project)
+    assert choices[0] == gui.BUILD_ALL_CHOICE
+    assert choices[1] == 'Editor'
+    assert 'MyGame.GameLauncher' in choices
+    assert 'MyGame.ServerLauncher' in choices
+    assert choices[-2:] == ['AGem', 'ZGem'] or ('AGem' in choices and 'ZGem' in choices)
