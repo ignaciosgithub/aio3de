@@ -68,3 +68,41 @@ def test_first_url(gui, text, expected):
 def test_o3de_launcher_platform(gui):
     launcher = gui.o3de_launcher(pathlib.Path('/engine'))
     assert launcher.name in ('o3de.bat', 'o3de.sh')
+
+def test_build_configure_command(gui):
+    from unittest.mock import patch
+    with patch.object(gui.hub, 'get_third_party_path', return_value=pathlib.Path('/tp')):
+        command = gui.build_configure_command(pathlib.Path('/projects/MyGame'))
+    assert command[0] == 'cmake'
+    assert '-DLY_3RDPARTY_PATH=' + str(pathlib.Path('/tp')) in command
+    build_dir = str(gui.project_build_dir(pathlib.Path('/projects/MyGame')))
+    assert command[command.index('-B') + 1] == build_dir
+    assert command[command.index('-S') + 1] == str(pathlib.Path('/projects/MyGame'))
+
+
+def test_build_build_command(gui):
+    command = gui.build_build_command(pathlib.Path('/projects/MyGame'), 'Editor')
+    assert command[:2] == ['cmake', '--build']
+    assert 'Editor' in command
+    assert 'profile' in command
+
+
+def test_binary_path(gui):
+    path = gui.binary_path(pathlib.Path('/projects/MyGame'), 'Editor')
+    assert path.name in ('Editor', 'Editor.exe')
+    assert 'profile' in str(path)
+
+
+def test_registered_projects_reads_manifest(gui, tmp_path, monkeypatch):
+    manifest_dir = tmp_path / '.o3de'
+    manifest_dir.mkdir()
+    (manifest_dir / 'o3de_manifest.json').write_text('{"projects": ["/p/one", "/p/two"]}')
+    monkeypatch.setenv('USERPROFILE', str(tmp_path))
+    monkeypatch.setattr(pathlib.Path, 'home', staticmethod(lambda: tmp_path))
+    assert gui.registered_projects() == ['/p/one', '/p/two']
+
+
+def test_registered_projects_missing_manifest(gui, tmp_path, monkeypatch):
+    monkeypatch.setenv('USERPROFILE', str(tmp_path))
+    monkeypatch.setattr(pathlib.Path, 'home', staticmethod(lambda: tmp_path))
+    assert gui.registered_projects() == []
