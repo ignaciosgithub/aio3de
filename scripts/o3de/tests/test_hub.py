@@ -400,3 +400,38 @@ def test_build_fix_plan_installs_linux_build_libraries():
     assert package_step.elevated
     for package in ('pkg-config', 'libunwind-dev', 'libzstd-dev', 'libegl1-mesa-dev'):
         assert package in package_step.command
+
+
+def test_check_hardware_reports_cpu_ram_gpu():
+    with patch.object(hub.os, 'cpu_count', return_value=8), \
+         patch.object(hub, '_cpu_model', return_value='TestCPU'), \
+         patch.object(hub, '_total_ram_gb', return_value=32.0), \
+         patch.object(hub, '_gpu_names', return_value=['TestGPU']), \
+         patch.object(hub, '_vulkan_loader_present', return_value=True):
+        results = {r.name: r for r in hub.check_hardware()}
+    assert results['CPU'].severity == hub.OK and 'TestCPU' in results['CPU'].detail
+    assert results['RAM'].severity == hub.OK and '32' in results['RAM'].detail
+    assert results['GPU'].severity == hub.OK and 'TestGPU' in results['GPU'].detail
+
+
+def test_check_hardware_warns_when_weak():
+    with patch.object(hub.os, 'cpu_count', return_value=2), \
+         patch.object(hub, '_cpu_model', return_value=None), \
+         patch.object(hub, '_total_ram_gb', return_value=8.0), \
+         patch.object(hub, '_gpu_names', return_value=[]), \
+         patch.object(hub, '_vulkan_loader_present', return_value=False):
+        results = {r.name: r for r in hub.check_hardware()}
+    assert results['CPU'].severity == hub.WARN
+    assert results['RAM'].severity == hub.WARN
+    assert results['GPU'].severity == hub.WARN
+
+
+def test_check_hardware_gpu_without_vulkan():
+    with patch.object(hub.os, 'cpu_count', return_value=8), \
+         patch.object(hub, '_cpu_model', return_value='x'), \
+         patch.object(hub, '_total_ram_gb', return_value=32.0), \
+         patch.object(hub, '_gpu_names', return_value=['SomeGPU']), \
+         patch.object(hub, '_vulkan_loader_present', return_value=False):
+        results = {r.name: r for r in hub.check_hardware()}
+    assert results['GPU'].severity == hub.WARN
+    assert 'Vulkan' in results['GPU'].detail
