@@ -35,7 +35,7 @@
    <enum>Qt::TabFocus</enum>
   </property>
   <property name="windowTitle">
-   <string>Welcome to O3DE</string>
+   <string>Welcome to AIO3DE</string>
   </property>
   <property name="styleSheet">
    <string notr="true"/>

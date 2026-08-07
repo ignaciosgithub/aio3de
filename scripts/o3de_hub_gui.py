@@ -178,7 +178,7 @@ class HubGui:
         self.root = root
         self._proc_thread = None
 
-        root.title('O3DE Hub')
+        root.title('AIO3DE Hub')
         root.geometry('820x640')
 
         notebook = self.ttk.Notebook(root)

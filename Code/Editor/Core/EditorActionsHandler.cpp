@@ -185,7 +185,7 @@ void EditorActionsHandler::OnActionContextRegistrationHook()
     // Main Window
     {
         AzToolsFramework::ActionContextProperties contextProperties;
-        contextProperties.m_name = "O3DE Editor";
+        contextProperties.m_name = "AIO3DE Editor";
 
         m_actionManagerInterface->RegisterActionContext(
             EditorIdentifiers::MainWindowActionContextIdentifier, contextProperties);
@@ -196,7 +196,7 @@ void EditorActionsHandler::OnActionContextRegistrationHook()
     // Editor Asset Browser
     {
         AzToolsFramework::ActionContextProperties contextProperties;
-        contextProperties.m_name = "O3DE Editor - Asset Browser";
+        contextProperties.m_name = "AIO3DE Editor - Asset Browser";
 
         m_actionManagerInterface->RegisterActionContext(
             EditorIdentifiers::EditorAssetBrowserActionContextIdentifier, contextProperties);
@@ -205,7 +205,7 @@ void EditorActionsHandler::OnActionContextRegistrationHook()
     // Editor Console
     {
         AzToolsFramework::ActionContextProperties contextProperties;
-        contextProperties.m_name = "O3DE Editor - Console";
+        contextProperties.m_name = "AIO3DE Editor - Console";
 
         m_actionManagerInterface->RegisterActionContext(
             EditorIdentifiers::EditorConsoleActionContextIdentifier, contextProperties);
@@ -214,7 +214,7 @@ void EditorActionsHandler::OnActionContextRegistrationHook()
     // Editor Entity Property Editor (Entity Inspector)
     {
         AzToolsFramework::ActionContextProperties contextProperties;
-        contextProperties.m_name = "O3DE Editor - Entity Inspector";
+        contextProperties.m_name = "AIO3DE Editor - Entity Inspector";
 
         m_actionManagerInterface->RegisterActionContext(
             EditorIdentifiers::EditorEntityPropertyEditorActionContextIdentifier, contextProperties);

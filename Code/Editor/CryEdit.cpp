@@ -412,7 +412,7 @@ public:
         QCommandLineParser parser;
         parser.addHelpOption();
         parser.setSingleDashWordOptionMode(QCommandLineParser::ParseAsLongOptions);
-        parser.setApplicationDescription(QObject::tr("O3DE Editor"));
+        parser.setApplicationDescription(QObject::tr("AIO3DE Editor"));
         // nsDocumentRevisionDebugMode is an argument that the macOS system passed into an App bundle that is being debugged.
         // Need to include it here so that Qt argument parser does not error out.
         bool nsDocumentRevisionsDebugMode = false;
@@ -3104,7 +3104,7 @@ void CCryEditApp::SetEditorWindowTitle(QString sTitleStr, QString sPreTitleStr, 
     {
         if (sTitleStr.isEmpty())
         {
-            sTitleStr = QObject::tr("O3DE Editor [%1]").arg(FormatVersion(m_pEditor->GetFileVersion()));
+            sTitleStr = QObject::tr("AIO3DE Editor [%1]").arg(FormatVersion(m_pEditor->GetFileVersion()));
         }
 
         if (!sPreTitleStr.isEmpty())
@@ -3541,7 +3541,7 @@ extern "C" int AZ_DLL_EXPORT CryEditMain(int argc, char* argv[])
         int exitCode = 0;
 
         bool didCryEditStart = CCryEditApp::instance()->InitInstance();
-        AZ_Error("Editor", didCryEditStart, "O3DE Editor did not initialize correctly, and will close."
+        AZ_Error("Editor", didCryEditStart, "AIO3DE Editor did not initialize correctly, and will close."
             "\nThis could be because of incorrectly configured components, or missing required gems."
             "\nSee other errors for more details.");
 
