@@ -180,6 +180,30 @@ incremental.
 
 ---
 
+## 6. Collaborating: Git LFS and branch switching
+
+Large binary assets (textures, models, audio — 130+ patterns in
+`.gitattributes`) are stored in **Git LFS**. A plain `git clone`/`git checkout`
+may leave them as small *pointer* text files instead of real content, and
+switching branches can fail on untracked local files. The hub gives you a
+pipeline for both:
+
+```bash
+# What is LFS-tracked, which files are still undownloaded pointers,
+# and (with --ref) what a branch would need to download:
+scripts/o3de.sh hub lfs --ref feature/new-map
+
+# Branch-switch preflight + switch: reports untracked-file collisions and the
+# LFS downloads needed, then does "git checkout" + "git lfs pull" in one step:
+scripts/o3de.sh hub checkout feature/new-map
+scripts/o3de.sh hub checkout feature/new-map --dry-run   # report only
+```
+
+(Windows: `scripts\o3de.bat hub lfs` / `hub checkout`.) Both accept
+`--repo-path` to run against a project repo instead of the engine. If a
+teammate reports grey/missing assets after a pull, `hub lfs` will show the
+pointer-only files and the fix (`git lfs pull`).
+
 ## Prefer a GUI?
 
 On Windows you can configure with **`cmake-gui`** instead of the command line:
