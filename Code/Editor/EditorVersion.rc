@@ -34,12 +34,12 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "CompanyName", "Open 3D Foundation"
-            VALUE "FileDescription", "O3DE Editor"
+            VALUE "FileDescription", "AIO3DE Editor"
             VALUE "FileVersion", "0.1.0.1"
             VALUE "InternalName", "Editor"
             VALUE "LegalCopyright", "Copyright (c) Contributors to the Open 3D Engine Project."
             VALUE "OriginalFilename", "Editor.exe"
-            VALUE "ProductName", "O3DE Editor"
+            VALUE "ProductName", "AIO3DE Editor"
             VALUE "ProductVersion", "0.1.0.1"
         END
     END

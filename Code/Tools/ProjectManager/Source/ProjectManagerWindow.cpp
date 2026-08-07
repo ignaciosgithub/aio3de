@@ -25,11 +25,14 @@ namespace O3DE::ProjectManager
             auto engineInfo = engineInfoOutcome.GetValue<EngineInfo>();
             auto versionToDisplay = engineInfo.m_displayVersion == "00.00" ?
                                         engineInfo.m_version : engineInfo.m_displayVersion;
-            setWindowTitle(QString("%1 %2 %3").arg(engineInfo.m_name.toUpper(), versionToDisplay, tr("Project Manager")));
+            // display-only: the fork brands the stock "o3de" engine as AIO3DE in window titles
+            const QString displayName =
+                engineInfo.m_name.compare("o3de", Qt::CaseInsensitive) == 0 ? QStringLiteral("AIO3DE") : engineInfo.m_name.toUpper();
+            setWindowTitle(QString("%1 %2 %3").arg(displayName, versionToDisplay, tr("Project Manager")));
         }
         else
         {
-            setWindowTitle(QString("O3DE %1").arg(tr("Project Manager")));
+            setWindowTitle(QString("AIO3DE %1").arg(tr("Project Manager")));
         }
 
         m_downloadController = new DownloadController(this);
