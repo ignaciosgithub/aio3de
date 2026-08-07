@@ -309,6 +309,108 @@ def check_engine_registration(engine_path: pathlib.Path) -> CheckResult:
                        'Run "scripts/o3de register --this-engine" so projects can resolve it.')
 
 
+def _total_ram_gb() -> float or None:
+    if sys.platform.startswith('linux'):
+        try:
+            for line in pathlib.Path('/proc/meminfo').read_text().splitlines():
+                if line.startswith('MemTotal:'):
+                    return int(line.split()[1]) / (1024 * 1024)
+        except (OSError, ValueError, IndexError):
+            return None
+        return None
+    if sys.platform.startswith('win'):
+        import ctypes
+
+        class MemoryStatusEx(ctypes.Structure):
+            _fields_ = [('dwLength', ctypes.c_uint32), ('dwMemoryLoad', ctypes.c_uint32),
+                        ('ullTotalPhys', ctypes.c_uint64), ('ullAvailPhys', ctypes.c_uint64),
+                        ('ullTotalPageFile', ctypes.c_uint64), ('ullAvailPageFile', ctypes.c_uint64),
+                        ('ullTotalVirtual', ctypes.c_uint64), ('ullAvailVirtual', ctypes.c_uint64),
+                        ('ullAvailExtendedVirtual', ctypes.c_uint64)]
+
+        status = MemoryStatusEx()
+        status.dwLength = ctypes.sizeof(MemoryStatusEx)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            return status.ullTotalPhys / (1024 ** 3)
+        return None
+    return None
+
+
+def _cpu_model() -> str or None:
+    if sys.platform.startswith('linux'):
+        try:
+            for line in pathlib.Path('/proc/cpuinfo').read_text().splitlines():
+                if line.lower().startswith('model name'):
+                    return line.split(':', 1)[1].strip()
+        except (OSError, IndexError):
+            return None
+        return None
+    return os.environ.get('PROCESSOR_IDENTIFIER')
+
+
+def _gpu_names() -> list:
+    names = []
+    if sys.platform.startswith('linux'):
+        output = _run_version_command('lspci', [])
+        for line in (output or '').splitlines():
+            if 'VGA compatible controller' in line or '3D controller' in line:
+                names.append(line.split(':', 2)[-1].strip())
+    elif sys.platform.startswith('win'):
+        output = _run_version_command(
+            'powershell',
+            ['-NoProfile', '-Command', '(Get-CimInstance Win32_VideoController).Name'])
+        names.extend(line.strip() for line in (output or '').splitlines() if line.strip())
+    return names
+
+
+def _vulkan_loader_present() -> bool:
+    import ctypes
+    soname = 'vulkan-1.dll' if sys.platform.startswith('win') else 'libvulkan.so.1'
+    try:
+        ctypes.CDLL(soname)
+        return True
+    except OSError:
+        return False
+
+
+def check_hardware() -> list:
+    """CPU / RAM / GPU / Vulkan detection with warnings when below what the Editor needs."""
+    results = []
+
+    cores = os.cpu_count() or 0
+    model = _cpu_model() or 'unknown model'
+    if cores >= 4:
+        results.append(CheckResult('CPU', OK, f'{model} ({cores} threads)'))
+    else:
+        results.append(CheckResult('CPU', WARN, f'{model} ({cores} threads)',
+                                   'Engine builds and the Editor are slow below 4 hardware threads.'))
+
+    ram = _total_ram_gb()
+    if ram is None:
+        results.append(CheckResult('RAM', WARN, 'could not be determined'))
+    elif ram >= 15:
+        results.append(CheckResult('RAM', OK, f'{ram:.0f} GB'))
+    else:
+        results.append(CheckResult('RAM', WARN, f'{ram:.0f} GB',
+                                   '16 GB recommended - the Editor plus Asset Processor can exhaust '
+                                   'less (close other apps, add swap, or build with fewer jobs).'))
+
+    gpus = _gpu_names()
+    vulkan = _vulkan_loader_present()
+    gpu_detail = ', '.join(gpus) if gpus else 'no GPU detected'
+    if gpus and vulkan:
+        results.append(CheckResult('GPU', OK, f'{gpu_detail} (Vulkan loader present)'))
+    elif gpus:
+        results.append(CheckResult('GPU', WARN, f'{gpu_detail} (Vulkan loader missing)',
+                                   'The renderer needs Vulkan; install the vulkan loader '
+                                   '("libvulkan1" on Ubuntu) and your GPU vendor driver.'))
+    else:
+        results.append(CheckResult('GPU', WARN, f'{gpu_detail}',
+                                   'The Editor/game need a Vulkan-capable GPU; headless servers and '
+                                   'AssetProcessorBatch work without one.'))
+    return results
+
+
 # pkg-config modules the engine's CMake configure requires (cmake/Platform/Linux + Qt tooling),
 # with the human-readable source of each requirement.
 _LINUX_BUILD_PC_MODULES = ['libunwind', 'libzstd', 'fontconfig', 'xkbcommon', 'egl', 'glesv2', 'glu']
@@ -493,6 +595,7 @@ def run_doctor(engine_path: pathlib.Path) -> list:
         check_engine_python_venv(engine_path),
         check_engine_registration(engine_path),
     ]
+    checks.extend(check_hardware())
     build_deps_check = check_linux_build_dependencies()
     if build_deps_check is not None:
         checks.append(build_deps_check)

@@ -101,9 +101,12 @@ def build_configure_command(project_path: pathlib.Path) -> list:
     return command + ['-G', 'Ninja Multi-Config']
 
 
-def build_build_command(project_path: pathlib.Path, target: str, config: str = 'profile') -> list:
-    return ['cmake', '--build', str(project_build_dir(project_path)),
-            '--target', target, '--config', config]
+def build_build_command(project_path: pathlib.Path, target: str = None, config: str = 'profile') -> list:
+    """target=None builds everything (all gems, Editor, launchers)."""
+    command = ['cmake', '--build', str(project_build_dir(project_path))]
+    if target:
+        command += ['--target', target]
+    return command + ['--config', config]
 
 
 def binary_path(project_path: pathlib.Path, name: str, config: str = 'profile') -> pathlib.Path:
@@ -119,6 +122,33 @@ def configure_succeeded(project_path: pathlib.Path) -> bool:
         return bool(list(build_dir.glob('*.sln'))) or (build_dir / 'build.ninja').is_file()
     return (build_dir / 'build-profile.ninja').is_file() or (build_dir / 'build.ninja').is_file() \
         or (build_dir / 'Makefile').is_file()
+
+
+BUILD_ALL_CHOICE = 'All (gems + launchers)'
+
+
+def project_gem_names(project_path: pathlib.Path) -> list:
+    """Enabled gem names from the project's project.json (each gem's module is a CMake target of
+    the same name)."""
+    import json
+    try:
+        data = json.loads((pathlib.Path(project_path) / 'project.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return []
+    gems = data.get('gem_names', [])
+    names = []
+    for gem in gems if isinstance(gems, list) else []:
+        # entries are either "GemName" or {"name": "GemName", ...}
+        name = gem.get('name') if isinstance(gem, dict) else gem
+        if isinstance(name, str) and name:
+            names.append(name)
+    return names
+
+
+def build_target_choices(project_path: pathlib.Path) -> list:
+    return [BUILD_ALL_CHOICE, 'Editor',
+            f'{project_path.name}.GameLauncher', f'{project_path.name}.ServerLauncher'] + \
+        sorted(project_gem_names(project_path))
 
 
 def registered_projects() -> list:
@@ -342,9 +372,12 @@ class HubGui:
         self.configure_button = self.ttk.Button(buttons, text='1. Configure',
                                                 command=self._configure_project)
         self.configure_button.pack(side='left')
-        self.build_button = self.ttk.Button(buttons, text='2. Build Editor',
-                                            command=self._build_editor)
-        self.build_button.pack(side='left', padx=8)
+        self.build_target_var = self.tk.StringVar(value='Editor')
+        self.target_combo = self.ttk.Combobox(buttons, textvariable=self.build_target_var,
+                                              width=32, state='readonly')
+        self.target_combo.pack(side='left', padx=8)
+        self.build_button = self.ttk.Button(buttons, text='2. Build', command=self._build_selected)
+        self.build_button.pack(side='left')
         self.ap_button = self.ttk.Button(buttons, text='3. Asset Processor',
                                          command=lambda: self._run_binary('AssetProcessor'))
         self.ap_button.pack(side='left')
@@ -353,17 +386,31 @@ class HubGui:
         self.editor_button.pack(side='left', padx=8)
 
         self.ttk.Label(parent,
-                       text='Configure once (and again after enabling gems), then Build Editor - the '
+                       text='Configure once (and again after enabling gems), then pick a build target '
+                            '- "Editor", everything, a launcher, or a single gem - and Build. The '
                             'first build downloads 3rd party packages and takes a long time. Asset '
                             'Processor and the Editor launch detached once built.',
                        wraplength=760, justify='left', foreground='#57606a').pack(fill='x', padx=8)
+        self.build_project_var.trace_add('write', lambda *_: self._refresh_targets())
         self._refresh_projects()
+        self._refresh_targets()
 
     def _refresh_projects(self):
         projects = registered_projects()
         self.project_combo['values'] = projects
         if projects and not self.build_project_var.get():
             self.build_project_var.set(projects[-1])
+
+    def _refresh_targets(self):
+        raw = self.build_project_var.get().strip()
+        project_path = pathlib.Path(raw).expanduser() if raw else None
+        if project_path and (project_path / 'project.json').is_file():
+            choices = build_target_choices(project_path)
+        else:
+            choices = [BUILD_ALL_CHOICE, 'Editor']
+        self.target_combo['values'] = choices
+        if self.build_target_var.get() not in choices:
+            self.build_target_var.set('Editor')
 
     def _browse_build_project(self):
         chosen = self.filedialog.askdirectory(initialdir=self.build_project_var.get() or
@@ -388,7 +435,15 @@ class HubGui:
             self._run_command(build_configure_command(project_path),
                               f'Configuring {project_path.name}')
 
-    def _build_editor(self):
+    def _build_selected(self):
+        choice = self.build_target_var.get()
+        if choice == BUILD_ALL_CHOICE:
+            self._build_target(None, 'Building everything for {name} - all gems, Editor and '
+                                     'launchers (this takes even longer than the Editor build)')
+        else:
+            self._build_target(choice, f'Building {choice} for {{name}} (this can take a while)')
+
+    def _build_target(self, target, message):
         project_path = self._selected_project()
         if not project_path:
             return
@@ -398,8 +453,8 @@ class HubGui:
                 'No successful Configure found for this project - run "1. Configure" and make sure '
                 'it finishes without errors (see the log) before building.')
             return
-        self._run_command(build_build_command(project_path, 'Editor'),
-                          f'Building Editor for {project_path.name} (this takes a while)')
+        self._run_command(build_build_command(project_path, target),
+                          message.format(name=project_path.name))
 
     def _run_binary(self, name: str):
         project_path = self._selected_project()
