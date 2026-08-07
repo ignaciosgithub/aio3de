@@ -173,6 +173,11 @@ endfunction()
 set(CMAKE_CXX_STANDARD 20 CACHE STRING "C++ Standard to target")
 ly_set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# The engine does not use C++20 modules. CMake >= 3.28 otherwise scans every C++ source for module
+# dependencies, which requires clang-scan-deps and fails on clang installs that lack it
+# ("CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS-NOTFOUND: not found").
+ly_set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+
 set(O3DE_STACK_CAPTURE_DEPTH 3 CACHE STRING "The depth of the callstack to capture when tracking allocations")
 
 get_property(_isMultiConfig GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
