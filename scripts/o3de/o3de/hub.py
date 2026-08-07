@@ -242,6 +242,23 @@ def check_git_lfs() -> CheckResult:
                        'This engine requires Git LFS. Install it and run "git lfs install" (https://git-lfs.com).')
 
 
+def check_lfs_content(engine_path: pathlib.Path) -> CheckResult or None:
+    """Warn when the checkout still contains undownloaded LFS pointer files (assets whose real
+    content was never pulled - builds/Asset Processor then fail on tiny placeholder text files).
+    Returns None when the engine path is not a git checkout or git-lfs is unavailable."""
+    if not (pathlib.Path(engine_path) / '.git').exists():
+        return None
+    code, _ = _run_git(engine_path, ['lfs', 'version'])
+    if code != 0:
+        return None
+    pointers = lfs_pointer_files(engine_path)
+    if pointers:
+        return CheckResult('LFS content', WARN,
+                           f'{len(pointers)} LFS file(s) are undownloaded pointers',
+                           'Run "git lfs pull" (details: "o3de hub lfs").')
+    return CheckResult('LFS content', OK, 'all LFS-tracked files downloaded')
+
+
 def get_third_party_path() -> pathlib.Path or None:
     """Resolves the configured 3rd party package path without creating it."""
     env_path = os.environ.get('LY_3RDPARTY_PATH')
@@ -595,6 +612,9 @@ def run_doctor(engine_path: pathlib.Path) -> list:
         check_engine_python_venv(engine_path),
         check_engine_registration(engine_path),
     ]
+    lfs_content_check = check_lfs_content(engine_path)
+    if lfs_content_check is not None:
+        checks.append(lfs_content_check)
     checks.extend(check_hardware())
     build_deps_check = check_linux_build_dependencies()
     if build_deps_check is not None:
@@ -927,6 +947,172 @@ def _run_resolve(args) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Git LFS pipeline for collaborative repos: what is LFS-tracked, which files are
+# still undownloaded pointers, and a branch-switch preflight that reports the
+# LFS objects + untracked-file collisions a checkout would hit before doing it.
+# ---------------------------------------------------------------------------
+
+def _run_git(repo_path: pathlib.Path, args: list, timeout: int = 600):
+    """Runs git inside repo_path; returns (returncode, combined output). (-1, '') when git is missing."""
+    git = shutil.which('git')
+    if not git:
+        return -1, ''
+    try:
+        completed = subprocess.run([git, '-C', str(repo_path)] + args,
+                                   capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return -1, ''
+    return completed.returncode, (completed.stdout or '') + (completed.stderr or '')
+
+
+def lfs_tracked_patterns(repo_path: pathlib.Path) -> list:
+    """The repo's LFS-tracked patterns, read from .gitattributes files (the source of truth that
+    decides which assets are stored as LFS objects)."""
+    patterns = []
+    code, output = _run_git(repo_path, ['lfs', 'track'])
+    if code == 0:
+        for line in output.splitlines():
+            line = line.strip()
+            # "    *.png (.gitattributes)"
+            if line and '(' in line and not line.startswith('Listing'):
+                patterns.append(line.rsplit('(', 1)[0].strip())
+    return patterns
+
+
+def lfs_pointer_files(repo_path: pathlib.Path) -> list:
+    """Working-tree files that are still LFS *pointers* (placeholder text, content not downloaded).
+    'git lfs ls-files' marks downloaded files with '*' and pointer-only files with '-'."""
+    code, output = _run_git(repo_path, ['lfs', 'ls-files'])
+    if code != 0:
+        return []
+    pointers = []
+    for line in output.splitlines():
+        parts = line.split(' ', 2)
+        if len(parts) == 3 and parts[1] == '-':
+            pointers.append(parts[2])
+    return pointers
+
+
+def lfs_fetch_needed(repo_path: pathlib.Path, ref: str = None) -> list:
+    """LFS objects a ref needs that are not in the local LFS cache yet ('git lfs fetch --dry-run').
+    Returns the would-be-fetched entries; an empty list means everything is already local."""
+    args = ['lfs', 'fetch', '--dry-run']
+    if ref:
+        args += ['origin', ref]
+    code, output = _run_git(repo_path, args)
+    if code != 0:
+        return []
+    return [line.strip() for line in output.splitlines()
+            if line.strip().lower().startswith('fetch ') or ' => ' in line]
+
+
+def untracked_checkout_conflicts(repo_path: pathlib.Path, branch: str) -> list:
+    """Untracked local files that a checkout of `branch` would refuse to overwrite (paths that are
+    untracked here but tracked on the target branch)."""
+    code, output = _run_git(repo_path, ['status', '--porcelain', '--untracked-files=all'])
+    if code != 0:
+        return []
+    untracked = {line[3:].strip().strip('"') for line in output.splitlines() if line.startswith('??')}
+    if not untracked:
+        return []
+    code, output = _run_git(repo_path, ['ls-tree', '-r', '--name-only', branch])
+    if code != 0:
+        return []
+    target_files = set(output.splitlines())
+    return sorted(untracked & target_files)
+
+
+def _resolve_repo_path(raw) -> pathlib.Path:
+    repo = pathlib.Path(raw).resolve() if raw else _resolve_engine_path(None)
+    return repo
+
+
+def _run_lfs(args) -> int:
+    repo = _resolve_repo_path(args.repo_path)
+    print(f'Repository: {repo}')
+
+    lfs_check = check_git_lfs()
+    print(f'Git LFS   : [{lfs_check.severity}] {lfs_check.detail}')
+    if lfs_check.severity == FAIL:
+        print(f'  hint: {lfs_check.hint}')
+        return 1
+
+    code, hooks = _run_git(repo, ['config', '--get', 'filter.lfs.smudge'])
+    print(f'LFS hooks : {"installed" if code == 0 and hooks.strip() else "NOT installed - run: git lfs install"}')
+
+    patterns = lfs_tracked_patterns(repo)
+    print(f'\nLFS-tracked patterns ({len(patterns)}):')
+    for pattern in patterns:
+        print(f'  {pattern}')
+    if not patterns:
+        print('  (none - .gitattributes has no "filter=lfs" entries)')
+
+    pointers = lfs_pointer_files(repo)
+    print(f'\nUndownloaded LFS files in the working tree ({len(pointers)}):')
+    for path in pointers[:40]:
+        print(f'  {path}')
+    if len(pointers) > 40:
+        print(f'  ... and {len(pointers) - 40} more')
+    if pointers:
+        print('Run "git lfs pull" to download them.')
+    else:
+        print('  (none - all LFS content is downloaded)')
+
+    if args.ref:
+        needed = lfs_fetch_needed(repo, args.ref)
+        print(f'\nLFS objects "{args.ref}" needs that are not local yet ({len(needed)}):')
+        for entry in needed[:40]:
+            print(f'  {entry}')
+        if len(needed) > 40:
+            print(f'  ... and {len(needed) - 40} more')
+        if not needed:
+            print('  (none - the local LFS cache already has everything for that ref)')
+
+    return 0
+
+
+def _run_checkout(args) -> int:
+    repo = _resolve_repo_path(args.repo_path)
+    branch = args.branch
+    print(f'Repository: {repo}')
+    print(f'Target    : {branch}\n')
+
+    conflicts = untracked_checkout_conflicts(repo, branch)
+    if conflicts:
+        print(f'BLOCKED: {len(conflicts)} untracked local file(s) also exist on "{branch}" and would '
+              f'be overwritten by the checkout:')
+        for path in conflicts:
+            print(f'  {path}')
+        print('\nMove/rename them (or commit them on a branch) first, then re-run.')
+        return 1
+    print('Untracked-file collisions: none')
+
+    needed = lfs_fetch_needed(repo, branch)
+    print(f'LFS objects to download for "{branch}": {len(needed) if needed else "none (all cached)"}')
+
+    if args.dry_run:
+        print('\n(dry run - not switching)')
+        return 0
+
+    code, output = _run_git(repo, ['checkout', branch])
+    print(output.strip())
+    if code != 0:
+        return 1
+
+    code, output = _run_git(repo, ['lfs', 'pull'], timeout=3600)
+    if code != 0:
+        print(output.strip())
+        print('WARNING: "git lfs pull" failed - some assets may still be pointer files.')
+        return 1
+    remaining = lfs_pointer_files(repo)
+    if remaining:
+        print(f'WARNING: {len(remaining)} LFS file(s) are still undownloaded pointers.')
+        return 1
+    print(f'Switched to "{branch}" with all LFS assets downloaded.')
+    return 0
+
+
 def add_parser_args(parser):
     subparsers = parser.add_subparsers(
         title='hub sub-commands',
@@ -956,6 +1142,25 @@ def add_parser_args(parser):
     install_parser.add_argument('--dry-run', action='store_true',
                                 help='Only print what would be installed/run.')
     install_parser.set_defaults(func=_run_install)
+
+    lfs_parser = subparsers.add_parser(
+        'lfs', help='Show the LFS pipeline state: tracked patterns, undownloaded pointer files, '
+                    'and (with --ref) what a branch still needs to download.')
+    lfs_parser.add_argument('-rp', '--repo-path', type=pathlib.Path, default=None,
+                            help='Path to the repository (defaults to this engine).')
+    lfs_parser.add_argument('--ref', default=None,
+                            help='Also report the LFS objects this branch/ref needs that are not local yet.')
+    lfs_parser.set_defaults(func=_run_lfs)
+
+    checkout_parser = subparsers.add_parser(
+        'checkout', help='Branch-switch preflight: report untracked-file collisions and needed LFS '
+                         'downloads, then checkout + "git lfs pull" in one step.')
+    checkout_parser.add_argument('branch', help='The branch/ref to switch to.')
+    checkout_parser.add_argument('-rp', '--repo-path', type=pathlib.Path, default=None,
+                                 help='Path to the repository (defaults to this engine).')
+    checkout_parser.add_argument('--dry-run', action='store_true',
+                                 help='Only report; do not switch branches or download.')
+    checkout_parser.set_defaults(func=_run_checkout)
 
     # When "o3de hub" is run with no sub-command, print help instead of failing silently.
     def _print_hub_help(_args):

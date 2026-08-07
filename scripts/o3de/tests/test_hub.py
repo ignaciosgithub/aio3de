@@ -435,3 +435,66 @@ def test_check_hardware_gpu_without_vulkan():
         results = {r.name: r for r in hub.check_hardware()}
     assert results['GPU'].severity == hub.WARN
     assert 'Vulkan' in results['GPU'].detail
+
+
+def test_lfs_tracked_patterns_parses_track_output():
+    output = ('Listing tracked patterns\n'
+              '    *.png (.gitattributes)\n'
+              '    Assets/** (Gems/.gitattributes)\n')
+    with patch.object(hub, '_run_git', return_value=(0, output)):
+        assert hub.lfs_tracked_patterns(pathlib.Path('/repo')) == ['*.png', 'Assets/**']
+
+
+def test_lfs_pointer_files_only_reports_pointers():
+    output = ('deadbeef01 * Assets/downloaded.png\n'
+              'deadbeef02 - Assets/pointer_only.fbx\n'
+              'deadbeef03 - Assets/pointer_two.png\n')
+    with patch.object(hub, '_run_git', return_value=(0, output)):
+        assert hub.lfs_pointer_files(pathlib.Path('/repo')) == [
+            'Assets/pointer_only.fbx', 'Assets/pointer_two.png']
+
+
+def test_lfs_pointer_files_git_failure_is_empty():
+    with patch.object(hub, '_run_git', return_value=(1, 'not a git repository')):
+        assert hub.lfs_pointer_files(pathlib.Path('/repo')) == []
+
+
+def test_untracked_checkout_conflicts_intersects_target_tree():
+    def fake_git(_repo, args, **_kwargs):
+        if args[0] == 'status':
+            return 0, '?? Assets/local_new.png\n?? Assets/collision.fbx\n M Code/tracked.cpp\n'
+        if args[0] == 'ls-tree':
+            return 0, 'Assets/collision.fbx\nCode/tracked.cpp\n'
+        raise AssertionError(args)
+    with patch.object(hub, '_run_git', side_effect=fake_git):
+        assert hub.untracked_checkout_conflicts(pathlib.Path('/repo'), 'other') == [
+            'Assets/collision.fbx']
+
+
+def test_lfs_fetch_needed_lists_fetch_lines():
+    output = ('fetch: Fetching reference refs/heads/other\n'
+              'fetch deadbeef01 => Assets/big_model.fbx\n'
+              'fetch deadbeef02 => Assets/texture.png\n')
+    with patch.object(hub, '_run_git', return_value=(0, output)):
+        needed = hub.lfs_fetch_needed(pathlib.Path('/repo'), 'other')
+    assert 'fetch deadbeef01 => Assets/big_model.fbx' in needed
+    assert 'fetch deadbeef02 => Assets/texture.png' in needed
+
+
+def test_check_lfs_content_warns_on_pointers(tmp_path):
+    (tmp_path / '.git').mkdir()
+    with patch.object(hub, '_run_git', return_value=(0, 'git-lfs/3.0.2')), \
+         patch.object(hub, 'lfs_pointer_files', return_value=['a.fbx', 'b.png']):
+        result = hub.check_lfs_content(tmp_path)
+    assert result.severity == hub.WARN and '2' in result.detail
+
+
+def test_check_lfs_content_ok_when_downloaded(tmp_path):
+    (tmp_path / '.git').mkdir()
+    with patch.object(hub, '_run_git', return_value=(0, 'git-lfs/3.0.2')), \
+         patch.object(hub, 'lfs_pointer_files', return_value=[]):
+        assert hub.check_lfs_content(tmp_path).severity == hub.OK
+
+
+def test_check_lfs_content_none_outside_git(tmp_path):
+    assert hub.check_lfs_content(tmp_path) is None
