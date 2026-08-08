@@ -62,14 +62,13 @@ jobs:
           git lfs pull --include "*.ico,*.bmp"
 
       - name: Install build dependencies
+        # Use the repo's own build-node installer (same as linux-build.yml) so the
+        # full dependency list (all X11/xcb dev packages, toolchain, etc.) is covered.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            cmake ninja-build clang clang-tools pkg-config binutils \
-            libglu1-mesa-dev libxcb-xinerama0 libxcb-xinput0 libxcb-xinput-dev \
-            libxcb-xfixes0-dev libxcb-xkb-dev libxkbcommon-dev libxkbcommon-x11-dev \
-            libfontconfig1-dev libcurl4-openssl-dev libssl-dev zlib1g-dev mesa-common-dev \
-            libunwind-dev libzstd-dev
+          pushd ./scripts/build/build_node/Platform/Linux
+          sudo ./install-ubuntu.sh
+          popd
+          sudo apt-get install -y --no-install-recommends clang clang-tools ninja-build zstd
 
       - name: Configure
         run: |
