@@ -37,6 +37,15 @@ The whole flow is five steps:
 > so you end up with `.../bin/profile/`, then continue from step 2 below — the
 > engine itself never needs compiling (project code gems still compile on
 > demand).
+>
+> **Windows Defender / SmartScreen:** pre-alpha binaries are **unsigned** —
+> code signing (via Azure Trusted Signing) will only be introduced with the
+> **alpha** releases. Until then Windows will show "Windows protected your PC"
+> for unknown unsigned executables; that is a reputation warning, not a
+> detection. To run them: right-click the downloaded `.zip` → Properties →
+> **Unblock** (or in PowerShell `Unblock-File aio3de-*.zip`) **before**
+> extracting, so the extracted executables don't inherit the mark-of-the-web;
+> if SmartScreen still appears, click **More info → Run anyway**.
 
 > **Mental model:** the **engine** is the source tree you cloned. A **project**
 > is a separate folder that *points at* an engine. You register the engine once,
