@@ -52,7 +52,14 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 1
-          lfs: true
+          show-progress: false
+
+      - name: Git LFS pull (build-required files only)
+        # Full 'lfs: true' checkout fails against this repo's LFS endpoint; mirror
+        # linux-build.yml and pull only what the profile build needs.
+        run: |
+          git lfs install
+          git lfs pull --include "*.ico,*.bmp"
 
       - name: Install build dependencies
         run: |
@@ -96,7 +103,12 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 1
-          lfs: true
+          show-progress: false
+
+      - name: Git LFS pull (build-required files only)
+        run: |
+          git lfs install
+          git lfs pull --include "*.ico,*.bmp"
 
       - name: Configure
         run: |
@@ -142,7 +154,9 @@ jobs:
           1. Clone this repository at tag $RELEASE_TAG (with git-lfs) - the binaries need the engine's assets, Registry and Python tooling.
           2. Extract the archive for your platform into <engine>/build/<linux|windows>/bin/ so you get <engine>/build/<platform>/bin/profile/.
           3. Run scripts/o3de.sh hub (Linux) or scripts\\o3de.bat hub (Windows) - the Hub installs remaining runtime dependencies and registers the engine.
-          4. Create a project and use 'Open Editor' - no engine compile needed (project code gems still compile on demand)."
+          4. Create a project and use 'Open Editor' - no engine compile needed (project code gems still compile on demand).
+
+          Windows Defender / SmartScreen: pre-alpha binaries are unsigned (code signing via Azure Trusted Signing arrives with the alpha releases). Right-click the downloaded zip -> Properties -> Unblock (or 'Unblock-File aio3de-*.zip') before extracting; if SmartScreen still appears, click More info -> Run anyway."
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --title "AIO3DE $RELEASE_TAG (based on O3DE 2.7.0)" \

@@ -4,6 +4,13 @@ For complete copyright and license terms please see the LICENSE at the root of t
 
 SPDX-License-Identifier: Apache-2.0 OR MIT
 """
+
+"""
+Copyright (c) Contributors to the Open 3D Engine Project.
+For complete copyright and license terms please see the LICENSE at the root of this distribution.
+
+SPDX-License-Identifier: Apache-2.0 OR MIT
+"""
 # User-save priority for AI file edits. The assistant never overwrites a file
 # blindly:
 #  - it snapshots the file's mtime/content hash when an edit is proposed;
@@ -54,7 +61,7 @@ class ProposedEdit:
 
     def apply(self):
         """Write the edit. Raises StaleFileError if the user saved the file since
-        the proposal — the user's version always takes priority."""
+        the proposal - the user's version always takes priority."""
         if self.is_stale():
             raise StaleFileError(
                 f"'{self.path}' changed on disk since the AI read it. The user's "

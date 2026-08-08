@@ -21,7 +21,7 @@ namespace ArenaShooterNet
     //! into network inputs; movement is processed through the networked
     //! character controller on both the predicting client and the server, and
     //! shots are validated and resolved exclusively on the server (fire-rate
-    //! cap + server-side raycast) — clients never report hits.
+    //! cap + server-side raycast) - clients never report hits.
     class NetworkArenaPlayerComponentController
         : public NetworkArenaPlayerComponentControllerBase
         , private StartingPointInput::InputEventNotificationBus::MultiHandler

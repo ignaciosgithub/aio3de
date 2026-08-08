@@ -1,10 +1,17 @@
+"""
+Copyright (c) Contributors to the Open 3D Engine Project.
+For complete copyright and license terms please see the LICENSE at the root of this distribution.
+
+SPDX-License-Identifier: Apache-2.0 OR MIT
+"""
+
 #!/usr/bin/env python3
 """
 Remote admin (rcon) client for aio3de dedicated servers running the
 ServerAdmin gem.
 
 Authentication is an HMAC-SHA256 challenge-response: the server sends a
-random nonce, the client answers with HMAC(password, nonce) — the password
+random nonce, the client answers with HMAC(password, nonce) - the password
 never crosses the wire.
 
 Usage:
@@ -15,7 +22,7 @@ Usage:
     python scripts/rcon.py --host 203.0.113.7 -c "sv_terminate"
 
 The password is read from the AIO3DE_RCON_PASSWORD environment variable or
-prompted for interactively (never pass it on the command line — it would
+prompted for interactively (never pass it on the command line - it would
 land in the shell history and process list).
 """
 import argparse
@@ -90,7 +97,7 @@ def main():
             for command in args.command:
                 run_command(sock_file, command)
         else:
-            print("connected — type console commands ('quit' to exit)")
+            print("connected - type console commands ('quit' to exit)")
             while True:
                 try:
                     command = input("rcon> ").strip()

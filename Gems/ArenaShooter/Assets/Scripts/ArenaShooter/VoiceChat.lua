@@ -1,3 +1,10 @@
+-- 
+-- Copyright (c) Contributors to the Open 3D Engine Project.
+-- For complete copyright and license terms please see the LICENSE at the root of this distribution.
+-- 
+-- SPDX-License-Identifier: Apache-2.0 OR MIT
+-- 
+
 -- ArenaShooter: team voice chat (requires the VoiceChat gem and, for the
 -- microphone, the Microphone gem). Put on the game manager entity.
 -- Hold V / gamepad d-pad up ("VoiceTalk") to talk (push-to-talk);

@@ -1,4 +1,12 @@
 #!/bin/bash
+
+# 
+# Copyright (c) Contributors to the Open 3D Engine Project.
+# For complete copyright and license terms please see the LICENSE at the root of this distribution.
+# 
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+# 
+
 # Installs the AI Backbone ML libraries (requirements-ai.txt) into the engine's
 # Python environment. Run once (and again after editing requirements-ai.txt).
 #

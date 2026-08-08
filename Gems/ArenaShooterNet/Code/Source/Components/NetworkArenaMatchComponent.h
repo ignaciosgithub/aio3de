@@ -19,7 +19,7 @@
 namespace ArenaShooterNet
 {
     //! Server-authoritative match flow controller. Place one on a
-    //! network-bound level entity. Runs the warm-up → live → map-vote state
+    //! network-bound level entity. Runs the warm-up -> live -> map-vote state
     //! machine, tracks kills, ends the match on the score limit or timer,
     //! and loads the vote-winning map. Phase, time remaining, leading score
     //! and winner replicate to every client for HUD display.

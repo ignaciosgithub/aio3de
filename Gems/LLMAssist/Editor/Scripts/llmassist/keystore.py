@@ -4,6 +4,13 @@ For complete copyright and license terms please see the LICENSE at the root of t
 
 SPDX-License-Identifier: Apache-2.0 OR MIT
 """
+
+"""
+Copyright (c) Contributors to the Open 3D Engine Project.
+For complete copyright and license terms please see the LICENSE at the root of this distribution.
+
+SPDX-License-Identifier: Apache-2.0 OR MIT
+"""
 # Per-user API key storage. Keys live OUTSIDE the project and the engine tree
 # (~/.o3de/llmassist_keys.json, chmod 600 on POSIX) so they can never be
 # committed to source control. Environment variables take priority so CI /
@@ -63,7 +70,7 @@ def set_key(provider, key):
 
 
 def key_source(provider):
-    """'env', 'file' or '' — where the active key comes from."""
+    """'env', 'file' or '' - where the active key comes from."""
     env = _ENV_VARS.get(provider)
     if env and os.environ.get(env):
         return "env"

@@ -93,7 +93,7 @@ namespace SoftBodyPhysics
 
     //! Projects particles out of the level's physics colliders using sphere sweeps of the particle
     //! radius from each particle's pre-substep position along its motion. The MTD hit flag reports
-    //! particles that are already overlapping a collider at the start of the sweep — this catches a
+    //! particles that are already overlapping a collider at the start of the sweep - this catches a
     //! rigid body moving into a resting soft body (whose particles have no motion of their own) and
     //! depenetrates particles instead of tunneling through. When \p includeRigidBodies is set,
     //! dynamic rigid bodies collide too and receive a push-back impulse at the contact point
@@ -131,7 +131,7 @@ namespace SoftBodyPhysics
         // Broadphase: a single overlap test of the body's swept bounds. When the soft body is not
         // near any collider this skips the per-particle sweeps entirely, and otherwise yields the
         // nearby collider bounds so only particles close to one of them pay for a scene sweep.
-        // Every scene query takes the PhysX scene read lock, so the solve stays single-threaded —
+        // Every scene query takes the PhysX scene read lock, so the solve stays single-threaded -
         // hammering that lock from many workers costs more in contention than the parallelism wins.
         AZ::Aabb bodyBounds = AZ::Aabb::CreateNull();
         for (const AZ::SoftBodyParticle& particle : particles)
@@ -382,7 +382,7 @@ namespace SoftBodyPhysics
 
         // A unique per-entity model instance is created by cloning the model asset under a new
         // random id. If the instance still uses the original shared asset id, this component
-        // connected to the unique-instance bus after the mesh was registered — re-set the asset
+        // connected to the unique-instance bus after the mesh was registered - re-set the asset
         // once so the mesh feature processor re-evaluates the clone callback.
         AZ::Data::AssetId originalId;
         AZ::Render::MeshComponentRequestBus::EventResult(

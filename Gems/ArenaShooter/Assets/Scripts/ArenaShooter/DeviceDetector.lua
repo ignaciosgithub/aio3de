@@ -1,3 +1,10 @@
+-- 
+-- Copyright (c) Contributors to the Open 3D Engine Project.
+-- For complete copyright and license terms please see the LICENSE at the root of this distribution.
+-- 
+-- SPDX-License-Identifier: Apache-2.0 OR MIT
+-- 
+
 -- ArenaShooter: input device detection. Watches the "KMActivity" / "PadActivity"
 -- input events (bound to keyboard/mouse and gamepad inputs respectively in
 -- arenashooter.inputbindings) and broadcasts an "ActiveInputDevice" gameplay

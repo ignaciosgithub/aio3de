@@ -1,3 +1,10 @@
+-- 
+-- Copyright (c) Contributors to the Open 3D Engine Project.
+-- For complete copyright and license terms please see the LICENSE at the root of this distribution.
+-- 
+-- SPDX-License-Identifier: Apache-2.0 OR MIT
+-- 
+
 -- ArenaShooter: hitscan weapon. Put on the player entity.
 -- Fires a physics ray from the camera on the "Shoot" input event, applies damage
 -- (via a "Damage" gameplay event on the hit entity) and a knockback impulse to
