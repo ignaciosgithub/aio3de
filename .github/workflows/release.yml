@@ -1,0 +1,152 @@
+#
+# Copyright (c) Contributors to the Open 3D Engine Project.
+# For complete copyright and license terms please see the LICENSE at the root of this distribution.
+#
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+#
+
+name: Prebuilt Binary Release
+
+# Builds the Editor + asset tools on Linux and Windows and publishes them as
+# GitHub Release assets, so users can skip the multi-hour first build.
+#
+# Trigger:
+# - Push a tag like v0.00-pre-alpha, or
+# - Run manually (workflow_dispatch) with the desired tag name.
+#
+# Compatibility first (pre-alpha 0.00, based on O3DE 2.7.0):
+# - Linux builds on ubuntu-22.04 => glibc 2.35 baseline, runs on any 2022+ distro.
+# - Windows builds with MSVC v143 targeting default (SSE2) x86_64.
+# - profile config: full tooling, reasonable performance, asserts still active.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create/update (e.g. v0.00-pre-alpha)'
+        required: true
+        default: 'v0.00-pre-alpha'
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Free up disk space
+        # The default runner image has ~14 GB free; the engine build needs far more.
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          sudo docker image prune --all --force || true
+          df -h /
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+          lfs: true
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build clang clang-tools pkg-config binutils \
+            libglu1-mesa-dev libxcb-xinerama0 libxcb-xinput0 libxcb-xinput-dev \
+            libxcb-xfixes0-dev libxcb-xkb-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libfontconfig1-dev libcurl4-openssl-dev libssl-dev zlib1g-dev mesa-common-dev \
+            libunwind-dev libzstd-dev
+
+      - name: Configure
+        run: |
+          cmake -B build/linux -S . -G "Ninja Multi-Config" \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DLY_3RDPARTY_PATH="$HOME/.o3de/3rdParty" \
+            -DLY_DISABLE_TEST_MODULES=ON
+
+      - name: Build Editor and asset tools (profile)
+        run: |
+          cmake --build build/linux --config profile \
+            --target Editor AssetProcessor AssetProcessorBatch AssetBuilder
+          df -h /
+
+      - name: Package binaries
+        run: |
+          cd build/linux/bin
+          tar -I 'zstd -19 -T0' -cf "$GITHUB_WORKSPACE/aio3de-$RELEASE_TAG-linux-x86_64-profile.tar.zst" profile
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: linux-binaries
+          path: aio3de-*-linux-x86_64-profile.tar.zst
+          retention-days: 3
+
+  build-windows:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+          lfs: true
+
+      - name: Configure
+        run: |
+          cmake -B build/windows -S . -G "Visual Studio 17 2022" `
+            -DLY_3RDPARTY_PATH="$env:USERPROFILE/.o3de/3rdParty" `
+            -DLY_DISABLE_TEST_MODULES=ON
+
+      - name: Build Editor and asset tools (profile)
+        run: |
+          cmake --build build/windows --config profile `
+            --target Editor AssetProcessor AssetProcessorBatch AssetBuilder -- -m
+
+      - name: Package binaries
+        run: |
+          Compress-Archive -Path build/windows/bin/profile `
+            -DestinationPath "aio3de-$env:RELEASE_TAG-windows-x86_64-profile.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-binaries
+          path: aio3de-*-windows-x86_64-profile.zip
+          retention-days: 3
+
+  publish:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          merge-multiple: true
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES="AIO3DE pre-alpha $RELEASE_TAG - prebuilt Editor + asset tools (profile config), based on O3DE 2.7.0.
+
+          Compatibility baseline: Linux binaries built on Ubuntu 22.04 (glibc >= 2.35); Windows binaries built with MSVC v143, x86_64.
+
+          How to use:
+          1. Clone this repository at tag $RELEASE_TAG (with git-lfs) - the binaries need the engine's assets, Registry and Python tooling.
+          2. Extract the archive for your platform into <engine>/build/<linux|windows>/bin/ so you get <engine>/build/<platform>/bin/profile/.
+          3. Run scripts/o3de.sh hub (Linux) or scripts\\o3de.bat hub (Windows) - the Hub installs remaining runtime dependencies and registers the engine.
+          4. Create a project and use 'Open Editor' - no engine compile needed (project code gems still compile on demand)."
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "AIO3DE $RELEASE_TAG (based on O3DE 2.7.0)" \
+            --prerelease \
+            --notes "$NOTES" \
+            aio3de-* \
+          || gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber aio3de-*
