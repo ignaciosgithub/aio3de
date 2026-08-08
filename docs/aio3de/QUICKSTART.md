@@ -28,6 +28,16 @@ The whole flow is five steps:
 > create a project with an explicit **name** + location, so you never end up with
 > an accidental "Default Project". The CLI steps below do exactly the same thing.
 
+> **Skip the multi-hour build — prebuilt binaries:** each release on the
+> [Releases page](https://github.com/ignaciosgithub/aio3de/releases) ships a
+> prebuilt Editor + asset tools (profile config) for Windows and Linux
+> (pre-alpha 0.00, based on O3DE 2.7.0; Linux binaries need glibc ≥ 2.35, i.e.
+> Ubuntu 22.04 or newer). To use them: clone the repo **at the release tag**
+> (with Git LFS), extract the archive into `<engine>/build/<linux|windows>/bin/`
+> so you end up with `.../bin/profile/`, then continue from step 2 below — the
+> engine itself never needs compiling (project code gems still compile on
+> demand).
+
 > **Mental model:** the **engine** is the source tree you cloned. A **project**
 > is a separate folder that *points at* an engine. You register the engine once,
 > then create as many projects as you like against it. `o3de hub status` shows
