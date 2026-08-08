@@ -52,6 +52,7 @@ namespace AZ
 
         public:
             AZ_RTTI(MeshletsFeatureProcessor, "{1D93DE27-2DC4-4E9B-90B3-DCDCB941C920}", RPI::FeatureProcessor);
+            AZ_CLASS_ALLOCATOR(MeshletsFeatureProcessor, AZ::SystemAllocator);
 
             static void Reflect(AZ::ReflectContext* context);
 
