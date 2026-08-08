@@ -9,6 +9,7 @@
 #pragma once
 
 #include <Atom/RPI.Public/FeatureProcessor.h>
+#include <AzCore/Math/Vector3.h>
 
 namespace AZ::Render
 {
@@ -41,6 +42,7 @@ namespace AZ::Render
         void Activate() override;
         void Deactivate() override;
         void Simulate(const SimulatePacket& packet) override;
+        void Render(const RenderPacket& packet) override;
 
     private:
         RayTracedShadowsFullscreenPass* FindPass() const;
@@ -49,7 +51,11 @@ namespace AZ::Render
 
         bool m_passEnabled = false;
         bool m_geometryUploaded = false;
-        size_t m_lastSceneGeometryHash = 0;
-        uint32_t m_framesUntilModelCountPoll = 0;
+        size_t m_lastNearGeometryHash = 0;
+        size_t m_lastFarGeometryHash = 0;
+        uint32_t m_framesUntilNearPoll = 0;
+        uint32_t m_framesUntilFarPoll = 0;
+        uint32_t m_framesSinceLastRebuild = 0;
+        AZ::Vector3 m_cameraPosition = AZ::Vector3::CreateZero();
     };
 } // namespace AZ::Render

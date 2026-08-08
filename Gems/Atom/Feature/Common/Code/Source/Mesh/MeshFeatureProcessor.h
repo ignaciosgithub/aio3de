@@ -299,7 +299,9 @@ namespace AZ
             //! Collects the world-space triangles (LOD 0) of every loaded model in the scene into
             //! \p outTriangles, stopping once \p maxTriangles is reached (0 = unlimited). Used by
             //! RayTracedShadowsFeatureProcessor to build the occluder BVH for ray-traced shadows.
-            void GetWorldTriangles(AZStd::vector<AZ::BvhTriangle>& outTriangles, uint32_t maxTriangles = 0);
+            //! When \p includeDynamic is false, meshes flagged always-dynamic (particles, skinned
+            //! characters, constantly-moving props) are skipped so they never force occluder rebuilds.
+            void GetWorldTriangles(AZStd::vector<AZ::BvhTriangle>& outTriangles, uint32_t maxTriangles = 0, bool includeDynamic = true);
 
             //! Number of mesh instances whose model (LOD 0) is loaded and ready, i.e. the ones
             //! GetWorldTriangles would gather from. Cheap; usable as a change signal to detect
@@ -309,6 +311,17 @@ namespace AZ
             //! Hash of the ready models and their world transforms/scales. Cheap; usable as a
             //! change signal to detect meshes being added/removed/streamed in or moved.
             size_t GetSceneGeometryHash();
+
+            //! Same change signal as GetSceneGeometryHash, but split into two hashes by camera
+            //! distance so callers can react to nearby geometry changes much more often than to
+            //! distant ones. Meshes flagged always-dynamic are skipped when \p includeDynamic is
+            //! false.
+            void GetSceneGeometryHashes(
+                const AZ::Vector3& cameraPosition,
+                float nearDistance,
+                bool includeDynamic,
+                size_t& outNearHash,
+                size_t& outFarHash);
 
             void ReportShaderOptionFlags(const AZ::ConsoleCommandContainer& arguments);
 
