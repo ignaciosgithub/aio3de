@@ -21,7 +21,8 @@ endif()
 # Current mapping of toolset to Wwise SDK folder name 
 if(MSVC_TOOLSET_VERSION VERSION_EQUAL 142)
     set(WWISE_VS_VER "vc160")
-elseif(MSVC_TOOLSET_VERSION VERSION_EQUAL 143)
+elseif(MSVC_TOOLSET_VERSION VERSION_GREATER_EQUAL 143)
+    # v143 (VS 2022) and newer toolsets (e.g. v145 / VS 2026) are ABI compatible with the vc170 libs
     if(EXISTS ${BASE_PATH}/SDK/x64_vc170)
         # Visual 2022 specific libs were added in 2021.1.10
         set(WWISE_VS_VER "vc170")

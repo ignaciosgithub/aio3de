@@ -228,10 +228,19 @@ if(O3DE_BUILD_WITH_DEBUG_SYMBOLS_RELEASE)
 endif()
 
 # Configure system includes
-ly_set(LY_CXX_SYSTEM_INCLUDE_CONFIGURATION_FLAG
-    /experimental:external # Turns on "external" headers feature for MSVC compilers, required for MSVC < 16.10
-    /external:W0 # Set warning level in external headers to 0. This is used to suppress warnings 3rdParty libraries which uses the "system_includes" option in their json configuration
-)
+if(MSVC_VERSION VERSION_LESS 1929)
+    # MSVC < 16.10 needs the "external headers" feature explicitly enabled
+    ly_set(LY_CXX_SYSTEM_INCLUDE_CONFIGURATION_FLAG
+        /experimental:external # Turns on "external" headers feature for MSVC compilers, required for MSVC < 16.10
+        /external:W0 # Set warning level in external headers to 0. This is used to suppress warnings 3rdParty libraries which uses the "system_includes" option in their json configuration
+    )
+else()
+    # MSVC >= 16.10 (incl. VS 2022 / VS 2026) supports /external natively; passing
+    # /experimental:external emits a deprecation warning on newer toolsets
+    ly_set(LY_CXX_SYSTEM_INCLUDE_CONFIGURATION_FLAG
+        /external:W0 # Set warning level in external headers to 0. This is used to suppress warnings 3rdParty libraries which uses the "system_includes" option in their json configuration
+    )
+endif()
 
 # CMake 3.22rc added a definition for CMAKE_INCLUDE_SYSTEM_FLAG_CXX. However, its defined as "-external:I ", that space causes
 # issues when trying to use in TargetIncludeSystemDirectories_unsupported.cmake.

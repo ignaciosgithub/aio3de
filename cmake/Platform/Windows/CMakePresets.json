@@ -102,6 +102,33 @@
             ]
         },
         {
+            "name": "windows-vs2026",
+            "displayName": "Windows Visual Studio 2026",
+            "description": "Configure Windows to use the VS2026 generator (requires CMake >= 4.1)",
+            "binaryDir": "${sourceDir}/build/windows_vs2026",
+            "inherits": [
+                "vs2026"
+            ]
+        },
+        {
+            "name": "windows-vs2026-unity",
+            "displayName": "Windows Visual Studio 2026 Unity",
+            "description": "Configure Windows with the VS2026 generator + Unity Builds",
+            "inherits": [
+                "windows-vs2026",
+                "unity"
+            ]
+        },
+        {
+            "name": "windows-vs2026-no-unity",
+            "displayName": "Windows Visual Studio 2026 without Unity",
+            "description": "Configure Windows with the VS2026 generator without unity builds",
+            "inherits": [
+                "windows-vs2026",
+                "no-unity"
+            ]
+        },
+        {
             "name": "windows-vs2022",
             "displayName": "Windows Visual Studio 2022",
             "description": "Configure Windows to use the VS2022 generator",

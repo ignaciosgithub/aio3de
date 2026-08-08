@@ -71,8 +71,9 @@ trailing slashes** on these paths.
 **Both platforms need:** Git **+ Git LFS**, CMake **≥ 3.24**, a C++ toolchain,
 and Python 3.10+ (the engine ships its own — see step 3).
 
-- **Windows:** install **Visual Studio** with the *"Desktop development with
-  C++"* workload, and **CMake** (anywhere, as long as it's on `PATH`). Also
+- **Windows:** install **Visual Studio 2022 or 2026** with the *"Desktop
+  development with C++"* workload, and **CMake** (anywhere, as long as it's on
+  `PATH`; the `Visual Studio 18 2026` generator needs **CMake >= 4.1**). Also
   install the **[Microsoft Visual C++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe)** —
   the engine's bundled Python needs it, and without it the first `o3de` command
   fails while creating the Python venv (a crash with no error detail). Note that
@@ -176,7 +177,8 @@ folder, not the engine folder.
 **Configure** (point CMake at the project, with your third-party cache):
 
 ```bash
-# Windows (Visual Studio generator)
+# Windows (Visual Studio generator; VS 2022 shown - use "Visual Studio 18 2026"
+# for VS 2026, which requires CMake >= 4.1)
 cmake -B <project>/build/windows -S <project> -G "Visual Studio 17 2022" -DLY_3RDPARTY_PATH=<3rdParty>
 # Linux (Ninja Multi-Config)
 cmake -B <project>/build/linux -S <project> -G "Ninja Multi-Config" -DLY_3RDPARTY_PATH=<3rdParty>
