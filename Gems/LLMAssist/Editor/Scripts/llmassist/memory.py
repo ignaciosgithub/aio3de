@@ -4,8 +4,15 @@ For complete copyright and license terms please see the LICENSE at the root of t
 
 SPDX-License-Identifier: Apache-2.0 OR MIT
 """
+
+"""
+Copyright (c) Contributors to the Open 3D Engine Project.
+For complete copyright and license terms please see the LICENSE at the root of this distribution.
+
+SPDX-License-Identifier: Apache-2.0 OR MIT
+"""
 # Per-project persistent memory for the assistant. Stored at
-# <project>/user/llmassist_memory.json — the `user` folder is per-machine and
+# <project>/user/llmassist_memory.json - the `user` folder is per-machine and
 # git-ignored, so memory persists across Editor restarts without ever being
 # committed. Two kinds of entries:
 #  - facts: durable notes ("the player prefab is Prefabs/NetPlayer.prefab"),

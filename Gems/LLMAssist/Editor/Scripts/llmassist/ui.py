@@ -4,6 +4,13 @@ For complete copyright and license terms please see the LICENSE at the root of t
 
 SPDX-License-Identifier: Apache-2.0 OR MIT
 """
+
+"""
+Copyright (c) Contributors to the Open 3D Engine Project.
+For complete copyright and license terms please see the LICENSE at the root of this distribution.
+
+SPDX-License-Identifier: Apache-2.0 OR MIT
+"""
 # The in-Editor view panes:
 #  - AIAssistantDialog (Tools > AI Assistant): Chat tab (provider/model picker,
 #    docs-aware toggle, apply-file-edit flow with user-save priority) and a
@@ -95,7 +102,7 @@ class AIAssistantDialog(QtWidgets.QDialog):
 
         self._input = QtWidgets.QPlainTextEdit()
         self._input.setPlaceholderText(
-            "Ask about the engine, the docs, or request a file edit…")
+            "Ask about the engine, the docs, or request a file edit...")
         self._input.setFixedHeight(90)
         layout.addWidget(self._input)
 
@@ -165,7 +172,7 @@ class AIAssistantDialog(QtWidgets.QDialog):
         messages.append({"role": "user", "content": question})
 
         self._send.setEnabled(False)
-        self._send.setText("Waiting…")
+        self._send.setText("Waiting...")
         self._worker = _ChatWorker(
             self._provider.currentText(), messages,
             self._model.currentText().strip() or None, self)
@@ -219,7 +226,7 @@ class AIAssistantDialog(QtWidgets.QDialog):
                 self, "Apply AI edit",
                 f"The assistant wants to write:\n\n{path}\n\n"
                 "If this file is open anywhere (script editor, external editor), "
-                "SAVE and CLOSE it first — your save always takes priority.\n\n"
+                "SAVE and CLOSE it first - your save always takes priority.\n\n"
                 "A .bak backup will be created. Apply the edit?",
                 QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
             if answer != QtWidgets.QMessageBox.Yes:
@@ -259,7 +266,7 @@ class AIAssistantDialog(QtWidgets.QDialog):
 
         fact_row = QtWidgets.QHBoxLayout()
         self._fact_input = QtWidgets.QLineEdit()
-        self._fact_input.setPlaceholderText("Add a fact to remember for this project…")
+        self._fact_input.setPlaceholderText("Add a fact to remember for this project...")
         fact_row.addWidget(self._fact_input, 1)
         add_fact = QtWidgets.QPushButton("Add")
         add_fact.clicked.connect(self._on_add_fact)
@@ -321,7 +328,7 @@ class AIAssistantDialog(QtWidgets.QDialog):
         widget = QtWidgets.QWidget()
         form = QtWidgets.QFormLayout(widget)
         note = QtWidgets.QLabel(
-            "Keys are stored per-user in ~/.o3de/llmassist_keys.json (chmod 600) — "
+            "Keys are stored per-user in ~/.o3de/llmassist_keys.json (chmod 600) - "
             "outside the project and never committed. Environment variables "
             "(OPENAI_API_KEY, ANTHROPIC_API_KEY, MOONSHOT_API_KEY) take priority.")
         note.setWordWrap(True)
@@ -359,7 +366,7 @@ class GemManagerDialog(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(self)
 
         self._filter = QtWidgets.QLineEdit()
-        self._filter.setPlaceholderText("Filter gems…")
+        self._filter.setPlaceholderText("Filter gems...")
         self._filter.textChanged.connect(self._refresh)
         layout.addWidget(self._filter)
 
@@ -371,7 +378,7 @@ class GemManagerDialog(QtWidgets.QDialog):
 
         self._status = QtWidgets.QLabel(
             "Toggle a checkbox to enable/disable a gem for the current project. "
-            "Code gems need: re-run CMake configure → rebuild Editor → relaunch. "
+            "Code gems need: re-run CMake configure -> rebuild Editor -> relaunch. "
             "Asset/Tool gems only need an Editor restart.")
         self._status.setWordWrap(True)
         layout.addWidget(self._status)

@@ -42,7 +42,7 @@ namespace ServerAdmin
         void Deactivate() override;
 
     private:
-        // AZ::TickBus — executes queued admin commands on the main thread
+        // AZ::TickBus - executes queued admin commands on the main thread
         void OnTick(float deltaTime, AZ::ScriptTimePoint time) override;
 
         void ListenerThread();

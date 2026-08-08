@@ -1,3 +1,10 @@
+-- 
+-- Copyright (c) Contributors to the Open 3D Engine Project.
+-- For complete copyright and license terms please see the LICENSE at the root of this distribution.
+-- 
+-- SPDX-License-Identifier: Apache-2.0 OR MIT
+-- 
+
 -- ArenaShooter: health, death and respawn. Put on the player and on targets/bots.
 -- Listens for "Damage" gameplay events on this entity (sent by Weapon.lua).
 -- On death: teleports the entity to SpawnPoint (or its start position), restores
@@ -38,7 +45,7 @@ function Health:Die()
     GameplayNotificationBus.Event.OnEventBegin(
         GameplayNotificationId(self.entityId, "Killed", "float"), 1.0)
     -- the body stays in place while dead (it takes no further damage) so a
-    -- death animation can play — see DeathFx.lua
+    -- death animation can play - see DeathFx.lua
 end
 
 function Health:OnTick(deltaTime, timePoint)

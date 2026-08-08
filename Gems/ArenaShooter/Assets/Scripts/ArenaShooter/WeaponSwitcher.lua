@@ -1,3 +1,10 @@
+-- 
+-- Copyright (c) Contributors to the Open 3D Engine Project.
+-- For complete copyright and license terms please see the LICENSE at the root of this distribution.
+-- 
+-- SPDX-License-Identifier: Apache-2.0 OR MIT
+-- 
+
 -- ArenaShooter: weapon switching. Put on the same entity as the Weapon.lua
 -- instances (give each Weapon a unique Slot of 1..N).
 -- Cycles the active slot with the mouse scroll wheel ("WeaponScroll"), Q/E or

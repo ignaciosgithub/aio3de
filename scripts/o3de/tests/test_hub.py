@@ -1,3 +1,10 @@
+"""
+Copyright (c) Contributors to the Open 3D Engine Project.
+For complete copyright and license terms please see the LICENSE at the root of this distribution.
+
+SPDX-License-Identifier: Apache-2.0 OR MIT
+"""
+
 #
 # Copyright (c) Contributors to the Open 3D Engine Project.
 # For complete copyright and license terms please see the LICENSE at the root of this distribution.
@@ -226,7 +233,7 @@ def test_run_resolve_incompatible_objects(tmp_path):
 @pytest.mark.parametrize("path_text, expected_severity", [
     ("/home/user/o3de", hub.OK),
     ("/home/user/my engine/o3de", hub.WARN),
-    ("/home/user/Área de trabalho/o3de", hub.WARN),
+    ("/home/user/\u00c1rea de trabalho/o3de", hub.WARN),
 ])
 def test_check_engine_path_sanity(path_text, expected_severity):
     result = hub.check_engine_path_sanity(pathlib.Path(path_text))
@@ -316,7 +323,7 @@ def test_o3de_sh_handles_paths_with_spaces(tmp_path):
     spaces / non-ASCII characters (it used to break with an unquoted expansion)."""
     if sys.platform.startswith('win'):
         pytest.skip('bash launcher test')
-    engine = tmp_path / 'Área de trabalho' / 'engine'
+    engine = tmp_path / '\u00c1rea de trabalho' / 'engine'
     (engine / 'scripts').mkdir(parents=True)
     (engine / 'python').mkdir()
     repo_root = pathlib.Path(hub.__file__).resolve().parents[3]

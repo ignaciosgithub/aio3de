@@ -18,7 +18,7 @@ namespace ArenaShooterNet
     //! Server-authoritative health. The authority listens for server-local
     //! "Damage" gameplay events (sent by NetworkArenaPlayerComponent's
     //! server-side shot resolution), applies them, and replicates the Health
-    //! network property to every client — clients can never set their own
+    //! network property to every client - clients can never set their own
     //! health. Death teleports the entity to its spawn point after a delay
     //! and restores full health.
     class NetworkArenaHealthComponentController

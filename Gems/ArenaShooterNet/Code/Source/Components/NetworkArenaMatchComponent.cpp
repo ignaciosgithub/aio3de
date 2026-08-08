@@ -72,7 +72,7 @@ namespace ArenaShooterNet
 
         if (GetScoreLimit() > 0 && kills >= GetScoreLimit())
         {
-            AZLOG_INFO("ArenaMatch: score limit reached (%u kills) — match over", kills);
+            AZLOG_INFO("ArenaMatch: score limit reached (%u kills) - match over", kills);
             EnterPhase(MatchPhase::MapVote);
         }
     }
@@ -115,7 +115,7 @@ namespace ArenaShooterNet
             EnterPhase(MatchPhase::Live);
             break;
         case MatchPhase::Live:
-            AZLOG_INFO("ArenaMatch: time limit reached — match over");
+            AZLOG_INFO("ArenaMatch: time limit reached - match over");
             EnterPhase(MatchPhase::MapVote);
             break;
         case MatchPhase::MapVote:

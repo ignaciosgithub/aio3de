@@ -27,7 +27,7 @@ namespace ArenaShooterNet
     //! simulation; failed, missed, or mismatching audits accumulate strikes and
     //! can disconnect the client.
     //!
-    //! This layer *detects* hooked or dishonest clients — it cannot *prevent*
+    //! This layer *detects* hooked or dishonest clients - it cannot *prevent*
     //! them (a sophisticated cheat can keep a clean shadow state just for
     //! audits). Prevention remains the server-authoritative simulation
     //! (NetworkArenaPlayerComponent/NetworkArenaHealthComponent); transport

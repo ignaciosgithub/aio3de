@@ -1,7 +1,14 @@
+-- 
+-- Copyright (c) Contributors to the Open 3D Engine Project.
+-- For complete copyright and license terms please see the LICENSE at the root of this distribution.
+-- 
+-- SPDX-License-Identifier: Apache-2.0 OR MIT
+-- 
+
 -- ArenaShooter: death animation + sound. Put on the character entity that has
 -- Actor + Anim Graph components (same entity as AnimationDriver.lua).
 -- Listens for the "Killed"/"Respawned" gameplay events broadcast by Health.lua
--- and drives a "Dead" float anim graph parameter (1 = dead, 0 = alive) —
+-- and drives a "Dead" float anim graph parameter (1 = dead, 0 = alive) -
 -- create that parameter in the Animation Editor and transition into/out of
 -- your death state on it. Optionally plays a death sound through a MiniAudio
 -- Playback entity (enable spatialization on it so other players hear the

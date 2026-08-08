@@ -1,3 +1,10 @@
+-- 
+-- Copyright (c) Contributors to the Open 3D Engine Project.
+-- For complete copyright and license terms please see the LICENSE at the root of this distribution.
+-- 
+-- SPDX-License-Identifier: Apache-2.0 OR MIT
+-- 
+
 -- ArenaShooter: in-game server browser (DebugDraw overlay; requires the
 -- DebugDraw and ServerBrowser gems). Put on the game manager entity and set
 -- sb_master_url (e.g. in a client autoexec cfg) to your master server.

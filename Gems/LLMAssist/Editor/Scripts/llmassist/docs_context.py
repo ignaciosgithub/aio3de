@@ -4,6 +4,13 @@ For complete copyright and license terms please see the LICENSE at the root of t
 
 SPDX-License-Identifier: Apache-2.0 OR MIT
 """
+
+"""
+Copyright (c) Contributors to the Open 3D Engine Project.
+For complete copyright and license terms please see the LICENSE at the root of this distribution.
+
+SPDX-License-Identifier: Apache-2.0 OR MIT
+"""
 # Makes the assistant docs-aware: gathers the engine's documentation
 # (docs/aio3de/*.md, gem READMEs) plus recent updates (git log of the engine
 # repo), then selects the most relevant sections for a question with a simple
@@ -62,7 +69,7 @@ def _split_sections(path):
         if line.startswith("## "):
             if current:
                 sections.append((current_title, "\n".join(current)))
-            current_title = f"{name} — {line[3:].strip()}"
+            current_title = f"{name} - {line[3:].strip()}"
             current = []
         else:
             current.append(line)
