@@ -101,9 +101,10 @@ wins; for everything else, upstream wins.
 ### Windows
 
 - Windows 10/11, 64-bit.
-- **Visual Studio 2022 or newer** with the "Desktop development with C++"
-  workload (MSVC, Windows SDK, CMake support). The engine also builds with
-  VS 2026 / MSVC 14.5x.
+- **Visual Studio 2022 or 2026** with the "Desktop development with C++"
+  workload (MSVC, Windows SDK, CMake support). VS 2022 uses the v143 toolset;
+  VS 2026 uses v145 and its `Visual Studio 18 2026` CMake generator needs
+  CMake >= 4.1 (CMake preset: `windows-vs2026`).
 - **CMake 3.22+** (bundled with VS or standalone).
 - **Git** (with LFS if you clone large asset repos).
 - **RAM**: 16 GB minimum; **strongly recommended**: a page file of

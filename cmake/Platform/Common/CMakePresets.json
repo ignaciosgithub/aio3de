@@ -120,6 +120,16 @@
             ]
         },
         {
+            "name": "vs2026",
+            "displayName": "Visual Studio 2026",
+            "description": "Configure using VS2026 generator (requires CMake >= 4.1)",
+            "generator": "Visual Studio 18 2026",
+            "hidden": true,
+            "inherits": [
+                "host-windows"
+            ]
+        },
+        {
             "name": "vs2022",
             "displayName": "Visual Studio 2022",
             "description": "Configure using VS2022 generator",

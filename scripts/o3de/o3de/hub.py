@@ -203,9 +203,19 @@ def check_compiler() -> CheckResult:
                                            '-property', 'installationVersion'])
             found = _parse_first_version(output) if output else None
             if found:
-                return CheckResult('C++ compiler', OK, f'Visual Studio {found} (VC++ tools installed)')
+                vs_names = {16: '2019', 17: '2022', 18: '2026'}
+                major = _version_tuple(found)[0]
+                product = vs_names.get(major)
+                label = f'Visual Studio {product} ({found})' if product else f'Visual Studio {found}'
+                if product == '2026':
+                    return CheckResult('C++ compiler', OK,
+                                       f'{label} - the "Visual Studio 18 2026" CMake generator needs CMake >= 4.1')
+                if major < 16:
+                    return CheckResult('C++ compiler', WARN, f'{label} is older than the supported toolsets',
+                                       'Install Visual Studio 2022 or 2026 with the "Desktop development with C++" workload.')
+                return CheckResult('C++ compiler', OK, f'{label} (VC++ tools installed)')
         return CheckResult('C++ compiler', FAIL, 'Visual Studio C++ toolset not detected',
-                           'Install Visual Studio with the "Desktop development with C++" workload.')
+                           'Install Visual Studio 2022 or 2026 with the "Desktop development with C++" workload.')
     # Linux / macOS
     for compiler in ('clang', 'gcc', 'cc'):
         output = _run_version_command(compiler, ['--version'])
