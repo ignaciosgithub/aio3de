@@ -981,6 +981,48 @@ are memory-unsafe, so a hostile server can still attack a client through the
 data it sends. Server-side, run the dedicated server as an unprivileged user;
 client-side, only connect to servers you have some reason to trust.
 
+### 17.5 Randomized-program attestation + proof-of-work
+
+On top of the HMAC audit challenges (Network Arena Audit component), the fork
+ships two Monero-inspired hardening layers, both configurable on the same
+component:
+
+**Attestation (RandomX-style).** Every Nth audit challenge carries a random
+64-bit seed. Both server and client deterministically generate the same random
+program from the seed (register mixing + data-dependent reads) and execute it
+over a shared reference dataset (`ArenaAttestDataset`: baked gameplay constants
+plus anything the game appends — e.g. the bytes of critical Lua scripts). The
+client's digest is HMAC-bound into its audit response and must match the
+server's own execution. Because the program differs every challenge, answers
+cannot be precomputed; a client whose dataset content was patched fails.
+
+**Proof-of-work at spawn.** The server issues a memory-hard Hashcash-style
+challenge (sequential SHA-256 memory fill + data-dependent random walk); the
+client solves it on a background thread and must submit a valid nonce before
+the deadline. Verification on the server is a single evaluation. This makes
+throwaway accounts and kick-reconnect loops computationally costly. Difficulty
+doubles per bit; the client clamps server-requested parameters to sane bounds.
+
+| Property | Default | Meaning |
+| --- | --- | --- |
+| `AttestEveryNChallenges` | 2 | attach an attestation program to every Nth audit challenge (0 disables) |
+| `AttestOpCount` | 8192 | operations per attestation program |
+| `PowRequired` | true | require the proof-of-work after spawn |
+| `PowMemoryKib` | 1024 | memory-hard buffer size (KiB) |
+| `PowPasses` | 2 | random-walk passes over the buffer |
+| `PowDifficultyBits` | 10 | leading zero bits required (expected work ~2^bits evaluations) |
+| `PowDeadline` | 60 s | seconds to submit a valid nonce before it counts as a strike |
+
+Honest limits: attestation detects tampered *registered content* and raises
+the cost of emulated clients (they must execute arbitrary random programs
+within the response deadline); it cannot prove the whole process is unmodified
+— a cheat can keep pristine copies of the dataset. Proof-of-work throttles
+abuse, it does not identify cheaters. Prevention remains the
+server-authoritative simulation. The portable core lives in
+`AzCore/Math/Attestation.h` (`AZ::Attestation::ExecuteProgram`,
+`SolvePow`/`VerifyPow`) if you want to reuse it elsewhere (e.g. a PoW gate on
+the master-server list API).
+
 Full guide: `docs/aio3de/SECURE_NETWORKING.md`.
 
 ---
