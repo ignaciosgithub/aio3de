@@ -118,6 +118,7 @@ set(FILES
     Math/CrcTestsCompileTimeLiterals.h
     Math/FrustumTests.cpp
     Math/FrustumPerformanceTests.cpp
+    Math/AttestationTests.cpp
     Math/RayTracingBvhTests.cpp
     Math/RayTracedShadowsTests.cpp
     Math/RayTracingPerformanceTests.cpp

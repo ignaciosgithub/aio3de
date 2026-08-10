@@ -16,6 +16,8 @@ set(FILES
     Source/Components/NetworkArenaHealthComponent.cpp
     Source/Components/NetworkArenaAuditComponent.h
     Source/Components/NetworkArenaAuditComponent.cpp
+    Source/AntiTamper/ArenaAttestDataset.h
+    Source/AntiTamper/ArenaAttestDataset.cpp
     Source/Components/NetworkArenaMatchComponent.h
     Source/Components/NetworkArenaMatchComponent.cpp
     Source/ArenaMatchInterface.h

@@ -19,6 +19,13 @@
     <ArchetypeProperty Type="float" Name="HealthTolerance" Init="1.0f" Container="Object" ExposeToEditor="true" Description="Max health difference tolerated between the client-reported and authoritative value" />
     <ArchetypeProperty Type="uint32_t" Name="MaxStrikes" Init="3" Container="Object" ExposeToEditor="true" Description="Failed/missed audits before the client is flagged (and kicked if Kick On Failure is set)" />
     <ArchetypeProperty Type="bool" Name="KickOnFailure" Init="true" Container="Object" ExposeToEditor="true" Description="Disconnect the client once Max Strikes is reached (otherwise only log)" />
+    <ArchetypeProperty Type="uint32_t" Name="AttestEveryNChallenges" Init="2" Container="Object" ExposeToEditor="true" Description="Attach a randomized-program attestation to every Nth audit challenge (0 disables attestation)" />
+    <ArchetypeProperty Type="uint32_t" Name="AttestOpCount" Init="8192" Container="Object" ExposeToEditor="true" Description="Operations per attestation program (more ops = harder to emulate quickly, slightly more CPU)" />
+    <ArchetypeProperty Type="bool" Name="PowRequired" Init="true" Container="Object" ExposeToEditor="true" Description="Require a memory-hard proof-of-work from each client after spawn (makes throwaway accounts / reconnect loops costly)" />
+    <ArchetypeProperty Type="uint32_t" Name="PowMemoryKib" Init="1024" Container="Object" ExposeToEditor="true" Description="Memory-hard buffer size for the proof-of-work, in KiB" />
+    <ArchetypeProperty Type="uint32_t" Name="PowPasses" Init="2" Container="Object" ExposeToEditor="true" Description="Random-walk passes over the proof-of-work buffer" />
+    <ArchetypeProperty Type="uint32_t" Name="PowDifficultyBits" Init="10" Container="Object" ExposeToEditor="true" Description="Required leading zero bits: expected work doubles per bit (10 bits ~ 1024 evaluations)" />
+    <ArchetypeProperty Type="float" Name="PowDeadline" Init="60.0f" Container="Object" ExposeToEditor="true" Description="Seconds the client has to submit a valid proof-of-work before it counts as a strike" />
 
     <RemoteProcedure Name="SetAuditKey" InvokeFrom="Authority" HandleOn="Autonomous" IsPublic="false" IsReliable="true" GenerateEventBindings="false" Description="Delivers the per-session audit HMAC key (transport-protected by DTLS)">
         <Param Type="uint64_t" Name="keyPart0" />
@@ -27,20 +34,37 @@
         <Param Type="uint64_t" Name="keyPart3" />
     </RemoteProcedure>
 
-    <RemoteProcedure Name="SendAuditChallenge" InvokeFrom="Authority" HandleOn="Autonomous" IsPublic="false" IsReliable="true" GenerateEventBindings="false" Description="Unpredictable audit challenge: random nonce the client must echo inside an authenticated snapshot">
+    <RemoteProcedure Name="SendAuditChallenge" InvokeFrom="Authority" HandleOn="Autonomous" IsPublic="false" IsReliable="true" GenerateEventBindings="false" Description="Unpredictable audit challenge: random nonce (+ optional attestation program seed) the client must answer inside an authenticated snapshot">
         <Param Type="uint32_t" Name="challengeId" />
         <Param Type="uint64_t" Name="nonce" />
+        <Param Type="uint64_t" Name="attestSeed" />
+        <Param Type="uint32_t" Name="attestOpCount" />
     </RemoteProcedure>
 
-    <RemoteProcedure Name="SendAuditResponse" InvokeFrom="Autonomous" HandleOn="Authority" IsPublic="false" IsReliable="true" GenerateEventBindings="false" Description="HMAC-authenticated client state snapshot answering an audit challenge">
+    <RemoteProcedure Name="SendAuditResponse" InvokeFrom="Autonomous" HandleOn="Authority" IsPublic="false" IsReliable="true" GenerateEventBindings="false" Description="HMAC-authenticated client state snapshot (+ attestation digest) answering an audit challenge">
         <Param Type="uint32_t" Name="challengeId" />
         <Param Type="AZ::Vector3" Name="position" />
         <Param Type="float" Name="health" />
         <Param Type="uint64_t" Name="inputHash" />
+        <Param Type="uint64_t" Name="attest0" />
+        <Param Type="uint64_t" Name="attest1" />
+        <Param Type="uint64_t" Name="attest2" />
+        <Param Type="uint64_t" Name="attest3" />
         <Param Type="uint64_t" Name="tag0" />
         <Param Type="uint64_t" Name="tag1" />
         <Param Type="uint64_t" Name="tag2" />
         <Param Type="uint64_t" Name="tag3" />
+    </RemoteProcedure>
+
+    <RemoteProcedure Name="SetPowChallenge" InvokeFrom="Authority" HandleOn="Autonomous" IsPublic="false" IsReliable="true" GenerateEventBindings="false" Description="Memory-hard proof-of-work the client must solve after spawn (anti throwaway-account / reconnect-loop)">
+        <Param Type="uint64_t" Name="seed" />
+        <Param Type="uint32_t" Name="memoryKib" />
+        <Param Type="uint32_t" Name="passes" />
+        <Param Type="uint32_t" Name="difficultyBits" />
+    </RemoteProcedure>
+
+    <RemoteProcedure Name="SendPowSolution" InvokeFrom="Autonomous" HandleOn="Authority" IsPublic="false" IsReliable="true" GenerateEventBindings="false" Description="Nonce solving the proof-of-work challenge">
+        <Param Type="uint64_t" Name="nonce" />
     </RemoteProcedure>
 
 </Component>

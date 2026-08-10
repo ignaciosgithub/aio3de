@@ -7,6 +7,7 @@
  */
 #include "NetworkArenaAuditComponent.h"
 
+#include <AntiTamper/ArenaAttestDataset.h>
 #include <AzCore/Component/TransformBus.h>
 #include <AzCore/std/algorithm.h>
 #include <AzCore/std/math.h>
@@ -78,6 +79,18 @@ namespace ArenaShooterNet
                 SetAuditKey(m_key[0], m_key[1], m_key[2], m_key[3]);
                 m_random.SetSeed(m_key[0] ^ m_key[3]);
                 ScheduleNextChallenge();
+                if (GetPowRequired())
+                {
+                    m_powParams.m_seed = (AZ::u64(m_random.GetRandom()) << 32) | m_random.GetRandom();
+                    m_powParams.m_memoryKib = GetPowMemoryKib();
+                    m_powParams.m_passes = GetPowPasses();
+                    m_powParams.m_difficultyBits = GetPowDifficultyBits();
+                    m_powPending = true;
+                    m_powElapsed = 0.0f;
+                    SetPowChallenge(
+                        m_powParams.m_seed, m_powParams.m_memoryKib,
+                        m_powParams.m_passes, m_powParams.m_difficultyBits);
+                }
                 AZ::TickBus::Handler::BusConnect();
             }
             else
@@ -101,6 +114,11 @@ namespace ArenaShooterNet
     {
         AZ::TickBus::Handler::BusDisconnect();
         StartingPointInput::InputEventNotificationBus::MultiHandler::BusDisconnect();
+        m_powCancel = true;
+        if (m_powThread.joinable())
+        {
+            m_powThread.join();
+        }
     }
 
     void NetworkArenaAuditComponentController::OnPressed(float value)
@@ -142,10 +160,12 @@ namespace ArenaShooterNet
 
     NetworkArenaAuditComponentController::AuditTag NetworkArenaAuditComponentController::ComputeTag(
         const AuditKey& key, uint32_t challengeId, AZ::u64 nonce,
-        const AZ::Vector3& position, float health, AZ::u64 inputHash)
+        const AZ::Vector3& position, float health, AZ::u64 inputHash,
+        const AZ::Attestation::Digest& attestDigest)
     {
-        // fixed-layout message: id | nonce | pos.xyz | health | inputHash
-        uint8_t message[sizeof(uint32_t) + sizeof(AZ::u64) + 4 * sizeof(float) + sizeof(AZ::u64)];
+        // fixed-layout message: id | nonce | pos.xyz | health | inputHash | attestDigest
+        uint8_t message[sizeof(uint32_t) + sizeof(AZ::u64) + 4 * sizeof(float) + sizeof(AZ::u64) +
+            sizeof(AZ::Attestation::Digest)];
         uint8_t* cursor = message;
         auto append = [&cursor](const void* data, size_t size)
         {
@@ -158,6 +178,7 @@ namespace ArenaShooterNet
         append(pos, sizeof(pos));
         append(&health, sizeof(health));
         append(&inputHash, sizeof(inputHash));
+        append(attestDigest.data(), sizeof(AZ::Attestation::Digest));
 
         AuditTag tag{};
         unsigned int tagLength = 0;
@@ -182,7 +203,8 @@ namespace ArenaShooterNet
 
     void NetworkArenaAuditComponentController::HandleSendAuditChallenge(
         [[maybe_unused]] AzNetworking::IConnection* invokingConnection,
-        const uint32_t& challengeId, const uint64_t& nonce)
+        const uint32_t& challengeId, const uint64_t& nonce,
+        const uint64_t& attestSeed, const uint32_t& attestOpCount)
     {
         if (!m_keySet)
         {
@@ -191,8 +213,52 @@ namespace ArenaShooterNet
         AZ::Vector3 position = AZ::Vector3::CreateZero();
         AZ::TransformBus::EventResult(position, GetEntityId(), &AZ::TransformBus::Events::GetWorldTranslation);
         const float health = QueryHealth();
-        const AuditTag tag = ComputeTag(m_key, challengeId, nonce, position, health, m_inputHash);
-        SendAuditResponse(challengeId, position, health, m_inputHash, tag[0], tag[1], tag[2], tag[3]);
+        AZ::Attestation::Digest attestDigest{};
+        if (attestOpCount > 0)
+        {
+            const auto& dataset = ArenaAttestDataset::Get();
+            attestDigest = AZ::Attestation::ExecuteProgram(attestSeed, attestOpCount, dataset.data(), dataset.size());
+        }
+        const AuditTag tag = ComputeTag(m_key, challengeId, nonce, position, health, m_inputHash, attestDigest);
+        SendAuditResponse(
+            challengeId, position, health, m_inputHash,
+            attestDigest[0], attestDigest[1], attestDigest[2], attestDigest[3],
+            tag[0], tag[1], tag[2], tag[3]);
+    }
+
+    void NetworkArenaAuditComponentController::HandleSetPowChallenge(
+        [[maybe_unused]] AzNetworking::IConnection* invokingConnection,
+        const uint64_t& seed, const uint32_t& memoryKib,
+        const uint32_t& passes, const uint32_t& difficultyBits)
+    {
+        if (m_powSolving)
+        {
+            return; // one challenge per session
+        }
+        AZ::Attestation::PowParams params;
+        params.m_seed = seed;
+        // clamp to sane bounds so a hostile server cannot demand absurd work
+        params.m_memoryKib = AZStd::min(memoryKib, 65536u);
+        params.m_passes = AZStd::min(passes, 16u);
+        params.m_difficultyBits = AZStd::min(difficultyBits, 24u);
+        m_powSolving = true;
+        m_powDone = false;
+        m_powCancel = false;
+        // solve on a background thread so gameplay frames never stall
+        m_powThread = AZStd::thread(
+            [this, params]()
+            {
+                for (AZ::u64 nonce = 0; !m_powCancel; ++nonce)
+                {
+                    if (AZ::Attestation::VerifyPow(params, nonce))
+                    {
+                        m_powNonce = nonce;
+                        m_powDone = true;
+                        return;
+                    }
+                }
+            });
+        AZ::TickBus::Handler::BusConnect();
     }
 #endif
 
@@ -201,6 +267,8 @@ namespace ArenaShooterNet
         AzNetworking::IConnection* invokingConnection,
         const uint32_t& challengeId, const AZ::Vector3& position, const float& health,
         const uint64_t& inputHash,
+        const uint64_t& attest0, const uint64_t& attest1,
+        const uint64_t& attest2, const uint64_t& attest3,
         const uint64_t& tag0, const uint64_t& tag1,
         const uint64_t& tag2, const uint64_t& tag3)
     {
@@ -213,15 +281,25 @@ namespace ArenaShooterNet
         const AZ::u64 nonce = m_pendingNonce;
         m_pendingChallengeId = 0;
 
+        const AZ::Attestation::Digest attestDigest{ attest0, attest1, attest2, attest3 };
+
         // 1. authenticity: the tag must be a valid HMAC over exactly what the client reported
-        const AuditTag expected = ComputeTag(m_key, challengeId, nonce, position, health, inputHash);
+        const AuditTag expected = ComputeTag(m_key, challengeId, nonce, position, health, inputHash, attestDigest);
         if (!ConstantTimeEquals(expected, AuditTag{ tag0, tag1, tag2, tag3 }))
         {
             RegisterStrike("bad authentication tag");
             return;
         }
 
-        // 2. honesty: the authenticated snapshot must match the authoritative simulation
+        // 2. attestation: the client must have executed this challenge's random
+        // program over the same reference dataset
+        if (m_pendingAttestOpCount > 0 && !ConstantTimeEquals(m_pendingAttestExpected, attestDigest))
+        {
+            RegisterStrike("attestation digest mismatch (tampered dataset or emulated client)");
+            return;
+        }
+
+        // 3. honesty: the authenticated snapshot must match the authoritative simulation
         AZ::Vector3 authoritativePosition = AZ::Vector3::CreateZero();
         AZ::TransformBus::EventResult(
             authoritativePosition, GetEntityId(), &AZ::TransformBus::Events::GetWorldTranslation);
@@ -244,7 +322,39 @@ namespace ArenaShooterNet
         m_pendingChallengeId = m_nextChallengeId++;
         m_pendingNonce = (AZ::u64(m_random.GetRandom()) << 32) | m_random.GetRandom();
         m_pendingElapsed = 0.0f;
-        SendAuditChallenge(m_pendingChallengeId, m_pendingNonce);
+        ++m_challengesIssued;
+
+        m_pendingAttestSeed = 0;
+        m_pendingAttestOpCount = 0;
+        const AZ::u32 attestEvery = GetAttestEveryNChallenges();
+        if (attestEvery > 0 && (m_challengesIssued % attestEvery) == 0)
+        {
+            m_pendingAttestSeed = (AZ::u64(m_random.GetRandom()) << 32) | m_random.GetRandom();
+            m_pendingAttestOpCount = AZStd::max(GetAttestOpCount(), 64u);
+            const auto& dataset = ArenaAttestDataset::Get();
+            m_pendingAttestExpected = AZ::Attestation::ExecuteProgram(
+                m_pendingAttestSeed, m_pendingAttestOpCount, dataset.data(), dataset.size());
+        }
+        SendAuditChallenge(m_pendingChallengeId, m_pendingNonce, m_pendingAttestSeed, m_pendingAttestOpCount);
+    }
+
+    void NetworkArenaAuditComponentController::HandleSendPowSolution(
+        AzNetworking::IConnection* invokingConnection, const uint64_t& nonce)
+    {
+        m_lastConnection = invokingConnection;
+        if (!m_powPending)
+        {
+            return; // already verified or never required
+        }
+        m_powPending = false;
+        if (AZ::Attestation::VerifyPow(m_powParams, nonce))
+        {
+            m_powVerified = true;
+        }
+        else
+        {
+            RegisterStrike("invalid proof-of-work solution");
+        }
     }
 
     void NetworkArenaAuditComponentController::ScheduleNextChallenge()
@@ -291,10 +401,42 @@ namespace ArenaShooterNet
 
     void NetworkArenaAuditComponentController::OnTick(float deltaTime, [[maybe_unused]] AZ::ScriptTimePoint time)
     {
+#if AZ_TRAIT_CLIENT
+        // autonomous: deliver the background proof-of-work solution when ready
+        if (IsNetEntityRoleAutonomous())
+        {
+            if (m_powSolving && m_powDone)
+            {
+                m_powSolving = false;
+                if (m_powThread.joinable())
+                {
+                    m_powThread.join();
+                }
+                SendPowSolution(m_powNonce);
+                if (!IsNetEntityRoleAuthority())
+                {
+                    AZ::TickBus::Handler::BusDisconnect();
+                }
+            }
+            if (!IsNetEntityRoleAuthority())
+            {
+                return;
+            }
+        }
+#endif
 #if AZ_TRAIT_SERVER
         if (!IsNetEntityRoleAuthority() || !m_keySet)
         {
             return;
+        }
+        if (m_powPending)
+        {
+            m_powElapsed += deltaTime;
+            if (m_powElapsed > GetPowDeadline())
+            {
+                m_powPending = false;
+                RegisterStrike("proof-of-work deadline missed");
+            }
         }
         if (m_pendingChallengeId != 0)
         {
