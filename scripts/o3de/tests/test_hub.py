@@ -505,3 +505,60 @@ def test_check_lfs_content_ok_when_downloaded(tmp_path):
 
 def test_check_lfs_content_none_outside_git(tmp_path):
     assert hub.check_lfs_content(tmp_path) is None
+
+# ---- memory-safe Windows build parallelism -----------------------------------------------------
+
+@pytest.mark.parametrize("cores, ram_gb, expected_jobs", [
+    (8, 32, 8),     # RAM allows all cores
+    (16, 32, 8),    # RAM-bound: 32/4
+    (8, 16, 4),     # 16 GB -> 4 compiler processes
+    (8, 8, 2),
+    (4, 2, 1),      # never below 1
+])
+def test_windows_build_parallelism(cores, ram_gb, expected_jobs):
+    jobs, mp_count = hub.windows_build_parallelism(cores, ram_gb)
+    assert jobs == expected_jobs
+    assert mp_count == 1
+
+
+def test_memory_safe_msbuild_args():
+    assert hub.memory_safe_msbuild_args(8, 32) == ['/m:8', '/p:CL_MPCount=1']
+
+
+@pytest.mark.parametrize("output, expects_hint", [
+    ('fatal error C1060: compiler is out of heap space', True),
+    ('LINK : fatal error LNK1102: out of memory', True),
+    ('MSBUILD : error MSB6003: The specified task executable "CL.exe" could not be run. System.OutOfMemoryException', True),
+    ('error C2065: undeclared identifier', False),
+    ('', False),
+    (None, False),
+])
+def test_build_oom_hint(output, expects_hint):
+    hint = hub.build_oom_hint(output)
+    assert (hint is not None) == expects_hint
+    if hint:
+        assert '/m:1' in hint
+
+
+def test_detect_windows_generator_names():
+    assert hub.VS_GENERATORS[17] == 'Visual Studio 17 2022'
+    assert hub.VS_GENERATORS[18] == 'Visual Studio 18 2026'
+
+
+def test_detect_windows_generator_vs2026_needs_cmake_41():
+    with patch.object(hub, 'detect_visual_studio_major', return_value=18), \
+         patch.object(hub, '_run_version_command', return_value='cmake version 3.29.0'):
+        assert hub.detect_windows_generator() == 'Visual Studio 17 2022'
+    with patch.object(hub, 'detect_visual_studio_major', return_value=18), \
+         patch.object(hub, '_run_version_command', return_value='cmake version 4.1.0'):
+        assert hub.detect_windows_generator() == 'Visual Studio 18 2026'
+
+
+def test_detect_windows_generator_vs2022():
+    with patch.object(hub, 'detect_visual_studio_major', return_value=17):
+        assert hub.detect_windows_generator() == 'Visual Studio 17 2022'
+
+
+def test_detect_windows_generator_none_when_no_vs():
+    with patch.object(hub, 'detect_visual_studio_major', return_value=None):
+        assert hub.detect_windows_generator() is None

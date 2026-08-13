@@ -225,6 +225,75 @@ def check_compiler() -> CheckResult:
                        'Install clang (recommended) or gcc, e.g. "sudo apt install clang lld".')
 
 
+# CMake generator names by Visual Studio major version.
+VS_GENERATORS = {16: 'Visual Studio 16 2019', 17: 'Visual Studio 17 2022', 18: 'Visual Studio 18 2026'}
+
+
+def detect_visual_studio_major() -> int or None:
+    """Newest installed Visual Studio major version (16/17/18) with the C++ toolset, via vswhere.
+    None on non-Windows or when nothing suitable is installed."""
+    if not sys.platform.startswith('win'):
+        return None
+    program_files_x86 = os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')
+    vswhere = pathlib.Path(program_files_x86) / 'Microsoft Visual Studio' / 'Installer' / 'vswhere.exe'
+    if not vswhere.is_file():
+        return None
+    output = _run_version_command(str(vswhere),
+                                  ['-latest', '-products', '*',
+                                   '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
+                                   '-property', 'installationVersion'])
+    found = _parse_first_version(output) if output else None
+    return _version_tuple(found)[0] if found else None
+
+
+def detect_windows_generator() -> str or None:
+    """The CMake generator matching the newest installed Visual Studio, so users never need to
+    know '-G' strings. Falls back to VS 2022 when a newer VS is installed but the local CMake is
+    too old for its generator (VS 2026 needs CMake >= 4.1)."""
+    major = detect_visual_studio_major()
+    if major is None:
+        return None
+    if major > 18:
+        major = 18  # newest generator we know; VS installs keep older toolsets available
+    if major == 18:
+        cmake_output = _run_version_command('cmake', ['--version'])
+        cmake_version = _parse_first_version(cmake_output or '')
+        if not cmake_version or _version_tuple(cmake_version) < (4, 1):
+            # older CMake can't use the VS 2026 generator; the VS 2022 generator still works
+            # when a 2022 toolset is present (the doctor separately flags the CMake upgrade)
+            return VS_GENERATORS[17]
+    return VS_GENERATORS.get(major)
+
+
+def windows_build_parallelism(cores: int = None, ram_gb: float = None) -> tuple:
+    """Memory-safe (msbuild_jobs, cl_mpcount) for MSVC unity builds, where each cl.exe routinely
+    needs ~4 GB: unbounded '/m' exhausts RAM (C1060 'compiler is out of heap space' /
+    LNK1102 'out of memory'). Budget one compiler process per 4 GB of RAM, capped at core count."""
+    cores = cores or os.cpu_count() or 4
+    if ram_gb is None:
+        ram_gb = _total_ram_gb() or 16
+    jobs = max(1, min(cores, int(ram_gb // 4)))
+    return jobs, 1
+
+
+def memory_safe_msbuild_args(cores: int = None, ram_gb: float = None) -> list:
+    """Extra args (after '--') for 'cmake --build' with a Visual Studio generator."""
+    jobs, mp_count = windows_build_parallelism(cores, ram_gb)
+    return [f'/m:{jobs}', f'/p:CL_MPCount={mp_count}']
+
+
+_OOM_BUILD_PATTERNS = ('C1060', 'LNK1102', 'System.OutOfMemoryException', 'MSB6003')
+
+
+def build_oom_hint(output: str) -> str or None:
+    """Actionable hint when build output shows the MSVC/MSBuild out-of-memory signatures."""
+    if any(pattern in (output or '') for pattern in _OOM_BUILD_PATTERNS):
+        return ('The build ran out of memory. Re-run the build with lower parallelism '
+                '(cmake --build ... -- /m:1 /p:CL_MPCount=1) - it resumes where it stopped. '
+                'Closing other applications or enlarging the Windows pagefile also helps.')
+    return None
+
+
 def check_ninja() -> CheckResult:
     output = _run_version_command('ninja', ['--version'])
     if output is None:
