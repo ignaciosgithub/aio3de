@@ -18,7 +18,9 @@
 #include <AzCore/IO/SystemFile.h>
 #include <AzCore/Settings/SettingsRegistry.h>
 #include <AzCore/std/chrono/chrono.h>
+#include <AzCore/std/parallel/atomic.h>
 #include <AzCore/std/string/conversions.h>
+#include <climits>
 
 #include <AzFramework/API/ApplicationAPI.h>
 #include <AzFramework/Asset/AssetCatalogBus.h>
@@ -652,6 +654,7 @@ namespace AzFramework
                     }
                     void CountOfAssetsInQueue(const int& count) override
                     {
+                        m_lastCount = count;
                         // Pad to 7 digits as there should be any reasonable amount of jobs that are in the millions
                         // Carriage Return is used here to overwrite the current line of output
                         if (m_loggingCallback)
@@ -661,6 +664,7 @@ namespace AzFramework
                     }
 
                     const ConnectionSettings::LoggingCallback& m_loggingCallback;
+                    AZStd::atomic_int m_lastCount{ -1 };
                 };
                 AssetsInQueueNotification assetsInQueueNotifcation(connectionSettings.m_loggingCallback);
                 assetsInQueueNotifcation.BusConnect();
@@ -670,7 +674,25 @@ namespace AzFramework
                     connectionSettings.m_loggingCallback("Asset Processor working...\r");
                 }
 
-                bool assetProcessorIsReady = AssetProcessorIsReady() || WaitUntilAssetProcessorReady(connectionSettings.m_waitForReadyTimeout);
+                // A first-time asset build can legitimately outlast any fixed timeout, so as long
+                // as the Asset Processor is still making progress (its job count keeps dropping)
+                // keep waiting for another timeout window instead of giving up mid-build.
+                bool assetProcessorIsReady = AssetProcessorIsReady();
+                int lastObservedCount = INT_MAX;
+                while (!assetProcessorIsReady)
+                {
+                    assetProcessorIsReady = WaitUntilAssetProcessorReady(connectionSettings.m_waitForReadyTimeout);
+                    if (assetProcessorIsReady)
+                    {
+                        break;
+                    }
+                    const int currentCount = assetsInQueueNotifcation.m_lastCount;
+                    if (currentCount < 0 || currentCount >= lastObservedCount || !ConnectedWithAssetProcessor())
+                    {
+                        break; // no progress over an entire timeout window (or connection lost)
+                    }
+                    lastObservedCount = currentCount;
+                }
                 assetsInQueueNotifcation.BusDisconnect();
 
                 return connectionEstablished && assetProcessorIsReady;

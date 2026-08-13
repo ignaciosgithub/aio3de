@@ -218,6 +218,12 @@
                 "Exclude Git": {
                     "glob": ".git/*"
                 },
+                // Per-platform launcher resources (app icons, splash screens) are consumed by the
+                // build system, not the asset cache; processing them fails on other platforms
+                // (e.g. Mac/iOS icon PNGs failing on 'pc')
+                "Exclude PlatformLauncherResources": {
+                    "glob": "Resources/Platform/*"
+                },
 
                 //------------------------------------------------------------------------------
                 // Copying Files Automatically Into the Cache
