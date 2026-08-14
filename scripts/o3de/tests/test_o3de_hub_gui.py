@@ -153,3 +153,22 @@ def test_build_target_choices(gui, tmp_path):
     assert 'MyGame.GameLauncher' in choices
     assert 'MyGame.ServerLauncher' in choices
     assert choices[-2:] == ['AGem', 'ZGem'] or ('AGem' in choices and 'ZGem' in choices)
+
+def test_build_build_command_visual_studio_memory_safe(gui, tmp_path):
+    project = tmp_path / 'proj'
+    build_dir = gui.project_build_dir(project)
+    build_dir.mkdir(parents=True)
+    (build_dir / 'CMakeCache.txt').write_text('CMAKE_GENERATOR:INTERNAL=Visual Studio 17 2022\n')
+    from unittest.mock import patch
+    with patch.object(gui.hub, 'memory_safe_msbuild_args', return_value=['/m:4', '/p:CL_MPCount=1']):
+        command = gui.build_build_command(project, 'Editor')
+    assert command[-3:] == ['--', '/m:4', '/p:CL_MPCount=1']
+
+
+def test_build_build_command_ninja_no_msbuild_args(gui, tmp_path):
+    project = tmp_path / 'proj'
+    build_dir = gui.project_build_dir(project)
+    build_dir.mkdir(parents=True)
+    (build_dir / 'CMakeCache.txt').write_text('CMAKE_GENERATOR:INTERNAL=Ninja Multi-Config\n')
+    command = gui.build_build_command(project, 'Editor')
+    assert '--' not in command

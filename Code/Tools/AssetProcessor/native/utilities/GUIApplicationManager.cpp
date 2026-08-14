@@ -462,27 +462,20 @@ bool GUIApplicationManager::OnError(const char* /*window*/, const char* message)
         // process to the log file instead.
         return true;
     }
-    // If we're the main thread, then consider showing the message box directly.
-    // note that all other threads will PAUSE if they emit a message while the main thread is showing this box
-    // due to the way the trace system EBUS is mutex-protected.
-    Qt::ConnectionType connection = Qt::DirectConnection;
+    // Per-asset errors must never open a modal dialog: a modal box pauses every other thread
+    // that logs (the trace bus is mutex-protected) and buries the actual processing status.
+    // Route them to a rate-limited tray notification and let the default handler write them
+    // to the log/Jobs tab instead.
+    QMetaObject::invokeMethod(this, "ShowTrayIconErrorMessage", Qt::QueuedConnection, Q_ARG(QString, QString(message)));
 
-    if (QThread::currentThread() != qApp->thread())
-    {
-        connection = Qt::QueuedConnection;
-    }
-
-    QMetaObject::invokeMethod(this, "ShowMessageBox", connection, Q_ARG(QString, QString("Error")), Q_ARG(QString, QString(message)), Q_ARG(bool, true));
-
-    return true;
+    return false;
 }
 
 bool GUIApplicationManager::OnAssert(const char* message)
 {
-    if (!OnError(nullptr, message))
-    {
-        return false;
-    }
+    // OnError surfaces the message (tray notification) and returns false so the default
+    // handler still writes it to the log; asserts always continue into the shutdown logic below.
+    OnError(nullptr, message);
 
     // Asserts should be severe enough for data corruption,
     // so the process should quit to avoid that happening for users.

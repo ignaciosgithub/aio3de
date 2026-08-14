@@ -22,6 +22,7 @@ have already built the engine, which is exactly the painful part of onboarding. 
 Launch it with scripts/o3de_hub.bat (Windows) or scripts/o3de_hub.sh (Linux/macOS).
 """
 
+import collections
 import os
 import pathlib
 import re
@@ -97,16 +98,30 @@ def build_configure_command(project_path: pathlib.Path) -> list:
     command = ['cmake', '-B', str(project_build_dir(project_path)), '-S', str(project_path),
                f'-DLY_3RDPARTY_PATH={third_party}']
     if sys.platform.startswith('win'):
-        return command
+        generator = hub.detect_windows_generator()
+        return command + (['-G', generator] if generator else [])
     return command + ['-G', 'Ninja Multi-Config']
+
+
+def _uses_visual_studio_generator(build_dir: pathlib.Path) -> bool:
+    try:
+        cache = (build_dir / 'CMakeCache.txt').read_text(encoding='utf-8', errors='ignore')
+    except OSError:
+        return False
+    return bool(re.search(r'^CMAKE_GENERATOR:\w+=Visual Studio', cache, re.MULTILINE))
 
 
 def build_build_command(project_path: pathlib.Path, target: str = None, config: str = 'profile') -> list:
     """target=None builds everything (all gems, Editor, launchers)."""
-    command = ['cmake', '--build', str(project_build_dir(project_path))]
+    build_dir = project_build_dir(project_path)
+    command = ['cmake', '--build', str(build_dir)]
     if target:
         command += ['--target', target]
-    return command + ['--config', config]
+    command += ['--config', config]
+    if _uses_visual_studio_generator(build_dir):
+        # unbounded MSBuild parallelism exhausts RAM on unity MSVC builds (C1060/LNK1102)
+        command += ['--'] + hub.memory_safe_msbuild_args()
+    return command
 
 
 def binary_path(project_path: pathlib.Path, name: str, config: str = 'profile') -> pathlib.Path:
@@ -509,10 +524,16 @@ class HubGui:
                 self.root.after(0, lambda: self.log(f'  ERROR: could not start command: {exc}'))
                 self.root.after(0, lambda: self._set_busy(False))
                 return
+            output_tail = collections.deque(maxlen=200)
             for line in process.stdout:
+                output_tail.append(line)
                 self.root.after(0, lambda l=line: self.log('  ' + l.rstrip('\n')))
             process.wait()
             self.root.after(0, lambda: self.log(f'  (exit code {process.returncode})'))
+            if process.returncode != 0:
+                hint = hub.build_oom_hint(''.join(output_tail))
+                if hint:
+                    self.root.after(0, lambda: self.log(f'  HINT: {hint}'))
             self.root.after(0, lambda: self._set_busy(False))
             self.root.after(0, self.run_preflight)
 

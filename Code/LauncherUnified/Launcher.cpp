@@ -508,6 +508,33 @@ namespace O3DELauncher
                 }
             }
 
+            // Without a processed asset catalog nothing can load; fail here with an actionable
+            // message instead of dying later on cryptic missing-asset errors
+            // (e.g. "Streamer provided a null buffer").
+            {
+                AZ::s64 remoteFilesystem{};
+                AZ::SettingsRegistryMergeUtils::PlatformGet(*settingsRegistry, remoteFilesystem,
+                    AZ::SettingsRegistryMergeUtils::BootstrapSettingsRootKey, "remote_filesystem");
+                AZ::IO::FixedMaxPath assetCatalogPath;
+                if (remoteFilesystem == 0 &&
+                    settingsRegistry->Get(assetCatalogPath.Native(), AZ::SettingsRegistryMergeUtils::FilePathKey_CacheRootFolder))
+                {
+                    assetCatalogPath /= "assetcatalog.xml";
+                    if (!AZ::IO::SystemFile::Exists(assetCatalogPath.c_str()))
+                    {
+                        AZ_Error("Launcher", false,
+                            "Assets for this project have not been processed yet: '%s' does not exist.\n"
+                            "Run AssetProcessor (in the same folder as this launcher) with this project, "
+                            "wait until it reports 'Idle', then launch the game again.\n"
+                            "In non-release builds the launcher starts AssetProcessor automatically in the "
+                            "background - if you just saw an 'Asset Processor working...' wait, it may have "
+                            "failed; check its logs in the project's user/log folder.",
+                            assetCatalogPath.c_str());
+                        return ReturnCode::ErrAssetProccessor;
+                    }
+                }
+            }
+
             //Initialize the Debug trace instance to create necessary environment variables
             AZ::Debug::Trace::Instance().Init();
 

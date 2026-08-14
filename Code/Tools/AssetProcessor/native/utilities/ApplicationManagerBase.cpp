@@ -1253,6 +1253,14 @@ bool ApplicationManagerBase::CheckFullIdle()
     if (isIdle != m_fullIdle)
     {
         m_fullIdle = isIdle;
+        if (isIdle)
+        {
+            AZ_Printf(
+                AssetProcessor::ConsoleChannel,
+                "Idle. %d asset(s) processed, %d failed this session (see the Jobs tab for details).\n",
+                ProcessedAssetCount(),
+                FailedAssetsCount());
+        }
         Q_EMIT FullIdle(m_fullIdle);
     }
     return isIdle;
