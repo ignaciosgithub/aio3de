@@ -104,6 +104,7 @@
         "Gems/UiBasics",
         "Gems/Vegetation",
         "Gems/VideoPlaybackFramework",
+        "Gems/VideoTexture",
         "Gems/VirtualGamepad",
         "Gems/WhiteBox"
     ],

@@ -365,6 +365,59 @@ builds). Use it for your own data-parallel loops:
 AZ::ParallelFor(0, count, [&](size_t i) { /* work on element i */ });
 ```
 
+### 6.6 Camera render-to-texture (security cameras, mirrors, portals)
+
+Any camera can render its view onto a texture that other materials sample —
+in the Editor *and* in game:
+
+1. Create a render target texture: add a file `MyScreen.attimage` to your
+   project's assets:
+
+   ```json
+   {
+       "Type": "JsonSerialization",
+       "Version": 1,
+       "ClassName": "AttachmentImageAsset",
+       "ClassData": {
+           "m_imageDescriptor": {
+               "BindFlags": [ "ShaderRead", "ShaderWrite", "Color" ],
+               "Size": { "Width": 512, "Height": 512 },
+               "Format": 19 // R8G8B8A8_UNORM
+           },
+           "Name": "$MyScreen",
+           "IsUniqueName": true
+       }
+   }
+   ```
+
+2. On the camera entity's **Camera** component, set **Target texture** to
+   `MyScreen.attimage`. The camera now renders into the texture every frame
+   (this works at runtime in the GameLauncher too — the pipeline is created
+   when the camera entity activates).
+3. On the "screen" mesh, create a material and set its **Base Color > Texture**
+   (or Emissive texture) to the same `MyScreen.attimage`.
+
+### 6.7 Video textures (VideoTexture gem)
+
+The **VideoTexture** gem plays video files onto the same render target
+textures, so any mesh can be a video screen. Enable the `VideoTexture` gem,
+then:
+
+1. Convert your video to MPEG-1 (the built-in, dependency-free codec):
+
+   ```bash
+   ffmpeg -i input.mp4 -c:v mpeg1video -q:v 5 -an output.mpg
+   ```
+
+2. Drop `output.mpg` in your project assets (Asset Processor packages it).
+3. Create a `.attimage` render target (see above), sized to the video.
+4. Add a **Video Texture** component to an entity; set **Video** to the `.mpg`
+   and **Target texture** to the `.attimage`; assign the `.attimage` to the
+   screen mesh's material.
+5. Playback options: **Play on start**, **Loop**, **Playback speed** — or drive
+   it from Lua/Script Canvas via `VideoTextureRequestBus`
+   (`Play`, `Pause`, `Stop`, `SetLooping`, `SetPlaybackSpeed`).
+
 ---
 
 ## 7. Terrain: auto LOD, streaming, occlusion
