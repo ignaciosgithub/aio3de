@@ -8,6 +8,7 @@
 
 #include "VideoTextureSystemComponent.h"
 
+#include <AzCore/Asset/AssetManagerBus.h>
 #include <AzCore/Serialization/SerializeContext.h>
 #include <VideoTexture/VideoAsset.h>
 
@@ -36,6 +37,9 @@ namespace VideoTexture
     void VideoTextureSystemComponent::Activate()
     {
         m_videoAssetHandler = AZStd::make_unique<VideoAssetHandler>();
+        AZ::Data::AssetCatalogRequestBus::Broadcast(
+            &AZ::Data::AssetCatalogRequests::EnableCatalogForAsset, AZ::AzTypeInfo<VideoAsset>::Uuid());
+        AZ::Data::AssetCatalogRequestBus::Broadcast(&AZ::Data::AssetCatalogRequests::AddExtension, VideoAsset::FileExtension);
     }
 
     void VideoTextureSystemComponent::Deactivate()
