@@ -9,8 +9,11 @@
 #include "SoftBodyComponent.h"
 #include "SoftBodyRegistry.h"
 
+#include <Atom/Feature/Mesh/MeshFeatureProcessorInterface.h>
 #include <Atom/RPI.Public/Buffer/Buffer.h>
 #include <Atom/RPI.Public/Model/Model.h>
+#include <Atom/RPI.Public/Scene.h>
+#include <AtomLyIntegration/CommonFeatures/Mesh/MeshHandleStateBus.h>
 #include <Atom/RPI.Reflect/Buffer/BufferAssetView.h>
 #include <Atom/RPI.Reflect/Model/ModelAsset.h>
 #include <Atom/RPI.Reflect/Model/ModelLodAsset.h>
@@ -727,6 +730,7 @@ namespace SoftBodyPhysics
 
         const AZ::Name positionSemantic("POSITION");
         const AZ::Name normalSemantic("NORMAL");
+        AZ::Aabb localAabb = AZ::Aabb::CreateNull();
         for (const SubMeshRange& range : m_subMeshes)
         {
             if (range.m_subMeshIndex >= meshes.size())
@@ -759,6 +763,7 @@ namespace SoftBodyPhysics
                     localPosition = invTM.TransformPoint(m_softBody.GetParticles()[particleIndex].m_position);
                     localNormal = weldedNormals[particleIndex];
                 }
+                localAabb.AddPoint(localPosition);
 
                 for (auto& [deviceIndex, buffer] : destPositionsData)
                 {
@@ -769,6 +774,25 @@ namespace SoftBodyPhysics
                     for (auto& [deviceIndex, buffer] : destNormalsData)
                     {
                         buffer[v].Set(localNormal.GetX(), localNormal.GetY(), localNormal.GetZ());
+                    }
+                }
+            }
+        }
+
+        // Keep the render mesh's culling bounds in sync with the deformed vertices, otherwise
+        // frustum culling clips the soft body against its original (rest pose) bounds.
+        if (localAabb.IsValid())
+        {
+            if (AZ::RPI::Scene* scene = AZ::RPI::Scene::GetSceneForEntityId(GetEntityId()))
+            {
+                if (auto* meshFeatureProcessor = scene->GetFeatureProcessor<AZ::Render::MeshFeatureProcessorInterface>())
+                {
+                    const AZ::Render::MeshFeatureProcessorInterface::MeshHandle* meshHandle = nullptr;
+                    AZ::Render::MeshHandleStateRequestBus::EventResult(
+                        meshHandle, GetEntityId(), &AZ::Render::MeshHandleStateRequests::GetMeshHandle);
+                    if (meshHandle && meshHandle->IsValid())
+                    {
+                        meshFeatureProcessor->SetLocalAabb(*meshHandle, localAabb);
                     }
                 }
             }

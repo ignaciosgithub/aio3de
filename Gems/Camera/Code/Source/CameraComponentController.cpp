@@ -432,13 +432,24 @@ namespace Camera
 
     void CameraComponentController::SetNearClipDistance(float nearClipDistance)
     {
-        m_config.m_nearClipDistance = AZ::GetMin(nearClipDistance, m_config.m_farClipDistance);
+        const float clampedNear =
+            AZ::GetClamp(nearClipDistance, MinimumNearPlaneDistance, m_config.m_farClipDistance - MinimumNearPlaneDistance);
+        AZ_Warning(
+            "CameraComponent", clampedNear == nearClipDistance,
+            "Unable to set near clip distance to %f: value must be in [%f, far clip - %f]. Clamped to %f.",
+            nearClipDistance, MinimumNearPlaneDistance, MinimumNearPlaneDistance, clampedNear);
+        m_config.m_nearClipDistance = clampedNear;
         UpdateCamera();
     }
 
     void CameraComponentController::SetFarClipDistance(float farClipDistance)
     {
-        m_config.m_farClipDistance = AZ::GetMax(farClipDistance, m_config.m_nearClipDistance); 
+        const float clampedFar = AZ::GetMax(farClipDistance, m_config.m_nearClipDistance + MinimumNearPlaneDistance);
+        AZ_Warning(
+            "CameraComponent", clampedFar == farClipDistance,
+            "Unable to set far clip distance to %f: value must be greater than the near clip distance. Clamped to %f.",
+            farClipDistance, clampedFar);
+        m_config.m_farClipDistance = clampedFar;
         UpdateCamera();
     }
 
@@ -638,6 +649,11 @@ namespace Camera
             auto windowSize = viewportContext->GetViewportSize();
             const float aspectRatio = aznumeric_cast<float>(windowSize.m_width) / aznumeric_cast<float>(windowSize.m_height);
 
+            // Guard against invalid clip planes (zero/negative near, or far <= near) which
+            // produce a degenerate projection matrix and crash downstream rendering code.
+            const float nearDistance = AZ::GetMax(m_config.m_nearClipDistance, MinimumNearPlaneDistance);
+            const float farDistance = AZ::GetMax(m_config.m_farClipDistance, nearDistance + MinimumNearPlaneDistance);
+
             // This assumes a reversed depth buffer, in line with other LY Atom integration
             if (m_config.m_orthographic)
             {
@@ -646,8 +662,8 @@ namespace Camera
                     m_config.m_orthographicHalfWidth,
                     -m_config.m_orthographicHalfWidth / aspectRatio,
                     m_config.m_orthographicHalfWidth / aspectRatio,
-                    m_config.m_nearClipDistance,
-                    m_config.m_farClipDistance,
+                    nearDistance,
+                    farDistance,
                     reverseDepth);
             }
             else
@@ -655,8 +671,8 @@ namespace Camera
                 AZ::MakePerspectiveFovMatrixRH(viewToClipMatrix,
                     AZ::DegToRad(m_config.m_fov),
                     aspectRatio,
-                    m_config.m_nearClipDistance,
-                    m_config.m_farClipDistance,
+                    nearDistance,
+                    farDistance,
                     reverseDepth);
             }
             m_updatingTransformFromEntity = true;
