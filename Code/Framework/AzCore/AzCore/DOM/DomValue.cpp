@@ -1050,7 +1050,14 @@ namespace AZ::Dom
 
     const AZStd::any& Value::GetOpaqueValue() const
     {
-        return *AZStd::get<OpaqueStorageType>(m_value);
+        if (const OpaqueStorageType* opaqueValue = AZStd::get_if<OpaqueStorageType>(&m_value);
+            opaqueValue != nullptr && *opaqueValue != nullptr)
+        {
+            return **opaqueValue;
+        }
+        AZ_Error("DOM", false, "GetOpaqueValue called on a Dom::Value that does not hold an opaque value (type %d)", aznumeric_cast<int>(GetType()));
+        static const AZStd::any emptyOpaqueValue;
+        return emptyOpaqueValue;
     }
 
     void Value::SetOpaqueValue(AZStd::any value)
