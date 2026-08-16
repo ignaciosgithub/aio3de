@@ -412,9 +412,8 @@ namespace MiniAudio
                     m_entityMovedHandler.Disconnect();
                 }
 
-                // Automatically play after the sound loads if requested
-                // This will play automatically in Editor and Game
-                if (m_config.m_autoplayOnActivate)
+                // Automatically play after the sound loads if requested (suppressed while editing).
+                if (m_config.m_autoplayOnActivate && !m_suppressAutoplay)
                 {
                     Play();
                 }

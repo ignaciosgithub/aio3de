@@ -89,6 +89,11 @@ namespace MiniAudio
         }};
 
         MiniAudioPlaybackComponentConfig m_config;
+
+        // Autoplay is a game-mode behavior; the Editor component sets this so sounds
+        // stay silent while a level is being edited.
+        bool m_suppressAutoplay = false;
+
         void OnConfigurationUpdated();
 
         void LoadSound();
