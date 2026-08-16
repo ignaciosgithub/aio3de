@@ -595,6 +595,13 @@ namespace AZ::DocumentPropertyEditor
                 return CallbackTraits::ValueToResult(value);
             }
 
+            if (!value.IsOpaqueValue())
+            {
+                // Objects and nodes that didn't match a marshalled attribute or bound message fall
+                // through to here; they don't hold an opaque callback.
+                return AZ::Failure<ErrorType>("This property does not contain a callback with the correct signature");
+            }
+
             const AZStd::any& wrapper = value.GetOpaqueValue();
             if (!wrapper.is<FunctionType>())
             {
