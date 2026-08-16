@@ -175,6 +175,8 @@ namespace MiniAudio
 
     void EditorMiniAudioPlaybackComponent::Activate()
     {
+        // Autoplay only applies in game mode / launchers; keep the Editor silent.
+        m_controller.m_suppressAutoplay = true;
         BaseClass::Activate();
     }
 
