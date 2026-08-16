@@ -8,6 +8,8 @@
 
 #include <AzCore/Component/ComponentApplicationBus.h>
 #include <AzCore/Console/IConsole.h>
+#include <AzCore/Debug/TraceMessageBus.h>
+#include <AzCore/std/parallel/thread.h>
 #include <AzCore/DOM/Backends/JSON/JsonSerializationUtils.h>
 #include <AzCore/DOM/DomPrefixTree.h>
 #include <AzCore/DOM/DomUtils.h>
@@ -22,6 +24,66 @@
 
 namespace AZ::DocumentPropertyEditor
 {
+    namespace
+    {
+        //! Captures AZ_Error/AZ_Assert raised on the current thread while a property change is
+        //! being applied, so the change can be rolled back and reported instead of leaving the
+        //! editor in a broken state.
+        class SettingChangeErrorCapture : public AZ::Debug::TraceMessageBus::Handler
+        {
+        public:
+            SettingChangeErrorCapture()
+                : m_threadId(AZStd::this_thread::get_id())
+            {
+                BusConnect();
+            }
+
+            ~SettingChangeErrorCapture() override
+            {
+                BusDisconnect();
+            }
+
+            bool OnPreError(
+                const char* window, [[maybe_unused]] const char* fileName, [[maybe_unused]] int line,
+                [[maybe_unused]] const char* func, const char* message) override
+            {
+                Record(window, message);
+                return false;
+            }
+
+            bool OnPreAssert(const char* fileName, int line, [[maybe_unused]] const char* func, const char* message) override
+            {
+                if (AZStd::this_thread::get_id() == m_threadId && m_message.empty())
+                {
+                    m_message = AZStd::string::format("%s(%d): %s", fileName, line, message);
+                }
+                return false;
+            }
+
+            bool HasErrors() const
+            {
+                return !m_message.empty();
+            }
+
+            const AZStd::string& GetMessage() const
+            {
+                return m_message;
+            }
+
+        private:
+            void Record(const char* window, const char* message)
+            {
+                if (AZStd::this_thread::get_id() == m_threadId && m_message.empty())
+                {
+                    m_message = AZStd::string::format("[%s] %s", window ? window : "", message ? message : "");
+                }
+            }
+
+            AZStd::thread_id m_threadId;
+            AZStd::string m_message;
+        };
+    } // namespace
+
     struct ReflectionAdapterReflectionImpl : public AZ::Reflection::IReadWrite
     {
         AZ::SerializeContext* m_serializeContext = nullptr;
@@ -1386,7 +1448,21 @@ namespace AZ::DocumentPropertyEditor
             auto changeHandler = m_impl->m_onChangedCallbacks.ValueAtPath(message.m_messageOrigin, AZ::Dom::PrefixTreeMatch::ExactPath);
             if (changeHandler != nullptr)
             {
-                Dom::Value newValue = (*changeHandler)(valueFromEditor);
+                const Dom::Value oldValue = GetContents()[message.m_messageOrigin / "Value"];
+                Dom::Value newValue;
+                AZStd::string applyError;
+                {
+                    SettingChangeErrorCapture errorCapture;
+                    newValue = (*changeHandler)(valueFromEditor);
+                    applyError = errorCapture.GetMessage();
+                }
+                if (!applyError.empty() && !oldValue.IsNull())
+                {
+                    AZ_Warning(
+                        "PropertyEditor", false, "Unable to change setting due to: %s. Reverting to the previous value.",
+                        applyError.c_str());
+                    newValue = (*changeHandler)(oldValue);
+                }
                 UpdateDomContents({ message.m_messageOrigin, newValue, changeType });
                 NotifyPropertyChanged({ message.m_messageOrigin, newValue, changeType });
             }
