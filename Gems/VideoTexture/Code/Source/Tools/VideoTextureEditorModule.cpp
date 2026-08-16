@@ -9,6 +9,7 @@
 #include <AzCore/Module/Module.h>
 
 #include <Clients/VideoTextureComponent.h>
+#include <Clients/VideoTextureSystemComponent.h>
 #include <Tools/EditorVideoTextureComponent.h>
 #include <Tools/VideoTextureEditorSystemComponent.h>
 
@@ -26,6 +27,7 @@ namespace VideoTexture
             m_descriptors.insert(
                 m_descriptors.end(),
                 {
+                    VideoTextureSystemComponent::CreateDescriptor(),
                     VideoTextureEditorSystemComponent::CreateDescriptor(),
                     VideoTextureComponent::CreateDescriptor(),
                     EditorVideoTextureComponent::CreateDescriptor(),
