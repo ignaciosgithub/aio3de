@@ -2013,6 +2013,33 @@ void MainWindow::ShowJobViewContextMenu(const QPoint& pos)
         m_guiApplicationManager->GetAssetProcessorManager()->RequestReprocess(pathToSource);
     });
 
+    // Allow deleting the source file of a failed job directly from the job list,
+    // so broken sources can be cleared without leaving the Asset Processor.
+    if (item->m_jobState == AzToolsFramework::AssetSystem::JobStatus::Failed)
+    {
+        QAction* deleteSourceAction = menu.addAction(tr("Delete Source Asset..."), this, [this, &item]()
+        {
+            const QString pathToSource = FindAbsoluteFilePath(item);
+            const auto choice = QMessageBox::warning(
+                this,
+                tr("Delete source asset"),
+                tr("Delete the source file for this failed job from disk?\n\n%1\n\nThis cannot be undone.").arg(pathToSource),
+                QMessageBox::Yes | QMessageBox::No,
+                QMessageBox::No);
+            if (choice == QMessageBox::Yes)
+            {
+                if (!QFile::remove(pathToSource))
+                {
+                    QMessageBox::critical(
+                        this,
+                        tr("Delete source asset"),
+                        tr("Unable to delete file:\n%1").arg(pathToSource));
+                }
+            }
+        });
+        deleteSourceAction->setToolTip(tr("Deletes the failed job's source file from disk; the failed job entry is removed on the next scan."));
+    }
+
     // Only completed items will be available in the assets tab.
     QAction* assetTabSourceAction = menu.addAction(tr("View source asset"), this, [&]()
     {
