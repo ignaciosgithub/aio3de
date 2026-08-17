@@ -46,7 +46,7 @@ namespace VideoTexture
                     ->DataElement(AZ::Edit::UIHandlers::Default, &VideoTextureConfig::m_video,
                         "Video", "MPEG-1 video file (.mpg). Convert with: ffmpeg -i in.mp4 -c:v mpeg1video -q:v 5 -an out.mpg")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &VideoTextureConfig::m_targetTexture,
-                        "Target texture", "The render target texture (.attimage) the video frames are written to. Assign the same texture to a material to show the video on a mesh.")
+                        "Target texture", "The render target texture (.attimage) the video frames are written to. The gem ships a ready-made VideoTextureTarget.attimage you can use. Assign the same texture to a material to show the video on a mesh.")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &VideoTextureConfig::m_playOnStart,
                         "Play on start", "Start playing as soon as the component activates in game mode")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &VideoTextureConfig::m_loop,

@@ -410,7 +410,10 @@ then:
    ```
 
 2. Drop `output.mpg` in your project assets (Asset Processor packages it).
-3. Create a `.attimage` render target (see above), sized to the video.
+3. Use the gem's ready-made render target `VideoTextureTarget.attimage`
+   (512x512), or create your own `.attimage` sized to the video (see above).
+   Note: `.attimage` files are empty GPU render targets described in JSON —
+   they are not images and cannot be made from a png.
 4. Add a **Video Texture** component to an entity; set **Video** to the `.mpg`
    and **Target texture** to the `.attimage`; assign the `.attimage` to the
    screen mesh's material.
