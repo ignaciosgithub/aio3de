@@ -178,6 +178,13 @@ namespace AzToolsFramework
         const char* m_DefaultSuffix = " (default)";
 
         bool IsCorrectMimeData(const QMimeData* pData, AZ::Data::AssetId* pAssetId = nullptr, AZ::Data::AssetType* pAssetType = nullptr) const;
+        //! Resolves a dropped entity to the best-fit asset exposed by its components
+        //! (the first asset reference whose type matches this field's selectable types).
+        bool GetBestFitAssetFromEntityMimeData(
+            const QMimeData* pData,
+            AZ::Data::AssetId* pAssetId,
+            AZ::Data::AssetType* pAssetType,
+            QString* pExplanation) const;
         void ClearErrorButton();
         void UpdateErrorButton();
         void UpdateErrorButtonWithLog(const AZStd::string& errorLog);

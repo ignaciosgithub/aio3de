@@ -31,6 +31,8 @@ AZ_PUSH_DISABLE_WARNING(4244 4251, "-Wunknown-warning-option")
 #include <QPixmap>
 #include <QByteArray>
 #include <QDataStream>
+#include <QCheckBox>
+#include <QSettings>
 AZ_POP_DISABLE_WARNING
 
 #include <AzCore/Asset/AssetManager.h>
@@ -60,6 +62,8 @@ AZ_POP_DISABLE_WARNING
 #include <AzToolsFramework/AssetBrowser/AssetSelectionModel.h>
 #include <AzToolsFramework/AssetEditor/AssetEditorBus.h>
 #include <AzToolsFramework/ToolsComponents/ComponentAssetMimeDataContainer.h>
+#include <AzToolsFramework/ToolsComponents/EditorEntityIdContainer.h>
+#include <AzCore/Component/Entity.h>
 
 #include <UI/PropertyEditor/Model/AssetCompleterModel.h>
 #include <UI/PropertyEditor/View/AssetCompleterListView.h>
@@ -346,6 +350,116 @@ namespace AzToolsFramework
         }
     }
 
+    bool PropertyAssetCtrl::GetBestFitAssetFromEntityMimeData(
+        const QMimeData* pData, AZ::Data::AssetId* pAssetId, AZ::Data::AssetType* pAssetType, QString* pExplanation) const
+    {
+        if (!pData || !pData->hasFormat(EditorEntityIdContainer::GetMimeType()))
+        {
+            return false;
+        }
+
+        QByteArray arrayData = pData->data(EditorEntityIdContainer::GetMimeType());
+        EditorEntityIdContainer entityIdListContainer;
+        if (!entityIdListContainer.FromBuffer(arrayData.constData(), arrayData.size()) || entityIdListContainer.m_entityIds.empty())
+        {
+            return false;
+        }
+
+        AZ::SerializeContext* serializeContext = nullptr;
+        AZ::ComponentApplicationBus::BroadcastResult(serializeContext, &AZ::ComponentApplicationBus::Events::GetSerializeContext);
+        if (!serializeContext)
+        {
+            return false;
+        }
+
+        for (const AZ::EntityId& entityId : entityIdListContainer.m_entityIds)
+        {
+            AZ::Entity* entity = nullptr;
+            AZ::ComponentApplicationBus::BroadcastResult(entity, &AZ::ComponentApplicationBus::Events::FindEntity, entityId);
+            if (!entity)
+            {
+                continue;
+            }
+
+            for (AZ::Component* component : entity->GetComponents())
+            {
+                bool found = false;
+                AZ::Data::AssetId foundId;
+                AZ::Data::AssetType foundType;
+                QString foundFieldName;
+
+                auto beginCB = [&](void* instance, const AZ::SerializeContext::ClassData* /*classData*/,
+                                   const AZ::SerializeContext::ClassElement* classElement) -> bool
+                {
+                    if (found)
+                    {
+                        return false;
+                    }
+
+                    if (classElement && classElement->m_genericClassInfo &&
+                        classElement->m_genericClassInfo->GetGenericTypeId() == AZ::GetAssetClassId())
+                    {
+                        auto* asset = static_cast<AZ::Data::Asset<AZ::Data::AssetData>*>(instance);
+                        if (asset->GetId().IsValid() && CanAcceptAsset(asset->GetId(), asset->GetType()))
+                        {
+                            found = true;
+                            foundId = asset->GetId();
+                            foundType = asset->GetType();
+                            foundFieldName = classElement->m_name ? classElement->m_name : "";
+                            return false;
+                        }
+                    }
+
+                    return true;
+                };
+                auto endCB = [&]() -> bool
+                {
+                    return !found;
+                };
+
+                serializeContext->EnumerateInstanceConst(
+                    component, component->RTTI_GetType(), beginCB, endCB,
+                    AZ::SerializeContext::ENUM_ACCESS_FOR_READ, nullptr, nullptr);
+
+                if (found)
+                {
+                    if (pAssetId)
+                    {
+                        (*pAssetId) = foundId;
+                    }
+                    if (pAssetType)
+                    {
+                        (*pAssetType) = foundType;
+                    }
+                    if (pExplanation)
+                    {
+                        const AZ::SerializeContext::ClassData* componentClassData =
+                            serializeContext->FindClassData(component->RTTI_GetType());
+                        const char* componentName = componentClassData
+                            ? ((componentClassData->m_editData && componentClassData->m_editData->m_name)
+                                   ? componentClassData->m_editData->m_name
+                                   : componentClassData->m_name)
+                            : "component";
+
+                        AZ::Data::AssetInfo assetInfo;
+                        AZ::Data::AssetCatalogRequestBus::BroadcastResult(
+                            assetInfo, &AZ::Data::AssetCatalogRequestBus::Events::GetAssetInfoById, foundId);
+
+                        (*pExplanation) = tr("Using asset '%1' from the entity's %2 component (field '%3') "
+                                             "because its type matches what this property accepts.")
+                                              .arg(assetInfo.m_relativePath.empty() ? foundId.ToString<AZStd::string>().c_str()
+                                                                                    : assetInfo.m_relativePath.c_str())
+                                              .arg(componentName)
+                                              .arg(foundFieldName);
+                    }
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     bool PropertyAssetCtrl::CanAcceptAsset(const AZ::Data::AssetId& assetId, const AZ::Data::AssetType& assetType) const
     {
         const auto selectableAssetTypes = GetSelectableAssetTypes();
@@ -426,6 +540,14 @@ namespace AzToolsFramework
             }
 
             return false;
+        }
+
+        // Support dropping an entity onto the field: pick the best-fit asset
+        // exposed by that entity's components (first asset whose type matches
+        // this field's selectable asset types).
+        if (pData->hasFormat(EditorEntityIdContainer::GetMimeType()))
+        {
+            return GetBestFitAssetFromEntityMimeData(pData, pAssetId, pAssetType, nullptr);
         }
 
         if (pData->hasFormat(AssetBrowser::AssetBrowserEntry::GetMimeType()))
@@ -723,6 +845,32 @@ namespace AzToolsFramework
         {
             if (readId.IsValid())
             {
+                // When an entity was dropped (rather than an asset), optionally explain
+                // which of the entity's assets was chosen and why.
+                if (event->mimeData()->hasFormat(EditorEntityIdContainer::GetMimeType()))
+                {
+                    QSettings settings;
+                    const QString settingsKey = QStringLiteral("PropertyEditor/ShowEntityDropExplanation");
+                    if (settings.value(settingsKey, true).toBool())
+                    {
+                        QString explanation;
+                        GetBestFitAssetFromEntityMimeData(event->mimeData(), nullptr, nullptr, &explanation);
+
+                        QMessageBox msgBox(GetActiveWindow());
+                        msgBox.setWindowTitle(tr("Entity drop"));
+                        msgBox.setIcon(QMessageBox::Information);
+                        msgBox.setText(explanation);
+                        msgBox.setStandardButtons(QMessageBox::Ok);
+                        auto* dontShowAgain = new QCheckBox(tr("Don't show this again"), &msgBox);
+                        msgBox.setCheckBox(dontShowAgain);
+                        msgBox.exec();
+                        if (dontShowAgain->isChecked())
+                        {
+                            settings.setValue(settingsKey, false);
+                        }
+                    }
+                }
+
                 SetSelectedAssetID(readId);
             }
             event->acceptProposedAction();
