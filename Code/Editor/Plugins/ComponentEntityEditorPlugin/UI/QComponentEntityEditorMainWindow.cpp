@@ -11,6 +11,7 @@
 #include <AzCore/Component/Entity.h>
 #include <AzCore/Component/ComponentApplicationBus.h>
 
+#include <AzToolsFramework/API/ToolsApplicationAPI.h>
 #include <AzToolsFramework/UI/PropertyEditor/ReflectedPropertyEditor.hxx>
 #include <AzToolsFramework/UI/PropertyEditor/EntityPropertyEditor.hxx>
 
@@ -64,6 +65,17 @@ void QComponentEntityEditorInspectorWindow::AfterEntitySelectionChanged(
 
 void QComponentEntityEditorInspectorWindow::PreviewAsset([[maybe_unused]] const AzToolsFramework::AssetBrowser::AssetBrowserEntry* selectedEntry)
 {
+    // Keep showing the selected entity's properties; only preview assets in this
+    // inspector when no entity is selected (so asset drag & drop onto component
+    // properties stays possible and entity editing isn't interrupted).
+    AzToolsFramework::EntityIdList selectedEntities;
+    AzToolsFramework::ToolsApplicationRequestBus::BroadcastResult(
+        selectedEntities, &AzToolsFramework::ToolsApplicationRequests::GetSelectedEntities);
+    if (!selectedEntities.empty())
+    {
+        return;
+    }
+
     if (m_inspectorWidgetStack->currentWidget() != m_assetBrowserInspector && !m_propertyEditor->IsLockedToSpecificEntities())
     {
         m_inspectorWidgetStack->setCurrentIndex(m_inspectorWidgetStack->indexOf(m_assetBrowserInspector));
