@@ -117,6 +117,13 @@ else
 fi
 
 #
-# Finally, update the sources repos
+# Finally, update the sources repos. The ROS2 repository is only needed for the
+# ROS2 gem; if its signing key cannot be verified (e.g. after an upstream key
+# rotation), drop it rather than failing the whole build-node setup.
 #
-apt-get update
+if ! apt-get update
+then
+    echo "apt-get update failed; removing the ROS2 repository and retrying"
+    rm -f /etc/apt/sources.list.d/ros2.list
+    apt-get update
+fi
