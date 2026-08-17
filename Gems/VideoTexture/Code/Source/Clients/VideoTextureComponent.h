@@ -19,7 +19,13 @@
 #include <VideoTexture/VideoAsset.h>
 #include <VideoTexture/VideoTextureBus.h>
 
+#if defined(_MSC_VER)
+#pragma warning(push, 0) // vendored pl_mpeg: don't apply warning-as-error to third-party code
+#endif
 #include <External/pl_mpeg.h>
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 namespace VideoTexture
 {
