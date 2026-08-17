@@ -49,7 +49,7 @@ namespace VideoTexture
     class VideoTextureComponent final
         : public AZ::Component
         , private AZ::TickBus::Handler
-        , private AZ::Data::AssetBus::Handler
+        , private AZ::Data::AssetBus::MultiHandler
         , private VideoTextureRequestBus::Handler
     {
     public:

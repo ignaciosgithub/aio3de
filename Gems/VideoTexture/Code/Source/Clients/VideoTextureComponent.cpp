@@ -107,15 +107,22 @@ namespace VideoTexture
 
         if (m_config.m_video.GetId().IsValid())
         {
-            AZ::Data::AssetBus::Handler::BusConnect(m_config.m_video.GetId());
+            AZ::Data::AssetBus::MultiHandler::BusConnect(m_config.m_video.GetId());
             m_config.m_video.QueueLoad();
+        }
+
+        // The target texture asset must be loaded before AttachmentImage::FindOrCreate can use it.
+        if (m_config.m_targetTexture.GetId().IsValid())
+        {
+            AZ::Data::AssetBus::MultiHandler::BusConnect(m_config.m_targetTexture.GetId());
+            m_config.m_targetTexture.QueueLoad();
         }
     }
 
     void VideoTextureComponent::Deactivate()
     {
         AZ::TickBus::Handler::BusDisconnect();
-        AZ::Data::AssetBus::Handler::BusDisconnect();
+        AZ::Data::AssetBus::MultiHandler::BusDisconnect();
         VideoTextureRequestBus::Handler::BusDisconnect();
         ShutdownDecoder();
         m_targetImage = nullptr;
@@ -123,8 +130,21 @@ namespace VideoTexture
 
     void VideoTextureComponent::OnAssetReady(AZ::Data::Asset<AZ::Data::AssetData> asset)
     {
-        m_config.m_video = asset;
-        InitializeDecoder();
+        if (asset.GetId() == m_config.m_video.GetId())
+        {
+            m_config.m_video = asset;
+        }
+        else if (asset.GetId() == m_config.m_targetTexture.GetId())
+        {
+            m_config.m_targetTexture = asset;
+        }
+
+        const bool videoReady = m_config.m_video.IsReady();
+        const bool targetReady = !m_config.m_targetTexture.GetId().IsValid() || m_config.m_targetTexture.IsReady();
+        if (videoReady && targetReady)
+        {
+            InitializeDecoder();
+        }
     }
 
     void VideoTextureComponent::InitializeDecoder()
