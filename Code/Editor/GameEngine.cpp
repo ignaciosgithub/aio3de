@@ -532,10 +532,46 @@ void CGameEngine::SwitchToInGame()
     Log("Entered game mode");
 }
 
+void CGameEngine::SetEjected(bool ejected)
+{
+    if (!m_bInGameMode || m_bEjected == ejected)
+    {
+        return;
+    }
+
+    m_bEjected = ejected;
+
+    if (ejected)
+    {
+        // Free the cursor so the editor UI can be used while the game keeps running
+        AzFramework::InputSystemCursorRequestBus::Event(AzFramework::InputDeviceMouse::Id,
+                                                        &AzFramework::InputSystemCursorRequests::SetSystemCursorState,
+                                                        AzFramework::SystemCursorState::UnconstrainedAndVisible);
+
+        GetIEditor()->Notify(eNotify_OnEjectGameCamera);
+        Log("Ejected from game camera (F10 to possess again)");
+    }
+    else
+    {
+        GetIEditor()->Notify(eNotify_OnPossessGameCamera);
+
+        if (!CCryEditApp::instance()->IsInAutotestMode())
+        {
+            AzFramework::InputSystemCursorRequestBus::Event(AzFramework::InputDeviceMouse::Id,
+                                                            &AzFramework::InputSystemCursorRequests::SetSystemCursorState,
+                                                            AzFramework::SystemCursorState::ConstrainedAndHidden);
+        }
+
+        Log("Possessed game camera");
+    }
+}
+
 void CGameEngine::SwitchToInEditor()
 {
     // Transition to editor entity context.
     AzToolsFramework::EditorEntityContextRequestBus::Broadcast(&AzToolsFramework::EditorEntityContextRequestBus::Events::StopPlayInEditor);
+
+    m_bEjected = false;
 
     // Reset movie system
     IMovieSystem* movieSystem = AZ::Interface<IMovieSystem>::Get();
@@ -785,6 +821,16 @@ void CGameEngine::Update()
         {
             // leave game mode
             RequestSetGameMode(false);
+        }
+
+        // F10 toggles ejecting from the game camera: the game keeps running while the
+        // editor camera is free and the editor UI is usable (Unreal-style eject/possess).
+        const AzFramework::InputChannel* ejectChannel = nullptr;
+        const AzFramework::InputChannelId ejectChannelId(AzFramework::InputDeviceKeyboard::Key::Function10);
+        AzFramework::InputChannelRequestBus::EventResult(ejectChannel, ejectChannelId, &AzFramework::InputChannelRequests::GetInputChannel);
+        if (ejectChannel && ejectChannel->GetState() == AzFramework::InputChannel::State::Began)
+        {
+            SetEjected(!m_bEjected);
         }
     }
     else
