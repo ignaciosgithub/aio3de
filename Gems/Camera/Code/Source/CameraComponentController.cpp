@@ -10,10 +10,19 @@
 #include "AzCore/Component/TransformBus.h"
 #include "CameraViewRegistrationBus.h"
 
+#include <Atom/RPI.Public/DynamicDraw/DynamicDrawContext.h>
+#include <Atom/RPI.Public/Image/AttachmentImagePool.h>
+#include <Atom/RPI.Public/Image/ImageSystemInterface.h>
+#include <Atom/RPI.Public/RPIUtils.h>
 #include <Atom/RPI.Public/Pass/PassFilter.h>
+#include <Atom/RPI.Public/Shader/Shader.h>
+#include <Atom/RPI.Public/Shader/ShaderResourceGroup.h>
 #include <Atom/RPI.Public/View.h>
 #include <Atom/RPI.Public/ViewportContextManager.h>
 #include <Atom/RPI.Public/ViewportContext.h>
+#include <Atom/RPI.Reflect/Image/AttachmentImageAssetCreator.h>
+#include <Atom/RPI.Reflect/ResourcePoolAsset.h>
+#include <AtomBridge/PerViewportDynamicDrawInterface.h>
 
 #include <AzCore/Asset/AssetSerializer.h>
 #include <AzCore/Component/EntityBus.h>
@@ -43,6 +52,12 @@ namespace Camera
                 ->Field("RenderToTexture", &CameraComponentConfig::m_renderTextureAsset)
                 ->Field("PipelineTemplate", &CameraComponentConfig::m_pipelineTemplate)
                 ->Field("AllowPipelineChange", &CameraComponentConfig::m_allowPipelineChanges)
+                ->Field("UpdateRateFps", &CameraComponentConfig::m_updateRateFps)
+                ->Field("PipEnabled", &CameraComponentConfig::m_pipEnabled)
+                ->Field("PipPosition", &CameraComponentConfig::m_pipPosition)
+                ->Field("PipSize", &CameraComponentConfig::m_pipSize)
+                ->Field("PipResolutionWidth", &CameraComponentConfig::m_pipResolutionWidth)
+                ->Field("PipResolutionHeight", &CameraComponentConfig::m_pipResolutionHeight)
             ;
 
             if (auto editContext = serializeContext->GetEditContext())
@@ -85,10 +100,37 @@ namespace Camera
                     ->DataElement(AZ::Edit::UIHandlers::Default, &CameraComponentConfig::m_pipelineTemplate, "Pipeline template", "The root pass template for the camera's render pipeline")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &CameraComponentConfig::m_allowPipelineChanges, "Allow pipeline changes", "If true, the camera's render pipeline can be changed at runtime.")
                         ->Attribute(AZ::Edit::Attributes::Visibility, &CameraComponentConfig::GetAllowPipelineChangesVisibility)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &CameraComponentConfig::m_updateRateFps, "Update rate",
+                        "Maximum renders per second when this camera targets a texture or picture-in-picture. 0 renders every frame. Values below 1 are allowed (0.5 = one render every 2 seconds).")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " fps")
+                    ->ClassElement(AZ::Edit::ClassElements::Group, "Picture In Picture")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &CameraComponentConfig::m_pipEnabled, "Picture-in-picture",
+                        "Draw this camera's view as an overlay rectangle on top of the main view (e.g. minimap, rear-view mirror). Works in the editor viewport and in game.")
+                        ->Attribute(AZ::Edit::Attributes::ChangeNotify, AZ::Edit::PropertyRefreshLevels::EntireTree)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &CameraComponentConfig::m_pipPosition, "Overlay position",
+                        "Top-left corner of the overlay in normalized screen coordinates (0,0 = top-left, 1,1 = bottom-right).")
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &CameraComponentConfig::GetPipParameterVisibility)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &CameraComponentConfig::m_pipSize, "Overlay size",
+                        "Size of the overlay in normalized screen coordinates (0.3,0.3 covers 30% of the screen in each direction).")
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &CameraComponentConfig::GetPipParameterVisibility)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &CameraComponentConfig::m_pipResolutionWidth, "Resolution width",
+                        "Horizontal resolution the camera renders at. Lower resolutions render faster.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 16u)
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &CameraComponentConfig::GetPipParameterVisibility)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &CameraComponentConfig::m_pipResolutionHeight, "Resolution height",
+                        "Vertical resolution the camera renders at. Lower resolutions render faster.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 16u)
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &CameraComponentConfig::GetPipParameterVisibility)
                 ;
             }
         }
     }
+    AZ::u32 CameraComponentConfig::GetPipParameterVisibility() const
+    {
+        return m_pipEnabled ? AZ::Edit::PropertyVisibility::Show : AZ::Edit::PropertyVisibility::Hide;
+    }
+
     AZ::u32 CameraComponentConfig::GetAllowPipelineChangesVisibility() const
     {
         bool experimentalFeaturesEnabled = false;
@@ -161,7 +203,11 @@ namespace Camera
             const AZ::Name contextName = atomViewportRequests->GetDefaultViewportContextName();
             atomViewportRequests->PopViewGroup(contextName, m_atomCameraViewGroup);
 
-            AZ::RPI::ViewportContextNotificationBus::Handler::BusDisconnect(contextName);
+            // Picture-in-picture cameras keep listening for render ticks to draw their overlay
+            if (!(m_config.m_pipEnabled && m_pipImage))
+            {
+                AZ::RPI::ViewportContextNotificationBus::Handler::BusDisconnect(contextName);
+            }
         }
     }
 
@@ -295,9 +341,27 @@ namespace Camera
         CameraBus::Handler::BusConnect();
         CameraNotificationBus::Broadcast(&CameraNotificationBus::Events::OnCameraAdded, m_entityId);
 
-        if (m_config.m_renderTextureAsset.GetId().IsValid())
+        if (m_config.m_pipEnabled)
+        {
+            CreatePipTarget();
+        }
+
+        if (m_config.m_renderTextureAsset.GetId().IsValid() || m_pipTargetAsset.GetId().IsValid())
         {
             CreateRenderPipelineForTexture();
+        }
+
+        if (m_renderToTexturePipeline && m_config.m_updateRateFps > 0.0f)
+        {
+            AZ::TickBus::Handler::BusConnect();
+        }
+
+        if (m_config.m_pipEnabled && m_pipImage)
+        {
+            if (auto atomViewportRequests = AZ::Interface<AZ::RPI::ViewportContextRequestsInterface>::Get())
+            {
+                AZ::RPI::ViewportContextNotificationBus::Handler::BusConnect(atomViewportRequests->GetDefaultViewportContextName());
+            }
         }
 
         // Only activate if we're configured to do so, and our activation call back indicates that we should
@@ -310,6 +374,8 @@ namespace Camera
     void CameraComponentController::Deactivate()
     {
         AZ::RPI::XRSpaceNotificationBus::Handler::BusDisconnect();
+        AZ::TickBus::Handler::BusDisconnect();
+        AZ::RPI::ViewportContextNotificationBus::Handler::BusDisconnect();
 
         if (m_renderToTexturePipeline)
         {
@@ -317,6 +383,8 @@ namespace Camera
             scene->RemoveRenderPipeline(m_renderToTexturePipeline->GetId());
             m_renderToTexturePipeline = nullptr;
         }
+        m_pipImage = nullptr;
+        m_pipTargetAsset.Release();
 
         CameraNotificationBus::Broadcast(&CameraNotificationBus::Events::OnCameraRemoved, m_entityId);
         CameraBus::Handler::BusDisconnect();
@@ -340,7 +408,9 @@ namespace Camera
         pipelineDesc.m_rootPassTemplate = m_config.m_pipelineTemplate;
         pipelineDesc.m_renderSettings.m_multisampleState = AZ::RPI::RPISystemInterface::Get()->GetApplicationMultisampleState();
         pipelineDesc.m_allowModification = m_config.m_allowPipelineChanges;
-        m_renderToTexturePipeline = AZ::RPI::RenderPipeline::CreateRenderPipelineForImage(pipelineDesc, m_config.m_renderTextureAsset);
+        const AZ::Data::Asset<AZ::RPI::AttachmentImageAsset>& targetAsset =
+            m_pipTargetAsset.GetId().IsValid() ? m_pipTargetAsset : m_config.m_renderTextureAsset;
+        m_renderToTexturePipeline = AZ::RPI::RenderPipeline::CreateRenderPipelineForImage(pipelineDesc, targetAsset);
 
         if (!m_renderToTexturePipeline)
         {
@@ -351,6 +421,180 @@ namespace Camera
         }
         scene->AddRenderPipeline(m_renderToTexturePipeline);
         m_renderToTexturePipeline->SetDefaultView(GetView());
+
+        if (m_config.m_updateRateFps > 0.0f)
+        {
+            // Rate-limited cameras only render when OnTick schedules them.
+            m_renderToTexturePipeline->RemoveFromRenderTick();
+            m_renderToTexturePipeline->AddToRenderTickOnce();
+            m_renderAccumulator = 0.0f;
+        }
+    }
+
+    void CameraComponentController::CreatePipTarget()
+    {
+        auto imageSystem = AZ::RPI::ImageSystemInterface::Get();
+        if (!imageSystem)
+        {
+            return;
+        }
+
+        const AZ::Data::Instance<AZ::RPI::AttachmentImagePool>& pool = imageSystem->GetSystemAttachmentPool();
+        if (!pool)
+        {
+            return;
+        }
+
+        const AZ::u32 width = AZStd::max<AZ::u32>(m_config.m_pipResolutionWidth, 16);
+        const AZ::u32 height = AZStd::max<AZ::u32>(m_config.m_pipResolutionHeight, 16);
+
+        AZ::RHI::ImageDescriptor imageDesc = AZ::RHI::ImageDescriptor::Create2D(
+            AZ::RHI::ImageBindFlags::Color | AZ::RHI::ImageBindFlags::ShaderReadWrite,
+            width,
+            height,
+            AZ::RHI::Format::R8G8B8A8_UNORM);
+
+        const AZ::Data::AssetId assetId(AZ::Uuid::CreateRandom());
+        const AZ::Name imageName(AZStd::string::format("CameraPip_%s", m_entityId.ToString().c_str()));
+
+        AZ::RPI::AttachmentImageAssetCreator imageAssetCreator;
+        imageAssetCreator.Begin(assetId);
+        imageAssetCreator.SetImageDescriptor(imageDesc);
+        imageAssetCreator.SetPoolAsset({ pool->GetAssetId(), azrtti_typeid<AZ::RPI::ResourcePoolAsset>() });
+        imageAssetCreator.SetName(imageName, false);
+
+        if (!imageAssetCreator.End(m_pipTargetAsset))
+        {
+            AZ_Error("Camera", false, "Failed to create the picture-in-picture render target for camera entity %s", m_entityId.ToString().c_str());
+            return;
+        }
+
+        m_pipImage = AZ::RPI::AttachmentImage::FindOrCreate(m_pipTargetAsset);
+        if (!m_pipImage)
+        {
+            AZ_Error("Camera", false, "Failed to create the picture-in-picture image for camera entity %s", m_entityId.ToString().c_str());
+            m_pipTargetAsset.Release();
+        }
+    }
+
+    void CameraComponentController::OnTick(float deltaTime, [[maybe_unused]] AZ::ScriptTimePoint time)
+    {
+        if (m_renderToTexturePipeline && m_config.m_updateRateFps > 0.0f)
+        {
+            m_renderAccumulator += deltaTime;
+            const float interval = 1.0f / m_config.m_updateRateFps;
+            if (m_renderAccumulator >= interval)
+            {
+                m_renderAccumulator = AZStd::min(m_renderAccumulator - interval, interval);
+                m_renderToTexturePipeline->AddToRenderTickOnce();
+            }
+        }
+    }
+
+    void CameraComponentController::OnRenderTick()
+    {
+        if (m_config.m_pipEnabled && m_pipImage)
+        {
+            DrawPipOverlay();
+        }
+    }
+
+    void CameraComponentController::DrawPipOverlay()
+    {
+        static const AZ::Name pipDrawContextName("CameraPipOverlay");
+        static constexpr const char* pipShaderPath = "Shaders/SimpleTextured.azshader";
+
+        auto perViewportDynamicDraw = AZ::AtomBridge::PerViewportDynamicDraw::Get();
+        auto viewportContextManager = AZ::RPI::ViewportContextRequests::Get();
+        if (!perViewportDynamicDraw || !viewportContextManager)
+        {
+            return;
+        }
+
+        AZ::RPI::ViewportContextPtr viewportContext = viewportContextManager->GetDefaultViewportContext();
+        if (!viewportContext)
+        {
+            return;
+        }
+
+        static bool s_pipDrawContextRegistered = false;
+        if (!s_pipDrawContextRegistered)
+        {
+            AZ::Data::Instance<AZ::RPI::Shader> shader = AZ::RPI::LoadCriticalShader(pipShaderPath);
+            if (!shader)
+            {
+                return;
+            }
+            perViewportDynamicDraw->RegisterDynamicDrawContext(
+                pipDrawContextName,
+                [shader](AZ::RHI::Ptr<AZ::RPI::DynamicDrawContext> dynamicDraw)
+                {
+                    dynamicDraw->InitShader(shader);
+                    dynamicDraw->InitVertexFormat(
+                        { { "POSITION", AZ::RHI::Format::R32G32B32_FLOAT },
+                          { "COLOR", AZ::RHI::Format::B8G8R8A8_UNORM },
+                          { "TEXCOORD0", AZ::RHI::Format::R32G32_FLOAT } });
+                    dynamicDraw->AddDrawStateOptions(AZ::RPI::DynamicDrawContext::DrawStateOptions::ShaderVariant);
+                    dynamicDraw->EndInit();
+                });
+            s_pipDrawContextRegistered = true;
+        }
+
+        AZ::RHI::Ptr<AZ::RPI::DynamicDrawContext> dynamicDraw =
+            perViewportDynamicDraw->GetDynamicDrawContextForViewport(pipDrawContextName, viewportContext->GetId());
+        if (!dynamicDraw || !dynamicDraw->IsReady())
+        {
+            return;
+        }
+
+        const auto [viewportWidth, viewportHeight] = viewportContext->GetViewportSize();
+        const float width = aznumeric_cast<float>(viewportWidth);
+        const float height = aznumeric_cast<float>(viewportHeight);
+
+        const float x0 = m_config.m_pipPosition.GetX() * width;
+        const float y0 = m_config.m_pipPosition.GetY() * height;
+        const float x1 = x0 + m_config.m_pipSize.GetX() * width;
+        const float y1 = y0 + m_config.m_pipSize.GetY() * height;
+
+        struct PipVertex
+        {
+            float m_position[3];
+            AZ::u32 m_color;
+            float m_uv[2];
+        };
+
+        constexpr AZ::u32 white = 0xFFFFFFFF;
+        const PipVertex vertices[4] = {
+            { { x0, y0, 0.5f }, white, { 0.0f, 0.0f } },
+            { { x1, y0, 0.5f }, white, { 1.0f, 0.0f } },
+            { { x1, y1, 0.5f }, white, { 1.0f, 1.0f } },
+            { { x0, y1, 0.5f }, white, { 0.0f, 1.0f } },
+        };
+        const AZ::u16 indices[6] = { 0, 1, 2, 0, 2, 3 };
+
+        AZ::RPI::ShaderOptionList shaderOptions;
+        shaderOptions.push_back(AZ::RPI::ShaderOption(AZ::Name("o_clamp"), AZ::Name("true")));
+        shaderOptions.push_back(AZ::RPI::ShaderOption(AZ::Name("o_useColorChannels"), AZ::Name("true")));
+        dynamicDraw->SetShaderVariant(dynamicDraw->UseShaderVariant(shaderOptions));
+
+        AZ::Data::Instance<AZ::RPI::ShaderResourceGroup> drawSrg = dynamicDraw->NewDrawSrg();
+        if (!drawSrg)
+        {
+            return;
+        }
+
+        const AZ::RHI::ShaderResourceGroupLayout* layout = drawSrg->GetLayout();
+        const auto imageInputIndex = layout->FindShaderInputImageIndex(AZ::Name("m_texture"));
+        const auto viewProjInputIndex = layout->FindShaderInputConstantIndex(AZ::Name("m_worldToProj"));
+
+        AZ::Matrix4x4 modelViewProjMat;
+        AZ::MakeOrthographicMatrixRH(modelViewProjMat, 0.0f, width, height, 0.0f, 1.0f, 0.0f);
+
+        drawSrg->SetImageView(imageInputIndex, m_pipImage->GetImageView());
+        drawSrg->SetConstant(viewProjInputIndex, modelViewProjMat);
+        drawSrg->Compile();
+
+        dynamicDraw->DrawIndexed(vertices, 4, indices, 6, AZ::RHI::IndexFormat::Uint16, drawSrg);
     }
 
     void CameraComponentController::SetConfiguration(const CameraComponentConfig& config)

@@ -17,6 +17,7 @@ ly_add_target(
     BUILD_DEPENDENCIES
         PUBLIC
             Gem::Atom_RPI.Public
+            Gem::Atom_AtomBridge.Static
             AZ::AtomCore
             AZ::AzCore
             AZ::AzFramework

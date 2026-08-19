@@ -397,6 +397,26 @@ in the Editor *and* in game:
 3. On the "screen" mesh, create a material and set its **Base Color > Texture**
    (or Emissive texture) to the same `MyScreen.attimage`.
 
+**Update rate**: the **Update rate** setting on the Camera component limits how
+often a render-to-texture (or picture-in-picture) camera renders. `0` renders
+every frame; `30` suits minimaps; values below 1 are allowed (`0.5` = one
+render every 2 seconds, e.g. a slow security monitor). The main view always
+renders at full rate.
+
+**Picture-in-picture (minimaps, rear-view mirrors)**: enable
+**Picture-in-picture** on any Camera component to draw its view as an overlay
+rectangle on top of the main view — no `.attimage` or material setup needed.
+Configure:
+
+- **Overlay position / size** — normalized screen coordinates (`0,0` =
+  top-left, `1,1` = bottom-right).
+- **Resolution width / height** — the resolution the camera renders at,
+  independent of the overlay's on-screen size. Lower is faster.
+- **Update rate** — see above; `30` or less is typical for minimaps.
+
+Picture-in-picture works in the Editor viewport and in game. Several PiP
+cameras can be active at once, each with its own resolution and update rate.
+
 ### 6.7 Video textures (VideoTexture gem)
 
 The **VideoTexture** gem plays video files onto the same render target
