@@ -79,6 +79,7 @@
         "Gems/QtForPython",
         "Gems/RecastNavigation",
         "Gems/RemoteTools",
+        "Gems/Replay",
         "Gems/SaveData",
         "Gems/SceneLoggingExample",
         "Gems/SceneProcessing",

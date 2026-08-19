@@ -676,6 +676,38 @@ Copy-paste recipes (WASD movement, prefab spawning, triggers, timers, Script
 Events, camera control, debugging) and the anatomy of a Lua component are in
 `docs/aio3de/SCRIPTING_AND_GAME_LOGIC.md`.
 
+### 13.1 Replay / demo recording (Replay gem)
+
+The **Replay** gem records tracked entities into demo files (Quake demo
+style) and plays them back — in the Editor's game mode or in the launcher.
+Enable the `Replay` gem, then:
+
+1. Add a **Replay Tracker** component to every entity you want recorded.
+   Settings: **Track name** (empty = entity name; playback matches entities
+   by this name, keep it unique) and **Sample rate** (samples per second,
+   0 = every frame; 10–30 fps is plenty for most objects).
+2. While the game is running, record and play back with console commands:
+
+   | Command | Effect |
+   | --- | --- |
+   | `replay_record <name>` | start recording all tracked entities |
+   | `replay_stop` | stop and save `<project>/user/Replays/<name>.replay` |
+   | `replay_play <name>` | play a demo back, driving the tracked entities |
+   | `replay_stop_playback` | stop playback where it is |
+   | `replay_pause` / `replay_pause 0` | pause / resume playback |
+   | `replay_seek <seconds>` | scrub to a time |
+   | `replay_speed <multiplier>` | slow-mo / fast-forward playback |
+
+3. The same controls are scriptable from Lua/Script Canvas and the Editor
+   Python console via `ReplayRequestBus` (`StartRecording`, `StopRecording`,
+   `StartPlayback`, `SeekPlayback`, `SetPlaybackSpeed`,
+   `GetPlaybackTime`, `GetPlaybackDuration`, ...).
+
+Demos store world-transform keyframes (position, rotation, uniform scale)
+per track and interpolate between them on playback, so files stay small.
+During playback the recorded entities are driven kinematically; entities
+that can't be matched by name are skipped with a warning.
+
 ---
 
 ## 14. AI: the AIBackbone gem
