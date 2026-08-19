@@ -627,6 +627,44 @@ void EditorViewportWidget::OnEditorNotifyEvent(EEditorNotifyEvent event)
         }
         break;
 
+    case eNotify_OnEjectGameCamera:
+        if (GetIEditor()->GetViewManager()->GetGameViewport() == this)
+        {
+            // detach the view from the game camera in place: pop the game camera's view group so the
+            // editor camera view resumes, starting from the game camera's current transform
+            const AZ::Transform gameCameraTransform = m_renderViewport->GetViewportContext()->GetCameraTransform();
+            PopViewGroupForDefaultContext();
+            SetViewTM(AZ::Matrix3x4::CreateFromTransform(gameCameraTransform));
+            SetCurrentCursor(STD_CURSOR_DEFAULT);
+
+            if (m_renderViewport)
+            {
+                m_renderViewport->SetInputProcessingEnabled(true);
+            }
+        }
+        break;
+
+    case eNotify_OnPossessGameCamera:
+        if (GetIEditor()->GetViewManager()->GetGameViewport() == this)
+        {
+            if (m_renderViewport)
+            {
+                m_renderViewport->SetInputProcessingEnabled(false);
+            }
+
+            SetCurrentCursor(STD_CURSOR_GAME);
+
+            // reattach the view to the game's active camera
+            AZ::EntityId activeCameraId;
+            Camera::CameraSystemRequestBus::BroadcastResult(
+                activeCameraId, &Camera::CameraSystemRequestBus::Events::GetActiveCamera);
+            if (activeCameraId.IsValid())
+            {
+                Camera::CameraRequestBus::Event(activeCameraId, &Camera::CameraRequestBus::Events::MakeActiveView);
+            }
+        }
+        break;
+
     case eNotify_OnCloseScene:
         // we restore the default viewport camera when closing the level to ensure if there is a pushed view group for a particular
         // editor camera component (view entity) it is popped/cleared to return to a default state when opening the next level

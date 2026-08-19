@@ -169,6 +169,9 @@ enum EEditorNotifyEvent
     eNotify_OnBeginCreate,               // Sent when the document is starting to be created.
     eNotify_OnEndCreate,                 // Sent when the document creation is finished.
 
+    // Play-in-editor camera eject/possess events (game mode keeps running).
+    eNotify_OnEjectGameCamera,           // Sent when the view detaches from the game camera to the free editor camera.
+    eNotify_OnPossessGameCamera,         // Sent when the view reattaches to the active game camera.
 };
 
 // UI event handler

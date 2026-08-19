@@ -186,6 +186,19 @@ namespace
         return GetIEditor()->IsInGameMode();
     }
 
+    void PySetEjectedGameCamera(bool ejected)
+    {
+        if (GetIEditor()->GetGameEngine())
+        {
+            GetIEditor()->GetGameEngine()->SetEjected(ejected);
+        }
+    }
+
+    bool PyIsEjectedGameCamera()
+    {
+        return GetIEditor()->GetGameEngine() && GetIEditor()->GetGameEngine()->IsEjected();
+    }
+
     //////////////////////////////////////////////////////////////////////////
     void PyEnterSimulationMode()
     {
@@ -1108,6 +1121,8 @@ namespace AzToolsFramework
             addLegacyGeneral(behaviorContext->Method("enter_game_mode_fullscreen", PyEnterGameModeFullscreen, nullptr, "Enters the editor game mode in fullscreen."));
             addLegacyGeneral(behaviorContext->Method("is_in_game_mode", PyIsInGameMode, nullptr, "Queries if it's in the game mode or not."));
             addLegacyGeneral(behaviorContext->Method("exit_game_mode", PyExitGameMode, nullptr, "Exits the editor game mode."));
+            addLegacyGeneral(behaviorContext->Method("set_ejected_game_camera", PySetEjectedGameCamera, nullptr, "Ejects from / possesses the game camera while in game mode (same as F10)."));
+            addLegacyGeneral(behaviorContext->Method("is_ejected_game_camera", PyIsEjectedGameCamera, nullptr, "Queries if the view is ejected from the game camera while in game mode."));
 
             addLegacyGeneral(behaviorContext->Method("enter_simulation_mode", PyEnterSimulationMode, nullptr, "Enters the editor AI/Physics simulation mode."));
             addLegacyGeneral(behaviorContext->Method("is_in_simulation_mode", PyIsInSimulationMode, nullptr, "Queries if the editor is currently in the AI/Physics simulation mode or not."));

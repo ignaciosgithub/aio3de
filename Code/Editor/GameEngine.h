@@ -85,6 +85,10 @@ public:
     const QString& GetLevelPath() const { return m_levelPath; };
     //! Query if engine is in game mode.
     bool IsInGameMode() const { return m_bInGameMode; };
+    //! Query if the view is ejected from the game camera while in game mode (game keeps running, editor camera is free).
+    bool IsEjected() const { return m_bEjected; };
+    //! Eject from / possess the game camera while in game mode (F10). Game simulation keeps running while ejected.
+    void SetEjected(bool ejected);
     //! Force level loaded variable to true.
     void SetLevelLoaded(bool bLoaded) { m_bLevelLoaded = bLoaded; }
     //! Force level just created variable to true.
@@ -131,6 +135,7 @@ private:
     QString m_MOD;
     bool m_bLevelLoaded;
     bool m_bInGameMode;
+    bool m_bEjected = false;
     bool m_bSimulationMode;
     bool m_bSyncPlayerPosition;
     bool m_bJustCreated;

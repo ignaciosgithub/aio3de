@@ -284,6 +284,11 @@ GUI: Project Manager → project card → **⋮ → Configure Gems** → toggle 
 - **Prefabs**: select entities → right-click → *Create Prefab*. Prefabs are
   the unit of reuse and of network spawning.
 - **Game mode**: **Ctrl+G** starts simulation in-Editor, **Esc** exits.
+- **Eject / possess (F10)**: while in game mode, press **F10** to eject from
+  the game camera — the game keeps running while the editor camera flies free
+  and the editor UI (Outliner, Inspector, Console) becomes usable again.
+  Press **F10** again to possess the active game camera. Note: while ejected,
+  the game still receives keyboard/gamepad input.
 - **Console** (bottom): shows errors and accepts cvar input (e.g. type
   `r_rayTracedShadows true`).
 - **White Box modeling**: add a **White Box** component to an entity to
