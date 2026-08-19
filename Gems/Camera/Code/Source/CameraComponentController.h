@@ -10,7 +10,9 @@
 
 #include <AzCore/Asset/AssetCommon.h>
 #include <AzCore/Component/Component.h>
+#include <AzCore/Component/TickBus.h>
 #include <AzCore/Component/TransformBus.h>
+#include <AzCore/Math/Vector2.h>
 #include <AzFramework/Components/CameraBus.h>
 #include <AzFramework/Viewport/CameraState.h>
 #include <Atom/RPI.Public/AuxGeom/AuxGeomFeatureProcessorInterface.h>
@@ -21,6 +23,7 @@
 #include <Atom/RPI.Public/ViewProviderBus.h>
 #include <Atom/RPI.Public/XR/XRRenderingInterface.h>
 #include <Atom/RPI.Public/XR/XRSpaceNotificationBus.h>
+#include <Atom/RPI.Public/Image/AttachmentImage.h>
 #include <Atom/RPI.Reflect/Image/AttachmentImageAsset.h>
 
 namespace Camera
@@ -67,13 +70,25 @@ namespace Camera
         AZ::Data::Asset<AZ::RPI::AttachmentImageAsset> m_renderTextureAsset;
         // The pass template name used for render pipeline's root template
         AZStd::string m_pipelineTemplate = "CameraPipeline";
+        // Maximum number of times per second this camera renders when it targets a texture or picture-in-picture.
+        // 0 renders every frame. Values below 1 are allowed (0.5 renders once every 2 seconds).
+        float m_updateRateFps = 0.0f;
+
+        // Members for picture-in-picture output
+        bool m_pipEnabled = false;
+        AZ::Vector2 m_pipPosition = AZ::Vector2(0.65f, 0.05f);
+        AZ::Vector2 m_pipSize = AZ::Vector2(0.3f, 0.3f);
+        AZ::u32 m_pipResolutionWidth = 512;
+        AZ::u32 m_pipResolutionHeight = 288;
     private:
+        AZ::u32 GetPipParameterVisibility() const;
         //! Check if experimental features are enabled
         AZ::u32 GetAllowPipelineChangesVisibility() const;
     };
 
     class CameraComponentController
         : public CameraBus::Handler
+        , public AZ::TickBus::Handler
         , public CameraRequestBus::Handler
         , public AZ::TransformNotificationBus::Handler
         , public AZ::RPI::ViewportContextNotificationBus::Handler
@@ -139,9 +154,13 @@ namespace Camera
         // AZ::TransformNotificationBus::Handler interface
         void OnTransformChanged(const AZ::Transform& local, const AZ::Transform& world) override;
 
+        // AZ::TickBus::Handler interface
+        void OnTick(float deltaTime, AZ::ScriptTimePoint time) override;
+
         // AZ::RPI::ViewportContextNotificationBus::Handler interface
         void OnViewportSizeChanged(AzFramework::WindowSize size) override;
         void OnViewportDefaultViewChanged(AZ::RPI::ViewPtr view) override;
+        void OnRenderTick() override;
 
         // AZ::RPI::ViewProviderBus::Handler interface
         AZ::RPI::ViewPtr GetView() const override;
@@ -159,6 +178,8 @@ namespace Camera
         AZ_DISABLE_COPY(CameraComponentController);
 
         void CreateRenderPipelineForTexture();
+        void CreatePipTarget();
+        void DrawPipOverlay();
 
         void ActivateAtomView();
         void DeactivateAtomView();
@@ -182,6 +203,11 @@ namespace Camera
 
         // for render to texture
         AZ::RPI::RenderPipelinePtr m_renderToTexturePipeline;
+
+        // for picture-in-picture
+        AZ::Data::Asset<AZ::RPI::AttachmentImageAsset> m_pipTargetAsset;
+        AZ::Data::Instance<AZ::RPI::AttachmentImage> m_pipImage;
+        float m_renderAccumulator = 0.0f;
 
         //! From this point onwards the member variables are only applicable
         //! when the XRRenderingInterface is active.
