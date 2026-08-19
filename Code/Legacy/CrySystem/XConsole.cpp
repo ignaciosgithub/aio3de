@@ -26,6 +26,8 @@
 #include <AzFramework/Input/Devices/Mouse/InputDeviceMouse.h>
 #include <AzCore/std/string/conversions.h>
 #include <AzCore/std/algorithm.h>
+#include <AzCore/Console/IConsole.h>
+#include <AzCore/Interface/Interface.h>
 #include <AzCore/Serialization/Locale.h>
 #include <AzCore/Time/ITime.h>
 
@@ -1541,6 +1543,14 @@ void CXConsole::ExecuteStringInternal(const char* command, const bool bFromConso
                 //ConsoleLogInputResponse("%s=%s",pCVar->GetName(),pCVar->GetString());
                 continue;
             }
+        }
+
+        //////////////////////////////////////////
+        // Forward to the AZ console (AZ_CONSOLEFREEFUNC commands, cvars registered there)
+        if (auto azConsole = AZ::Interface<AZ::IConsole>::Get();
+            azConsole && azConsole->PerformCommand(sLineCommand.c_str()).IsSuccess())
+        {
+            continue;
         }
 
         if (!bSilentMode)
