@@ -90,6 +90,7 @@
 
 #include "AzAssetBrowser/AzAssetBrowserWindow.h"
 #include "AssetEditor/AssetEditorWindow.h"
+#include "SceneViewPane.h"
 
 #include <ImGuiBus.h>
 #include <AzToolsFramework/Viewport/ViewportMessages.h>
@@ -686,6 +687,7 @@ void MainWindow::RegisterStdViewClasses()
     CSettingsManagerDialog::RegisterViewClass();
     AzAssetBrowserWindow::RegisterViewClass();
     AssetEditorWindow::RegisterViewClass();
+    SceneViewWidget::RegisterViewClass();
     AzToolsFramework::RegisterPaintBrushSettingsWindow();
 
     // Notify that views can now be registered

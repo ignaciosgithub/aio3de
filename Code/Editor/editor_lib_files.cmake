@@ -594,6 +594,8 @@ set(FILES
     LayoutWnd.h
     EditorViewportWidget.cpp
     EditorViewportWidget.h
+    SceneViewPane.cpp
+    SceneViewPane.h
     EditorViewportSettings.cpp
     EditorViewportSettings.h
     EditorViewportCamera.cpp

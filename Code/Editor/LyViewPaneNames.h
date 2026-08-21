@@ -19,6 +19,7 @@ namespace LyViewPane
 
     // Putting these names here so that when view panes are opened
     // from other areas of Editor code, they still work when the name changes.
+    static const char* const SceneView = "Scene View";
     static const char* const AssetBrowser = "Asset Browser";
     static const char* const AssetEditor = "Asset Editor";
     static const char* const AssetBrowserInspector = "Asset Browser Inspector";
