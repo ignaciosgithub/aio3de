@@ -17,19 +17,19 @@ namespace AZ
 {
     namespace
     {
-        constexpr float Epsilon = 1e-9f;
-        constexpr float Pi = Constants::Pi;
+        constexpr float FluidEpsilon = 1e-9f;
+        constexpr float FluidPi = Constants::Pi;
 
         // Relaxation for the CFM term in the lambda denominator (PBF eq. 11).
-        constexpr float RelaxationEpsilon = 100.0f;
+        constexpr float FluidRelaxationEpsilon = 100.0f;
 
         // Artificial pressure (PBF eq. 13) keeps particles from clumping and adds
         // surface-tension-like cohesion.
-        constexpr float ArtificialPressureStrength = 0.0001f;
-        constexpr int ArtificialPressurePower = 4;
-        constexpr float ArtificialPressureRadiusFraction = 0.2f;
+        constexpr float FluidArtificialPressureStrength = 0.0001f;
+        constexpr int FluidArtificialPressurePower = 4;
+        constexpr float FluidArtificialPressureRadiusFraction = 0.2f;
 
-        uint64_t SpatialCellKey(int32_t x, int32_t y, int32_t z)
+        uint64_t FluidCellKey(int32_t x, int32_t y, int32_t z)
         {
             // 21 bits per axis, offset to keep negative coordinates distinct.
             constexpr uint64_t Offset = 1ull << 20;
@@ -54,8 +54,8 @@ namespace AZ
 
         const float h = m_smoothingRadius;
         const float h3 = h * h * h;
-        m_poly6Coeff = 315.0f / (64.0f * Pi * h3 * h3 * h3);
-        m_spikyGradCoeff = -45.0f / (Pi * h3 * h3);
+        m_poly6Coeff = 315.0f / (64.0f * FluidPi * h3 * h3 * h3);
+        m_spikyGradCoeff = -45.0f / (FluidPi * h3 * h3);
     }
 
     uint32_t FluidSim::AddParticle(const Vector3& position, const Vector3& velocity)
@@ -73,11 +73,11 @@ namespace AZ
         UpdateDerivedQuantities();
         const float spacing = AZStd::max(m_config.m_particleSpacing, 1e-4f);
         uint32_t added = 0;
-        for (float z = boxMin.GetZ(); z <= boxMax.GetZ() + Epsilon; z += spacing)
+        for (float z = boxMin.GetZ(); z <= boxMax.GetZ() + FluidEpsilon; z += spacing)
         {
-            for (float y = boxMin.GetY(); y <= boxMax.GetY() + Epsilon; y += spacing)
+            for (float y = boxMin.GetY(); y <= boxMax.GetY() + FluidEpsilon; y += spacing)
             {
-                for (float x = boxMin.GetX(); x <= boxMax.GetX() + Epsilon; x += spacing)
+                for (float x = boxMin.GetX(); x <= boxMax.GetX() + FluidEpsilon; x += spacing)
                 {
                     AddParticle(Vector3(x, y, z));
                     ++added;
@@ -120,7 +120,7 @@ namespace AZ
             const int32_t cx = static_cast<int32_t>(AZStd::floorf(p.GetX() * invCellSize));
             const int32_t cy = static_cast<int32_t>(AZStd::floorf(p.GetY() * invCellSize));
             const int32_t cz = static_cast<int32_t>(AZStd::floorf(p.GetZ() * invCellSize));
-            m_sortScratch[i] = { SpatialCellKey(cx, cy, cz), i };
+            m_sortScratch[i] = { FluidCellKey(cx, cy, cz), i };
         }
         AZStd::sort(
             m_sortScratch.begin(), m_sortScratch.end(),
@@ -159,7 +159,7 @@ namespace AZ
             {
                 for (int32_t dx = -1; dx <= 1; ++dx)
                 {
-                    const uint64_t key = SpatialCellKey(cx + dx, cy + dy, cz + dz);
+                    const uint64_t key = FluidCellKey(cx + dx, cy + dy, cz + dz);
                     auto begin = AZStd::lower_bound(cellKeys.begin(), cellKeys.end(), key);
                     for (auto it = begin; it != cellKeys.end() && *it == key; ++it)
                     {
@@ -218,9 +218,9 @@ namespace AZ
         BuildNeighborGrid();
 
         // Precomputed artificial-pressure denominator W(dq) (PBF eq. 13).
-        const float dq = ArtificialPressureRadiusFraction * h;
+        const float dq = FluidArtificialPressureRadiusFraction * h;
         const float wDq = m_poly6Coeff * powf(h2 - dq * dq, 3.0f);
-        const float invWDq = wDq > Epsilon ? 1.0f / wDq : 0.0f;
+        const float invWDq = wDq > FluidEpsilon ? 1.0f / wDq : 0.0f;
 
         const uint32_t iterations = AZStd::max(m_config.m_iterations, 1u);
         for (uint32_t iter = 0; iter < iterations; ++iter)
@@ -246,7 +246,7 @@ namespace AZ
                             }
                             const float w = h2 - r2;
                             density += mass * m_poly6Coeff * w * w * w;
-                            if (j != i && r2 > Epsilon)
+                            if (j != i && r2 > FluidEpsilon)
                             {
                                 const float r = sqrtf(r2);
                                 const float hr = h - r;
@@ -259,7 +259,7 @@ namespace AZ
                     const float constraint = density * invRestDensity - 1.0f;
                     if (constraint > 0.0f)
                     {
-                        const float denom = gradSumSq + gradSelf.GetLengthSq() + RelaxationEpsilon;
+                        const float denom = gradSumSq + gradSelf.GetLengthSq() + FluidRelaxationEpsilon;
                         m_lambdas[i] = -constraint / denom;
                     }
                     else
@@ -285,7 +285,7 @@ namespace AZ
                             }
                             const Vector3 diff = pi - pj;
                             const float r2 = diff.GetLengthSq();
-                            if (r2 >= h2 || r2 <= Epsilon)
+                            if (r2 >= h2 || r2 <= FluidEpsilon)
                             {
                                 return;
                             }
@@ -298,11 +298,11 @@ namespace AZ
                             {
                                 float ratio = wPoly * invWDq;
                                 float ratioPow = 1.0f;
-                                for (int p = 0; p < ArtificialPressurePower; ++p)
+                                for (int p = 0; p < FluidArtificialPressurePower; ++p)
                                 {
                                     ratioPow *= ratio;
                                 }
-                                sCorr = -ArtificialPressureStrength * ratioPow;
+                                sCorr = -FluidArtificialPressureStrength * ratioPow;
                             }
                             const Vector3 grad = diff * (m_spikyGradCoeff * hr * hr / r);
                             delta += grad * ((m_lambdas[i] + m_lambdas[j] + sCorr) * mass * invRestDensity);
@@ -344,8 +344,8 @@ namespace AZ
                     {
                         const float p = m_predicted[i].GetElement(axis);
                         const float vel = v.GetElement(axis);
-                        if ((p <= boundsMin.GetElement(axis) + Epsilon && vel < 0.0f) ||
-                            (p >= boundsMax.GetElement(axis) - Epsilon && vel > 0.0f))
+                        if ((p <= boundsMin.GetElement(axis) + FluidEpsilon && vel < 0.0f) ||
+                            (p >= boundsMax.GetElement(axis) - FluidEpsilon && vel > 0.0f))
                         {
                             v.SetElement(axis, vel * restitution);
                         }
@@ -434,14 +434,14 @@ namespace AZ
     {
         const Vector3& base = m_config.m_baseVelocity;
         const float baseSpeed = base.GetLength();
-        if (baseSpeed < Epsilon)
+        if (baseSpeed < FluidEpsilon)
         {
             return Vector3::CreateZero();
         }
         const Vector3 direction = base / baseSpeed;
 
         // Temporal gusts: two incommensurate sine waves so the pattern does not visibly repeat.
-        const float gustPhase = 2.0f * Pi * m_config.m_gustFrequency * time;
+        const float gustPhase = 2.0f * FluidPi * m_config.m_gustFrequency * time;
         const float gust = m_config.m_gustStrength * baseSpeed *
             (0.65f * sinf(gustPhase) + 0.35f * sinf(2.7f * gustPhase + 1.3f));
 
@@ -449,7 +449,7 @@ namespace AZ
         // perturbation direction varies over space instead of only its magnitude.
         Vector3 turbulenceOffset = Vector3::CreateZero();
         const float turbulence = m_config.m_turbulence * baseSpeed;
-        if (turbulence > Epsilon)
+        if (turbulence > FluidEpsilon)
         {
             const float invScale = 1.0f / AZStd::max(m_config.m_turbulenceScale, 0.01f);
             const float px = position.GetX() * invScale;
