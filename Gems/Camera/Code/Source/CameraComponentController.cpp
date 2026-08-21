@@ -358,7 +358,7 @@ namespace Camera
 
         if (m_config.m_pipEnabled && m_pipImage)
         {
-            if (auto atomViewportRequests = AZ::Interface<AZ::RPI::ViewportContextRequestsInterface>::Get())
+            if (atomViewportRequests)
             {
                 AZ::RPI::ViewportContextNotificationBus::Handler::BusConnect(atomViewportRequests->GetDefaultViewportContextName());
             }
