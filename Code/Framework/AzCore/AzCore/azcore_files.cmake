@@ -383,6 +383,8 @@ set(FILES
     Math/RayTracingBvh.h
     Math/SoftBody.cpp
     Math/SoftBody.h
+    Math/Fluid.cpp
+    Math/Fluid.h
     Math/RayTracedShadows.cpp
     Math/RayTracedShadows.h
     Math/Sfmt.cpp

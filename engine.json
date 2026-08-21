@@ -44,6 +44,7 @@
         "Gems/EMotionFX",
         "Gems/ExpressionEvaluation",
         "Gems/FastNoise",
+        "Gems/FluidDynamics",
         "Gems/GameState",
         "Gems/GameStateSamples",
         "Gems/Gestures",
