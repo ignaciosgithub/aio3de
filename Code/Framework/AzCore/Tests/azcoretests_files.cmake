@@ -124,6 +124,7 @@ set(FILES
     Math/RayTracingPerformanceTests.cpp
     Math/SoftBodyTests.cpp
     Math/SoftBodyPerformanceTests.cpp
+    Math/FluidTests.cpp
     Math/Geometry3DUtilsTests.cpp
     Math/HemisphereTests.cpp
     Math/IntersectionPerformanceTests.cpp
