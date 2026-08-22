@@ -45,7 +45,7 @@ namespace LyShine
         }
 
         const AZ::RPI::PassRequest *passRequest = nullptr;
-        if (m_passRequestAsset->IsReady())
+        if (m_passRequestAsset.IsReady())
         {
             passRequest = m_passRequestAsset->GetDataAs<AZ::RPI::PassRequest>();
         }

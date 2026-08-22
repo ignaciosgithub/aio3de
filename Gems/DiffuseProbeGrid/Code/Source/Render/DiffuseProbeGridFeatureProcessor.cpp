@@ -932,7 +932,7 @@ namespace AZ
 
             // load pass request from the asset
             const RPI::PassRequest* passRequest = nullptr;
-            if (passRequestAsset->IsReady())
+            if (passRequestAsset.IsReady())
             {
                 passRequest = passRequestAsset->GetDataAs<RPI::PassRequest>();
             }

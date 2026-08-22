@@ -137,7 +137,7 @@ namespace SkyAtmosphere
             passRequestAssetFilePath, AZ::RPI::AssetUtils::TraceLevel::Warning);
 
         const AZ::RPI::PassRequest *passRequest = nullptr;
-        if (passRequestAsset->IsReady())
+        if (passRequestAsset.IsReady())
         {
             passRequest = passRequestAsset->GetDataAs<AZ::RPI::PassRequest>();
         }
