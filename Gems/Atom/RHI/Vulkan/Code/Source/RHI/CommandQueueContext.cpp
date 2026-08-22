@@ -96,8 +96,11 @@ namespace AZ
             auto supportsPresentation = [&swapchain, &device, &vkPhysicalDevice](uint32_t familyIndex)
             {
                 VkBool32 supported = VK_FALSE;
-                AssertSuccess(device.GetContext().GetPhysicalDeviceSurfaceSupportKHR(
-                    vkPhysicalDevice, familyIndex, swapchain.GetSurface().GetNativeSurface(), &supported));
+                if (!IsSuccess(device.GetContext().GetPhysicalDeviceSurfaceSupportKHR(
+                        vkPhysicalDevice, familyIndex, swapchain.GetSurface().GetNativeSurface(), &supported)))
+                {
+                    return false;
+                }
                 return supported == VK_TRUE;
             };
 
@@ -120,7 +123,13 @@ namespace AZ
             }
             else
             {
-                AZ_Assert(false, "Failed to find a queue suitable for presentation");
+                AZ_Error(
+                    "Vulkan", false,
+                    "No Vulkan queue on device '%s' supports presenting to the display surface. "
+                    "The GPU driver cannot present to this window (common causes: missing Vulkan driver for the active GPU, "
+                    "a hybrid-GPU system presenting from the wrong device, or a Wayland session without Vulkan WSI support). "
+                    "Check 'vulkaninfo --summary' and install the proper GPU driver (e.g. mesa-vulkan-drivers or the NVIDIA driver).",
+                    device.GetPhysicalDevice().GetDescriptor().m_description.c_str());
             }
             m_presentationQueueIndex = commandQueueIndex;
             return *m_commandQueues[commandQueueIndex];
