@@ -362,7 +362,14 @@ namespace AZ
 
             const RHI::WindowHandle windowHandle = RHI::WindowHandle(reinterpret_cast<uintptr_t>(m_windowHandle));
             const AZStd::vector<RHI::Format> supportedFormats = device.GetValidSwapChainImageFormats(windowHandle);
-            AZ_Assert(!supportedFormats.empty(), "There is no supported format for SwapChain images.");
+            if (supportedFormats.empty())
+            {
+                AZ_Error(
+                    "WindowContext", false,
+                    "There is no supported format for SwapChain images. The GPU driver cannot present to this window; "
+                    "falling back to R8G8B8A8_UNORM. Rendering to this window will likely not work.");
+                return RHI::Format::R8G8B8A8_UNORM;
+            }
 
             return GetPreferredFormat(preferredFormats, supportedFormats);
         }

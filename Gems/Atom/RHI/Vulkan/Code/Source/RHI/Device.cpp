@@ -1083,17 +1083,25 @@ namespace AZ
 
             const auto& physicalDevice = static_cast<const PhysicalDevice&>(GetPhysicalDevice());
             uint32_t surfaceFormatCount = 0;
-            AssertSuccess(GetContext().GetPhysicalDeviceSurfaceFormatsKHR(
-                physicalDevice.GetNativePhysicalDevice(), vkSurface, &surfaceFormatCount, nullptr));
-            if (surfaceFormatCount == 0)
+            if (!IsSuccess(GetContext().GetPhysicalDeviceSurfaceFormatsKHR(
+                    physicalDevice.GetNativePhysicalDevice(), vkSurface, &surfaceFormatCount, nullptr)) ||
+                surfaceFormatCount == 0)
             {
-                AZ_Assert(false, "Surface support no format.");
+                AZ_Error(
+                    "Vulkan", false,
+                    "The Vulkan device '%s' reports no supported surface formats for this window. "
+                    "The GPU driver cannot present to the display (common causes: missing Vulkan driver for the active GPU, "
+                    "a hybrid-GPU system presenting from the wrong device, or a Wayland session without Vulkan WSI support).",
+                    physicalDevice.GetDescriptor().m_description.c_str());
                 return formatsList;
             }
 
             AZStd::vector<VkSurfaceFormatKHR> surfaceFormats(surfaceFormatCount);
-            AssertSuccess(GetContext().GetPhysicalDeviceSurfaceFormatsKHR(
-                physicalDevice.GetNativePhysicalDevice(), vkSurface, &surfaceFormatCount, surfaceFormats.data()));
+            if (!IsSuccess(GetContext().GetPhysicalDeviceSurfaceFormatsKHR(
+                    physicalDevice.GetNativePhysicalDevice(), vkSurface, &surfaceFormatCount, surfaceFormats.data())))
+            {
+                return formatsList;
+            }
 
             bool colorSpaceExt = false;
             if (r_hdrOutput)
