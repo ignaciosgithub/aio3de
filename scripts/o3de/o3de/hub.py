@@ -18,6 +18,7 @@ in the docs) and a consolidated project<->engine separation view.
 """
 
 import argparse
+import json
 import logging
 import os
 import pathlib
@@ -1192,6 +1193,91 @@ def _run_checkout(args) -> int:
     return 0
 
 
+def _read_json(path: pathlib.Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+
+
+def available_gems(engine_path: pathlib.Path = None) -> list:
+    """(name, path, summary) for every gem this engine ships plus externally registered gems,
+    discovered with the stdlib only (works pre-bootstrap, unlike manifest.get_all_gems)."""
+    engine = pathlib.Path(engine_path or engine_path_fallback())
+    gem_dirs = []
+    gems_root = engine / 'Gems'
+    if gems_root.is_dir():
+        gem_dirs += [d for d in sorted(gems_root.iterdir()) if (d / 'gem.json').is_file()]
+    manifest = _read_json(pathlib.Path.home() / '.o3de' / 'o3de_manifest.json')
+    for external in manifest.get('external_subdirectories', []) or []:
+        d = pathlib.Path(external)
+        if (d / 'gem.json').is_file():
+            gem_dirs.append(d)
+    gems = []
+    seen = set()
+    for gem_dir in gem_dirs:
+        data = _read_json(gem_dir / 'gem.json')
+        name = data.get('gem_name') or gem_dir.name
+        if name in seen:
+            continue
+        seen.add(name)
+        gems.append((name, gem_dir, data.get('summary', '')))
+    return gems
+
+
+def project_enabled_gem_names(project_path: pathlib.Path) -> set:
+    """Gem names enabled in a project's project.json (stdlib-only)."""
+    data = _read_json(pathlib.Path(project_path) / 'project.json')
+    names = set()
+    for gem in data.get('gem_names', []) or []:
+        name = gem.get('name') if isinstance(gem, dict) else gem
+        if isinstance(name, str) and name:
+            # entries may be version-specialized, e.g. "GemName==1.0.0"
+            names.add(re.split(r'[=<>~^]', name)[0])
+    return names
+
+
+def _run_gems(args) -> int:
+    project_path = pathlib.Path(args.project_path).resolve()
+    if not (project_path / 'project.json').is_file():
+        print(f'FAIL: no project.json in {project_path}')
+        return 1
+
+    if args.enable or args.disable:
+        # enable_gem/disable_gem need the bundled venv's third-party deps; import lazily so
+        # plain listing still works pre-bootstrap.
+        try:
+            from o3de import enable_gem, disable_gem
+        except ImportError as exc:
+            print(f'FAIL: engine python tooling not bootstrapped yet ({exc}) - run any o3de '
+                  f'command once to create the venv, or use "o3de enable-gem" directly.')
+            return 1
+        result = 0
+        for gem_name in args.enable or []:
+            print(f'Enabling {gem_name}...')
+            result |= enable_gem.enable_gem_in_project(gem_name=gem_name, project_path=project_path)
+        for gem_name in args.disable or []:
+            print(f'Disabling {gem_name}...')
+            result |= disable_gem.disable_gem_in_project(gem_name=gem_name, project_path=project_path)
+        if result == 0:
+            print('Done. Reconfigure + rebuild the project to pick up gem changes.')
+        return result
+
+    enabled = project_enabled_gem_names(project_path)
+    gems = available_gems()
+    print(f'Project: {project_path}\n')
+    print(f'{"State":10} {"Gem":34} Summary')
+    for name, _path, summary in gems:
+        state = 'enabled' if name in enabled else '-'
+        print(f'{state:10} {name:34} {summary[:70]}')
+    unknown = sorted(enabled - {name for name, _p, _s in gems})
+    for name in unknown:
+        print(f'{"enabled":10} {name:34} (not found among registered gems)')
+    print(f'\n{len(enabled)} enabled / {len(gems)} available. '
+          f'Use --enable/--disable NAME (repeatable) to change; then reconfigure + rebuild.')
+    return 0
+
+
 def add_parser_args(parser):
     subparsers = parser.add_subparsers(
         title='hub sub-commands',
@@ -1240,6 +1326,17 @@ def add_parser_args(parser):
     checkout_parser.add_argument('--dry-run', action='store_true',
                                  help='Only report; do not switch branches or download.')
     checkout_parser.set_defaults(func=_run_checkout)
+
+    gems_parser = subparsers.add_parser(
+        'gems', help='List the gems available to this engine and which are enabled in a project; '
+                     'enable/disable gems with --enable/--disable.')
+    gems_parser.add_argument('-pp', '--project-path', type=pathlib.Path, required=True,
+                             help='Path to the project.')
+    gems_parser.add_argument('--enable', action='append', metavar='GEM_NAME',
+                             help='Enable this gem in the project (repeatable).')
+    gems_parser.add_argument('--disable', action='append', metavar='GEM_NAME',
+                             help='Disable this gem in the project (repeatable).')
+    gems_parser.set_defaults(func=_run_gems)
 
     # When "o3de hub" is run with no sub-command, print help instead of failing silently.
     def _print_hub_help(_args):
