@@ -562,3 +562,25 @@ def test_detect_windows_generator_vs2022():
 def test_detect_windows_generator_none_when_no_vs():
     with patch.object(hub, 'detect_visual_studio_major', return_value=None):
         assert hub.detect_windows_generator() is None
+
+
+def test_project_enabled_gem_names_handles_strings_dicts_and_versions(tmp_path):
+    (tmp_path / 'project.json').write_text(
+        '{"gem_names": ["Camera", {"name": "Atom", "optional": false}, "FluidDynamics==1.0.0"]}',
+        encoding='utf-8')
+    assert hub.project_enabled_gem_names(tmp_path) == {'Camera', 'Atom', 'FluidDynamics'}
+
+
+def test_project_enabled_gem_names_missing_project_json(tmp_path):
+    assert hub.project_enabled_gem_names(tmp_path) == set()
+
+
+def test_available_gems_scans_engine_gems_dir(tmp_path):
+    gem_dir = tmp_path / 'Gems' / 'MyGem'
+    gem_dir.mkdir(parents=True)
+    (gem_dir / 'gem.json').write_text('{"gem_name": "MyGem", "summary": "A test gem"}',
+                                      encoding='utf-8')
+    (tmp_path / 'Gems' / 'NotAGem').mkdir()
+    gems = hub.available_gems(tmp_path)
+    assert ('MyGem', gem_dir, 'A test gem') in gems
+    assert all(name != 'NotAGem' for name, _path, _summary in gems)

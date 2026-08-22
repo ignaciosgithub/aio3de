@@ -202,13 +202,16 @@ class HubGui:
         self.preflight_frame = self.ttk.Frame(notebook)
         self.project_frame = self.ttk.Frame(notebook)
         self.build_frame = self.ttk.Frame(notebook)
+        self.gems_frame = self.ttk.Frame(notebook)
         notebook.add(self.preflight_frame, text='Preflight')
         notebook.add(self.project_frame, text='Create Project')
         notebook.add(self.build_frame, text='Build & Run')
+        notebook.add(self.gems_frame, text='Gems')
 
         self._build_preflight(self.preflight_frame)
         self._build_project(self.project_frame)
         self._build_build_tab(self.build_frame)
+        self._build_gems_tab(self.gems_frame)
         self._build_log(root)
 
         self.run_preflight()
@@ -487,6 +490,96 @@ class HubGui:
         except OSError as exc:
             self.log(f'  ERROR: could not launch: {exc}')
 
+    # ---- Gems tab ------------------------------------------------------------------------------
+    def _build_gems_tab(self, parent):
+        form = self.ttk.Frame(parent)
+        form.pack(fill='x', padx=8, pady=8)
+
+        self.ttk.Label(form, text='Project').grid(row=0, column=0, sticky='w', pady=4)
+        self.gems_project_var = self.tk.StringVar()
+        self.gems_project_combo = self.ttk.Combobox(form, textvariable=self.gems_project_var, width=52)
+        self.gems_project_combo.grid(row=0, column=1, sticky='w', pady=4)
+        self.ttk.Button(form, text='Browse...', command=self._browse_gems_project).grid(row=0, column=2, padx=4)
+        self.ttk.Button(form, text='Refresh', command=self._refresh_gems).grid(row=0, column=3, padx=4)
+
+        columns = ('state', 'gem', 'summary')
+        self.gems_tree = self.ttk.Treeview(parent, columns=columns, show='headings', height=12)
+        self.gems_tree.heading('state', text='State')
+        self.gems_tree.heading('gem', text='Gem')
+        self.gems_tree.heading('summary', text='Summary')
+        self.gems_tree.column('state', width=80, anchor='center')
+        self.gems_tree.column('gem', width=220, anchor='w')
+        self.gems_tree.column('summary', width=460, anchor='w')
+        self.gems_tree.pack(fill='both', expand=True, padx=8)
+        self.gems_tree.tag_configure('enabled', foreground='#1a7f37')
+
+        buttons = self.ttk.Frame(parent)
+        buttons.pack(fill='x', padx=8, pady=8)
+        self.gem_enable_button = self.ttk.Button(buttons, text='Enable selected',
+                                                 command=lambda: self._toggle_gem(True))
+        self.gem_enable_button.pack(side='left')
+        self.gem_disable_button = self.ttk.Button(buttons, text='Disable selected',
+                                                  command=lambda: self._toggle_gem(False))
+        self.gem_disable_button.pack(side='left', padx=8)
+        self.ttk.Label(buttons,
+                       text='After enabling or disabling a gem, Configure + Build the project again '
+                            '(Build & Run tab).',
+                       foreground='#57606a').pack(side='left', padx=8)
+
+        self.gems_project_var.trace_add('write', lambda *_: self._refresh_gems())
+        self.gems_project_combo['values'] = registered_projects()
+        projects = registered_projects()
+        if projects:
+            self.gems_project_var.set(projects[-1])
+
+    def _browse_gems_project(self):
+        chosen = self.filedialog.askdirectory(initialdir=self.gems_project_var.get() or
+                                              str(pathlib.Path.home()))
+        if chosen:
+            self.gems_project_var.set(chosen)
+
+    def _gems_selected_project(self) -> pathlib.Path or None:
+        raw = self.gems_project_var.get().strip()
+        if not raw:
+            return None
+        project_path = pathlib.Path(raw).expanduser()
+        return project_path if (project_path / 'project.json').is_file() else None
+
+    def _refresh_gems(self):
+        for row in self.gems_tree.get_children():
+            self.gems_tree.delete(row)
+        project_path = self._gems_selected_project()
+        if not project_path:
+            return
+        enabled = hub.project_enabled_gem_names(project_path)
+        known = set()
+        for name, _path, summary in hub.available_gems(ENGINE_ROOT):
+            known.add(name)
+            state = 'enabled' if name in enabled else '-'
+            tags = ('enabled',) if name in enabled else ()
+            self.gems_tree.insert('', 'end', values=(state, name, summary), tags=tags)
+        for name in sorted(enabled - known):
+            self.gems_tree.insert('', 'end', values=('enabled', name,
+                                                     '(not found among registered gems)'),
+                                  tags=('enabled',))
+
+    def _toggle_gem(self, enable: bool):
+        project_path = self._gems_selected_project()
+        if not project_path:
+            self.messagebox.showerror('No project', 'Select or browse to a project folder first.')
+            return
+        selection = self.gems_tree.selection()
+        if not selection:
+            self.messagebox.showinfo('No gem selected', 'Select a gem in the list first.')
+            return
+        gem_name = self.gems_tree.item(selection[0], 'values')[1]
+        verb = 'enable-gem' if enable else 'disable-gem'
+        command = [str(o3de_launcher(ENGINE_ROOT)), verb, '-gn', gem_name,
+                   '-pp', str(project_path)]
+        self._run_command(command, f'{"Enabling" if enable else "Disabling"} {gem_name} in '
+                                   f'{project_path.name} (Configure + Build again afterwards)',
+                          on_done=self._refresh_gems)
+
     # ---- shared log + command runner -----------------------------------------------------------
     def _build_log(self, parent):
         frame = self.ttk.Frame(parent)
@@ -508,7 +601,7 @@ class HubGui:
         self.configure_button.configure(state=state)
         self.build_button.configure(state=state)
 
-    def _run_command(self, command: list, description: str):
+    def _run_command(self, command: list, description: str, on_done=None):
         if self._proc_thread and self._proc_thread.is_alive():
             self.messagebox.showinfo('Busy', 'A command is already running; please wait for it to finish.')
             return
@@ -536,6 +629,8 @@ class HubGui:
                     self.root.after(0, lambda: self.log(f'  HINT: {hint}'))
             self.root.after(0, lambda: self._set_busy(False))
             self.root.after(0, self.run_preflight)
+            if on_done:
+                self.root.after(0, on_done)
 
         self._proc_thread = threading.Thread(target=worker, daemon=True)
         self._proc_thread.start()
