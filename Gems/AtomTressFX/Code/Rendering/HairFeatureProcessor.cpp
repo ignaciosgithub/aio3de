@@ -341,7 +341,7 @@ namespace AZ
                 m_hairPassRequestAsset = AZ::RPI::AssetUtils::LoadAssetByProductPath<AZ::RPI::AnyAsset>(
                     passRequestAssetFilePath, AZ::RPI::AssetUtils::TraceLevel::Warning);
                 const AZ::RPI::PassRequest* passRequest = nullptr;
-                if (m_hairPassRequestAsset->IsReady())
+                if (m_hairPassRequestAsset.IsReady())
                 {
                     passRequest = m_hairPassRequestAsset->GetDataAs<AZ::RPI::PassRequest>();
                 }

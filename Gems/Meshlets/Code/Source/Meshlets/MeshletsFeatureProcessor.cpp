@@ -174,7 +174,7 @@ namespace AZ
             m_passRequestAsset = AZ::RPI::AssetUtils::LoadAssetByProductPath<AZ::RPI::AnyAsset>(
                 passRequestAssetFilePath, AZ::RPI::AssetUtils::TraceLevel::Warning);
             const AZ::RPI::PassRequest* passRequest = nullptr;
-            if (m_passRequestAsset->IsReady())
+            if (m_passRequestAsset.IsReady())
             {
                 passRequest = m_passRequestAsset->GetDataAs<AZ::RPI::PassRequest>();
             }
