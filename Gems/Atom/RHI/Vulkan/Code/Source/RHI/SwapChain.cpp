@@ -433,13 +433,27 @@ namespace AZ
             AZ_Assert(m_surface, "Surface has not been initialized.");
             auto& device = static_cast<Device&>(GetDevice());
             const auto& physicalDevice = static_cast<const PhysicalDevice&>(device.GetPhysicalDevice());
+            VkSurfaceFormatKHR fallbackFormat = {};
+            fallbackFormat.format = VK_FORMAT_R8G8B8A8_UNORM;
+            fallbackFormat.colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+
             uint32_t surfaceFormatCount = 0;
-            AssertSuccess(device.GetContext().GetPhysicalDeviceSurfaceFormatsKHR(
-                physicalDevice.GetNativePhysicalDevice(), m_surface->GetNativeSurface(), &surfaceFormatCount, nullptr));
-            AZ_Assert(surfaceFormatCount > 0, "Surface support no format.");
+            if (!IsSuccess(device.GetContext().GetPhysicalDeviceSurfaceFormatsKHR(
+                    physicalDevice.GetNativePhysicalDevice(), m_surface->GetNativeSurface(), &surfaceFormatCount, nullptr)) ||
+                surfaceFormatCount == 0)
+            {
+                AZ_Error(
+                    "Vulkan", false,
+                    "SwapChain: the surface reports no supported formats; the driver cannot present to this window. "
+                    "Falling back to R8G8B8A8_UNORM; rendering to this window will likely not work.");
+                return fallbackFormat;
+            }
             AZStd::vector<VkSurfaceFormatKHR> surfaceFormats(surfaceFormatCount);
-            AssertSuccess(device.GetContext().GetPhysicalDeviceSurfaceFormatsKHR(
-                physicalDevice.GetNativePhysicalDevice(), m_surface->GetNativeSurface(), &surfaceFormatCount, surfaceFormats.data()));
+            if (!IsSuccess(device.GetContext().GetPhysicalDeviceSurfaceFormatsKHR(
+                    physicalDevice.GetNativePhysicalDevice(), m_surface->GetNativeSurface(), &surfaceFormatCount, surfaceFormats.data())))
+            {
+                return fallbackFormat;
+            }
 
             const VkFormat format = ConvertFormat(rhiFormat);
             VkSurfaceFormatKHR matchedFormat = {};
@@ -485,14 +499,21 @@ namespace AZ
             const auto& physicalDevice = static_cast<const PhysicalDevice&>(device.GetPhysicalDevice());
 
             uint32_t modeCount = 0;
-            AssertSuccess(device.GetContext().GetPhysicalDeviceSurfacePresentModesKHR(
-                physicalDevice.GetNativePhysicalDevice(), m_surface->GetNativeSurface(), &modeCount, nullptr));
-            // VK_PRESENT_MODE_FIFO_KHR has to be supported.
-            // https://www.khronos.org/registry/vulkan/specs/1.1-extensions/man/html/VkPresentModeKHR.html
-            AZ_Assert(modeCount > 0, "no available present mode.");
+            if (!IsSuccess(device.GetContext().GetPhysicalDeviceSurfacePresentModesKHR(
+                    physicalDevice.GetNativePhysicalDevice(), m_surface->GetNativeSurface(), &modeCount, nullptr)) ||
+                modeCount == 0)
+            {
+                // VK_PRESENT_MODE_FIFO_KHR has to be supported.
+                // https://www.khronos.org/registry/vulkan/specs/1.1-extensions/man/html/VkPresentModeKHR.html
+                AZ_Error("Vulkan", false, "SwapChain: no available present mode for this surface; falling back to FIFO.");
+                return VK_PRESENT_MODE_FIFO_KHR;
+            }
             AZStd::vector<VkPresentModeKHR> supportedModes(modeCount);
-            AssertSuccess(device.GetContext().GetPhysicalDeviceSurfacePresentModesKHR(
-                physicalDevice.GetNativePhysicalDevice(), m_surface->GetNativeSurface(), &modeCount, supportedModes.data()));
+            if (!IsSuccess(device.GetContext().GetPhysicalDeviceSurfacePresentModesKHR(
+                    physicalDevice.GetNativePhysicalDevice(), m_surface->GetNativeSurface(), &modeCount, supportedModes.data())))
+            {
+                return VK_PRESENT_MODE_FIFO_KHR;
+            }
 
             for (VkPresentModeKHR preferredMode : preferredModes)
             {
@@ -514,10 +535,9 @@ namespace AZ
             auto& device = static_cast<Device&>(GetDevice());
             const auto& physicalDevice = static_cast<const PhysicalDevice&>(device.GetPhysicalDevice());
 
-            VkSurfaceCapabilitiesKHR surfaceCapabilities;
-            VkResult vkResult = device.GetContext().GetPhysicalDeviceSurfaceCapabilitiesKHR(
-                physicalDevice.GetNativePhysicalDevice(), m_surface->GetNativeSurface(), &surfaceCapabilities);
-            AssertSuccess(vkResult);
+            VkSurfaceCapabilitiesKHR surfaceCapabilities{};
+            IsSuccess(device.GetContext().GetPhysicalDeviceSurfaceCapabilitiesKHR(
+                physicalDevice.GetNativePhysicalDevice(), m_surface->GetNativeSurface(), &surfaceCapabilities));
 
             return surfaceCapabilities;
         }
@@ -539,7 +559,7 @@ namespace AZ
                 }
             }
 
-            AZ_Assert(false, "Could not find a supported composite alpha mode for the swapchain");
+            AZ_Error("Vulkan", false, "Could not find a supported composite alpha mode for the swapchain");
             return VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
         }
 
@@ -549,7 +569,7 @@ namespace AZ
 
             if (!ValidateSurfaceDimensions(dimensions))
             {
-                AZ_Assert(false, "Swapchain dimensions are not supported.");
+                AZ_Error("Vulkan", false, "Swapchain dimensions are not supported.");
                 return RHI::ResultCode::InvalidArgument;
             }
 
@@ -607,7 +627,7 @@ namespace AZ
 
             const VkResult result =
                 device.GetContext().CreateSwapchainKHR(device.GetNativeDevice(), &createInfo, VkSystemAllocator::Get(), &m_nativeSwapChain);
-            AssertSuccess(result);
+            IsSuccess(result);
 
             if(hdrEnabled)
             {
