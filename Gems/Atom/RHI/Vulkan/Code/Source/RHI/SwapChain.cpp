@@ -77,6 +77,13 @@ namespace AZ
         {
             if (m_pendingRecreation)
             {
+                if (m_presentationQueue)
+                {
+                    // Drain any queued present commands: they read m_nativeSwapChain when they execute,
+                    // so they must run before the swapchain is replaced.
+                    m_presentationQueue->FlushCommands();
+                    m_presentationQueue->WaitForIdle();
+                }
                 VkSwapchainKHR oldSwapchain = m_nativeSwapChain;
                 ShutdownImages();
                 CreateSwapchain();
