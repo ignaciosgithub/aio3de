@@ -35,7 +35,7 @@ namespace FluidDynamics
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
             serializeContext->Class<FluidSettings>()
-                ->Version(1)
+                ->Version(2)
                 ->Field("Preset", &FluidSettings::m_preset)
                 ->Field("RestDensity", &FluidSettings::m_restDensity)
                 ->Field("Viscosity", &FluidSettings::m_viscosity)
@@ -45,6 +45,7 @@ namespace FluidDynamics
                 ->Field("GravityScale", &FluidSettings::m_gravityScale)
                 ->Field("Damping", &FluidSettings::m_damping)
                 ->Field("SpawnHalfExtents", &FluidSettings::m_spawnHalfExtents)
+                ->Field("ContainerEnabled", &FluidSettings::m_containerEnabled)
                 ->Field("ContainerHalfExtents", &FluidSettings::m_containerHalfExtents)
                 ->Field("ContainerRestitution", &FluidSettings::m_containerRestitution)
                 ->Field("AffectedByWind", &FluidSettings::m_affectedByWind)
@@ -89,12 +90,17 @@ namespace FluidDynamics
                         ->Attribute(AZ::Edit::Attributes::Max, 1.0f)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &FluidSettings::m_spawnHalfExtents,
                         "Spawn half extents", "Local-space half extents of the box filled with fluid at play start")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &FluidSettings::m_containerEnabled,
+                        "Container enabled", "Keep particles inside the container box; when off the fluid spills freely")
+                        ->Attribute(AZ::Edit::Attributes::ChangeNotify, AZ::Edit::PropertyRefreshLevels::EntireTree)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &FluidSettings::m_containerHalfExtents,
                         "Container half extents", "Local-space half extents of the box that contains the fluid")
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &FluidSettings::IsContainerEnabled)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &FluidSettings::m_containerRestitution,
                         "Container restitution", "Bounce on container walls: 0 = none, 1 = full")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
                         ->Attribute(AZ::Edit::Attributes::Max, 1.0f)
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &FluidSettings::IsContainerEnabled)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &FluidSettings::m_affectedByWind,
                         "Affected by wind", "Sample Wind components in the level and apply their drag to the fluid")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &FluidSettings::m_windDrag,
