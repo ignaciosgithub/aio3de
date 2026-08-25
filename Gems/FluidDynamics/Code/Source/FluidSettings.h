@@ -49,9 +49,13 @@ namespace FluidDynamics
 
         //! Fluid spawn region as a local-space box half-extent around the entity origin.
         AZ::Vector3 m_spawnHalfExtents = AZ::Vector3(0.5f, 0.5f, 0.5f);
+        //! Keep particles inside the container box; when off the fluid spills freely.
+        bool m_containerEnabled = true;
         //! Container box (local-space half extents); particles are kept inside it.
         AZ::Vector3 m_containerHalfExtents = AZ::Vector3(1.0f, 1.0f, 1.0f);
         float m_containerRestitution = 0.0f;
+
+        bool IsContainerEnabled() const { return m_containerEnabled; }
 
         bool m_affectedByWind = false;
         float m_windDrag = 0.5f;

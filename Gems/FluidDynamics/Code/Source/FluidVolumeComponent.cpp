@@ -79,7 +79,7 @@ namespace FluidDynamics
         config.m_substeps = m_settings.m_substeps;
         config.m_iterations = m_settings.m_iterations;
         config.m_damping = m_settings.m_damping;
-        config.m_boundsEnabled = true;
+        config.m_boundsEnabled = m_settings.m_containerEnabled;
         config.m_bounds = AZ::Aabb::CreateCenterHalfExtents(center, m_settings.m_containerHalfExtents);
         config.m_boundsRestitution = m_settings.m_containerRestitution;
         config.m_parallel = m_settings.m_parallel;
