@@ -51,6 +51,8 @@
 */Code/Tools/*
 */Gems/*/3rdParty/*
 */Gems/*/External/*
+*/Gems/CSharpScripting/Code/Source/DotNetHost.cpp
+*/Gems/CSharpScripting/Code/Source/ScriptHost.cpp
 */Gems/EMotionFX/Code/EMotionFX/Rendering/OpenGL2/Source/GLInclude.h
 */Gems/EMotionFX/Code/EMotionFX/Tools/EMotionStudio/EMStudioSDK/Source/MainWindow.cpp
 */Gems/EMotionFX/Code/EMotionFX/Tools/EMotionStudio/EMStudioSDK/Source/PluginManager.cpp
