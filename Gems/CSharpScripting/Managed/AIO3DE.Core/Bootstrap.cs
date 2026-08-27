@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Loader;
 
 namespace AIO3DE.Interop
 {
@@ -16,29 +17,43 @@ namespace AIO3DE.Interop
     public static unsafe class Bootstrap
     {
         private static Assembly? s_scriptsAssembly;
+        private static AssemblyLoadContext? s_scriptsContext;
         private static string? s_scriptsDirectory;
-        private static bool s_resolverInstalled;
         private static readonly Dictionary<long, ScriptComponent> s_instances = new();
         private static long s_nextHandle = 1;
 
-        private static Assembly? ResolveAssembly(object? sender, ResolveEventArgs args)
+        /// <summary>
+        /// Collectible context per scripts load: on hot reload the previous context is
+        /// unloaded so old assemblies and types can be collected once instances are gone.
+        /// </summary>
+        private sealed class ScriptsLoadContext : AssemblyLoadContext
         {
-            var requested = new AssemblyName(args.Name);
-            // Byte-loaded scripts can't see assemblies loaded by path: redirect
-            // AIO3DE.Core to this assembly and search next to the scripts dll otherwise.
-            if (requested.Name == typeof(Bootstrap).Assembly.GetName().Name)
+            private readonly string? _scriptsDirectory;
+
+            public ScriptsLoadContext(string? scriptsDirectory)
+                : base("AIO3DE.Scripts", isCollectible: true)
             {
-                return typeof(Bootstrap).Assembly;
+                _scriptsDirectory = scriptsDirectory;
             }
-            if (s_scriptsDirectory != null)
+
+            protected override Assembly? Load(AssemblyName assemblyName)
             {
-                string candidate = System.IO.Path.Combine(s_scriptsDirectory, requested.Name + ".dll");
-                if (System.IO.File.Exists(candidate))
+                // Share AIO3DE.Core (and everything else already loaded) with the default
+                // context so ScriptComponent type identity stays stable across reloads.
+                if (assemblyName.Name == typeof(Bootstrap).Assembly.GetName().Name)
                 {
-                    return Assembly.LoadFrom(candidate);
+                    return typeof(Bootstrap).Assembly;
                 }
+                if (_scriptsDirectory != null)
+                {
+                    string candidate = System.IO.Path.Combine(_scriptsDirectory, assemblyName.Name + ".dll");
+                    if (System.IO.File.Exists(candidate))
+                    {
+                        return LoadFromAssemblyPath(candidate);
+                    }
+                }
+                return null;
             }
-            return null;
         }
 
         [UnmanagedCallersOnly]
@@ -58,15 +73,29 @@ namespace AIO3DE.Interop
                 {
                     return 0;
                 }
-                if (!s_resolverInstalled)
+
+                // Hot reload: drop live instances tied to the old assembly, then unload
+                // its collectible context so the old types can be collected.
+                if (s_scriptsContext != null)
                 {
-                    AppDomain.CurrentDomain.AssemblyResolve += ResolveAssembly;
-                    s_resolverInstalled = true;
+                    foreach (var script in s_instances.Values)
+                    {
+                        Guarded(() => script.OnDeactivate(), script, "OnDeactivate");
+                    }
+                    s_instances.Clear();
+                    s_scriptsAssembly = null;
+                    s_scriptsContext.Unload();
+                    s_scriptsContext = null;
                 }
+
                 s_scriptsDirectory = System.IO.Path.GetDirectoryName(path);
-                // Load bytes so the file on disk stays writable for rebuilds.
-                byte[] bytes = System.IO.File.ReadAllBytes(path);
-                s_scriptsAssembly = Assembly.Load(bytes);
+                var context = new ScriptsLoadContext(s_scriptsDirectory);
+                // Load from a stream so the file on disk stays writable for rebuilds.
+                using (var stream = System.IO.File.OpenRead(path))
+                {
+                    s_scriptsAssembly = context.LoadFromStream(stream);
+                }
+                s_scriptsContext = context;
                 return 1;
             }
             catch (Exception e)
@@ -155,6 +184,34 @@ namespace AIO3DE.Interop
         public static void DestroyScript(long handle)
         {
             s_instances.Remove(handle);
+        }
+
+        [UnmanagedCallersOnly]
+        public static void ScriptOnCollisionEnter(
+            long handle, ulong otherEntityId,
+            float positionX, float positionY, float positionZ,
+            float normalX, float normalY, float normalZ, float impulse)
+        {
+            if (s_instances.TryGetValue(handle, out var script))
+            {
+                var collision = new Collision
+                {
+                    Other = new Entity(otherEntityId),
+                    Position = new Vector3(positionX, positionY, positionZ),
+                    Normal = new Vector3(normalX, normalY, normalZ),
+                    Impulse = impulse,
+                };
+                Guarded(() => script.OnCollisionEnter(collision), script, "OnCollisionEnter");
+            }
+        }
+
+        [UnmanagedCallersOnly]
+        public static void ScriptOnCollisionExit(long handle, ulong otherEntityId)
+        {
+            if (s_instances.TryGetValue(handle, out var script))
+            {
+                Guarded(() => script.OnCollisionExit(new Entity(otherEntityId)), script, "OnCollisionExit");
+            }
         }
 
         private static void Guarded(Action action, ScriptComponent script, string phase)

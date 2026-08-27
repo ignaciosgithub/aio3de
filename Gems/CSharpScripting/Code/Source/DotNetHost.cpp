@@ -17,6 +17,12 @@
 #include <AzCore/Utils/Utils.h>
 
 #if defined(AZ_PLATFORM_WINDOWS)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN // keep windows.h from dragging in winsock.h, which conflicts with WinSock2.h
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <Windows.h>
 #else
 #include <dlfcn.h>

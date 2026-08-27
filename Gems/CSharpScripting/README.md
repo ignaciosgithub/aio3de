@@ -43,12 +43,14 @@ public class Mover : ScriptComponent
 }
 ```
 
-See `Examples/Mover.cs` for a complete sample.
+See `Examples/Mover.cs`, `Examples/FpsController.cs`, and `Examples/Spawner.cs` for samples.
 
 ### API (AIO3DE.Core)
 
-- `ScriptComponent` — base class; lifecycle: `OnActivate()`, `OnUpdate(float deltaTime)`, `OnDeactivate()`; `Entity` field = the entity the script is on.
-- `Entity` — transform: `Position`, `LocalPosition`, `RotationEuler` (degrees), `Rotation` (quaternion), `UniformScale`, `ForwardVector`/`RightVector`/`UpVector`, `Parent` (get/set); lifecycle: `Entity.Find(name)`, `Entity.Create(name)`, `Destroy()`, `IsActive`, `SetActive(bool)`; rigid body (needs a Rigid Body component): `LinearVelocity`, `AngularVelocity`, `ApplyImpulse`, `ApplyAngularImpulse`, `Mass`, `SetGravityEnabled`, `SetKinematic`.
+- `ScriptComponent` — base class; lifecycle: `OnActivate()`, `OnUpdate(float deltaTime)`, `OnDeactivate()`; collision callbacks (needs a PhysX collider/rigid body on the entity): `OnCollisionEnter(Collision)`, `OnCollisionExit(Entity other)`; `Entity` field = the entity the script is on.
+- `Collision` — payload for `OnCollisionEnter`: `Other` entity, first contact `Position`, `Normal`, and `Impulse` magnitude.
+- `Prefab` — `Prefab.Spawn("path/to/thing.spawnable", position)` instantiates a processed prefab (spawnable) at runtime. Spawning is asynchronous: the returned `PrefabInstance.RootEntity` becomes valid once spawning completes (usually the next frame). Keep the `PrefabInstance` and call `Despawn()` to remove all its entities.
+- `Entity` — transform: `Position`, `LocalPosition`, `RotationEuler` (degrees), `Rotation` (quaternion), `UniformScale`, `ForwardVector`/`RightVector`/`UpVector`, `Parent` (get/set); lifecycle: `Entity.Find(name)`, `Entity.Create(name)`, `Destroy()`, `IsActive`, `SetActive(bool)`; rigid body (needs a Rigid Body component): `LinearVelocity`, `AngularVelocity`, `ApplyImpulse`, `ApplyAngularImpulse`, `Mass`, `SetGravityEnabled`, `SetKinematic`; tags (needs a Tag component): `HasTag`, `AddTag`, `RemoveTag`, `Entity.FindByTag(tag)`, `Entity.FindAllByTag(tag)`.
 - `Input` — `GetKey("W")` / `GetKey("Space")` / `GetKey("LShift")`..., `GetMouseButton(0/1/2)`, `MouseDelta`, `CursorPosition` (normalized), plus raw channels: `IsHeld("keyboard_key_alphanumeric_W")`, `GetValue("mouse_delta_x")` (any O3DE input channel name, including gamepads).
 - `Physics` — `Raycast(origin, direction, maxDistance, out RaycastHit hit)` against the default physics scene; `RaycastHit` has `Position`, `Normal`, `Distance`, `Entity`.
 - `Time` — `TimeSinceStart` (seconds since app start; per-frame delta comes via `OnUpdate`).
@@ -57,7 +59,16 @@ See `Examples/Mover.cs` for a complete sample.
 - `Quaternion` — `Identity`, `FromAxisAngle(axis, degrees)`, multiplication, `Rotate(vector)`.
 
 Note: Z is up, Y is forward (O3DE convention). Entities spawned with `Entity.Create` start empty
-with just a transform; prefab/spawnable instantiation is a future binding.
+with just a transform; use `Prefab.Spawn` to instantiate authored prefabs (the Asset Processor
+turns each `.prefab` into a runtime `.spawnable` — pass its cache-relative path, e.g.
+`"prefabs/enemy.spawnable"`).
+
+### Hot reload
+
+Scripts load into a collectible `AssemblyLoadContext`. `csharp_rebuild` (or the component's
+Rebuild button) recompiles and reloads: existing script instances are deactivated and the old
+assembly is unloaded, so repeated rebuilds do not leak memory. New instances (e.g. next game-mode
+entry) use the new code.
 
 ## How it works
 

@@ -10,7 +10,11 @@
 
 #include <AzCore/PlatformDef.h>
 
+#include <AzCore/Asset/AssetManager.h>
+#include <AzCore/Asset/AssetManagerBus.h>
 #include <AzCore/Component/ComponentApplicationBus.h>
+#include <AzCore/EBus/Results.h>
+#include <AzCore/std/containers/unordered_map.h>
 #include <AzCore/Component/Entity.h>
 #include <AzCore/Component/TransformBus.h>
 #include <AzCore/Debug/Trace.h>
@@ -31,6 +35,10 @@
 #include <AzFramework/Physics/Common/PhysicsSceneQueries.h>
 #include <AzFramework/Physics/PhysicsScene.h>
 #include <AzFramework/Physics/RigidBodyBus.h>
+#include <AzFramework/Spawnable/Spawnable.h>
+#include <AzFramework/Spawnable/SpawnableEntitiesInterface.h>
+
+#include <LmbrCentral/Scripting/TagComponentBus.h>
 
 #include <cstdio>
 
@@ -372,6 +380,130 @@ namespace CSharpScripting
                 AZ::EntityId(entityId), &Physics::RigidBodyRequests::SetKinematic, kinematic != 0);
         }
 
+        int ApiHasTag(AZ::u64 entityId, const char* tag)
+        {
+            bool hasTag = false;
+            LmbrCentral::TagComponentRequestBus::EventResult(
+                hasTag, AZ::EntityId(entityId), &LmbrCentral::TagComponentRequests::HasTag, LmbrCentral::Tag(tag));
+            return hasTag ? 1 : 0;
+        }
+
+        void ApiAddTag(AZ::u64 entityId, const char* tag)
+        {
+            LmbrCentral::TagComponentRequestBus::Event(
+                AZ::EntityId(entityId), &LmbrCentral::TagComponentRequests::AddTag, LmbrCentral::Tag(tag));
+        }
+
+        void ApiRemoveTag(AZ::u64 entityId, const char* tag)
+        {
+            LmbrCentral::TagComponentRequestBus::Event(
+                AZ::EntityId(entityId), &LmbrCentral::TagComponentRequests::RemoveTag, LmbrCentral::Tag(tag));
+        }
+
+        AZ::u64 ApiFindEntityByTag(const char* tag)
+        {
+            AZ::EntityId entityId;
+            LmbrCentral::TagGlobalRequestBus::EventResult(
+                entityId, LmbrCentral::Tag(tag), &LmbrCentral::TagGlobalRequests::RequestTaggedEntities);
+            return static_cast<AZ::u64>(entityId);
+        }
+
+        int ApiFindEntitiesByTag(const char* tag, AZ::u64* buffer, int bufferSize)
+        {
+            AZ::EBusAggregateResults<AZ::EntityId> results;
+            LmbrCentral::TagGlobalRequestBus::EventResult(
+                results, LmbrCentral::Tag(tag), &LmbrCentral::TagGlobalRequests::RequestTaggedEntities);
+            int count = 0;
+            for (const AZ::EntityId& entityId : results.values)
+            {
+                if (count >= bufferSize)
+                {
+                    break;
+                }
+                buffer[count++] = static_cast<AZ::u64>(entityId);
+            }
+            return count;
+        }
+
+        struct SpawnRecord
+        {
+            AzFramework::EntitySpawnTicket m_ticket;
+            AZ::EntityId m_rootEntityId;
+        };
+        AZStd::unordered_map<AZ::u64, SpawnRecord> s_spawnRecords;
+        AZ::u64 s_nextSpawnId = 1;
+
+        AZ::u64 ApiSpawnPrefab(const char* spawnablePath, float x, float y, float z)
+        {
+            AZ::Data::AssetId assetId;
+            AZ::Data::AssetCatalogRequestBus::BroadcastResult(
+                assetId, &AZ::Data::AssetCatalogRequestBus::Events::GetAssetIdByPath,
+                spawnablePath, azrtti_typeid<AzFramework::Spawnable>(), false);
+            if (!assetId.IsValid())
+            {
+                AZ_Error("CSharpScripting", false, "Spawnable '%s' not found in the asset catalog.", spawnablePath);
+                return 0;
+            }
+
+            auto spawnableAsset = AZ::Data::AssetManager::Instance().GetAsset<AzFramework::Spawnable>(
+                assetId, AZ::Data::AssetLoadBehavior::PreLoad);
+            spawnableAsset.BlockUntilLoadComplete();
+            if (!spawnableAsset.IsReady())
+            {
+                AZ_Error("CSharpScripting", false, "Spawnable '%s' failed to load.", spawnablePath);
+                return 0;
+            }
+
+            auto* spawner = AzFramework::SpawnableEntitiesInterface::Get();
+            if (!spawner)
+            {
+                return 0;
+            }
+
+            const AZ::u64 spawnId = s_nextSpawnId++;
+            SpawnRecord& record = s_spawnRecords[spawnId];
+            record.m_ticket = AzFramework::EntitySpawnTicket(spawnableAsset);
+
+            AzFramework::SpawnAllEntitiesOptionalArgs optionalArgs;
+            const AZ::Vector3 translation(x, y, z);
+            optionalArgs.m_preInsertionCallback =
+                [translation]([[maybe_unused]] AzFramework::EntitySpawnTicket::Id ticketId, AzFramework::SpawnableEntityContainerView view)
+            {
+                for (AZ::Entity* entity : view)
+                {
+                    if (auto* transformComponent = entity->FindComponent<AzFramework::TransformComponent>())
+                    {
+                        AZ::Transform worldTm = transformComponent->GetWorldTM();
+                        worldTm.SetTranslation(worldTm.GetTranslation() + translation);
+                        transformComponent->SetWorldTM(worldTm);
+                    }
+                }
+            };
+            optionalArgs.m_completionCallback =
+                [spawnId]([[maybe_unused]] AzFramework::EntitySpawnTicket::Id ticketId, AzFramework::SpawnableConstEntityContainerView view)
+            {
+                auto it = s_spawnRecords.find(spawnId);
+                if (it != s_spawnRecords.end() && !view.empty())
+                {
+                    it->second.m_rootEntityId = (*view.begin())->GetId();
+                }
+            };
+            spawner->SpawnAllEntities(record.m_ticket, AZStd::move(optionalArgs));
+            return spawnId;
+        }
+
+        AZ::u64 ApiGetSpawnedRoot(AZ::u64 ticketId)
+        {
+            auto it = s_spawnRecords.find(ticketId);
+            return it != s_spawnRecords.end() ? static_cast<AZ::u64>(it->second.m_rootEntityId) : 0;
+        }
+
+        void ApiDespawn(AZ::u64 ticketId)
+        {
+            // Destroying the ticket despawns its entities.
+            s_spawnRecords.erase(ticketId);
+        }
+
         bool RunCommand(const AZStd::string& command, AZStd::string& output)
         {
 #if defined(AZ_PLATFORM_WINDOWS)
@@ -506,9 +638,14 @@ namespace CSharpScripting
         m_managedScriptOnDeactivate =
             reinterpret_cast<void (*)(AZ::s64)>(m_host.GetFunction(coreDll, bootstrapType, "ScriptOnDeactivate"));
         m_managedDestroyScript = reinterpret_cast<void (*)(AZ::s64)>(m_host.GetFunction(coreDll, bootstrapType, "DestroyScript"));
+        m_managedScriptOnCollisionEnter = reinterpret_cast<void (*)(AZ::s64, AZ::u64, float, float, float, float, float, float, float)>(
+            m_host.GetFunction(coreDll, bootstrapType, "ScriptOnCollisionEnter"));
+        m_managedScriptOnCollisionExit =
+            reinterpret_cast<void (*)(AZ::s64, AZ::u64)>(m_host.GetFunction(coreDll, bootstrapType, "ScriptOnCollisionExit"));
 
         if (!m_managedInitialize || !m_managedLoadScripts || !m_managedCreateScript || !m_managedScriptOnActivate ||
-            !m_managedScriptOnUpdate || !m_managedScriptOnDeactivate || !m_managedDestroyScript)
+            !m_managedScriptOnUpdate || !m_managedScriptOnDeactivate || !m_managedDestroyScript ||
+            !m_managedScriptOnCollisionEnter || !m_managedScriptOnCollisionExit)
         {
             return false;
         }
@@ -548,6 +685,14 @@ namespace CSharpScripting
             &ApiGetMass,
             &ApiSetGravityEnabled,
             &ApiSetKinematic,
+            &ApiHasTag,
+            &ApiAddTag,
+            &ApiRemoveTag,
+            &ApiFindEntityByTag,
+            &ApiFindEntitiesByTag,
+            &ApiSpawnPrefab,
+            &ApiGetSpawnedRoot,
+            &ApiDespawn,
         };
         if (m_managedInitialize(&api) == 0)
         {
@@ -689,6 +834,25 @@ namespace CSharpScripting
         if (handle != 0 && m_managedDestroyScript)
         {
             m_managedDestroyScript(handle);
+        }
+    }
+
+    void ScriptHost::ScriptOnCollisionEnter(
+        AZ::s64 handle, AZ::u64 otherEntityId,
+        float positionX, float positionY, float positionZ,
+        float normalX, float normalY, float normalZ, float impulse)
+    {
+        if (handle != 0 && m_managedScriptOnCollisionEnter)
+        {
+            m_managedScriptOnCollisionEnter(handle, otherEntityId, positionX, positionY, positionZ, normalX, normalY, normalZ, impulse);
+        }
+    }
+
+    void ScriptHost::ScriptOnCollisionExit(AZ::s64 handle, AZ::u64 otherEntityId)
+    {
+        if (handle != 0 && m_managedScriptOnCollisionExit)
+        {
+            m_managedScriptOnCollisionExit(handle, otherEntityId);
         }
     }
 } // namespace CSharpScripting

@@ -13,6 +13,10 @@
 #include <AzCore/Console/IConsole.h>
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
+#include <AzCore/Interface/Interface.h>
+#include <AzFramework/Physics/Common/PhysicsSimulatedBody.h>
+#include <AzFramework/Physics/Components/SimulatedBodyComponentBus.h>
+#include <AzFramework/Physics/PhysicsScene.h>
 
 namespace CSharpScripting
 {
@@ -64,6 +68,9 @@ namespace CSharpScripting
 
     void CSharpScriptComponent::Deactivate()
     {
+        m_collisionBeginHandler.Disconnect();
+        m_collisionEndHandler.Disconnect();
+        m_collisionHandlersRegistered = false;
         if (m_handle != 0)
         {
             AZ::TickBus::Handler::BusDisconnect();
@@ -75,6 +82,60 @@ namespace CSharpScripting
 
     void CSharpScriptComponent::OnTick(float deltaTime, [[maybe_unused]] AZ::ScriptTimePoint time)
     {
+        if (!m_collisionHandlersRegistered)
+        {
+            RegisterCollisionHandlers();
+        }
         ScriptHost::Instance().ScriptOnUpdate(m_handle, deltaTime);
+    }
+
+    void CSharpScriptComponent::RegisterCollisionHandlers()
+    {
+        AzPhysics::SimulatedBodyHandle bodyHandle = AzPhysics::InvalidSimulatedBodyHandle;
+        AzPhysics::SimulatedBodyComponentRequestsBus::EventResult(
+            bodyHandle, GetEntityId(), &AzPhysics::SimulatedBodyComponentRequests::GetSimulatedBodyHandle);
+        if (bodyHandle == AzPhysics::InvalidSimulatedBodyHandle)
+        {
+            return;
+        }
+
+        AzPhysics::SceneHandle sceneHandle = AzPhysics::InvalidSceneHandle;
+        if (auto* sceneInterface = AZ::Interface<AzPhysics::SceneInterface>::Get())
+        {
+            sceneHandle = sceneInterface->GetSceneHandle(AzPhysics::DefaultPhysicsSceneName);
+        }
+        if (sceneHandle == AzPhysics::InvalidSceneHandle)
+        {
+            return;
+        }
+
+        const AZ::s64 handle = m_handle;
+        m_collisionBeginHandler = AzPhysics::SimulatedBodyEvents::OnCollisionBegin::Handler(
+            [handle]([[maybe_unused]] AzPhysics::SimulatedBodyHandle bodyHandle, const AzPhysics::CollisionEvent& event)
+            {
+                const AZ::u64 otherEntityId = event.m_body2 ? static_cast<AZ::u64>(event.m_body2->GetEntityId()) : 0;
+                AZ::Vector3 position = AZ::Vector3::CreateZero();
+                AZ::Vector3 normal = AZ::Vector3::CreateZero();
+                float impulse = 0.0f;
+                if (!event.m_contacts.empty())
+                {
+                    position = event.m_contacts.front().m_position;
+                    normal = event.m_contacts.front().m_normal;
+                    impulse = event.m_contacts.front().m_impulse.GetLength();
+                }
+                ScriptHost::Instance().ScriptOnCollisionEnter(
+                    handle, otherEntityId,
+                    position.GetX(), position.GetY(), position.GetZ(),
+                    normal.GetX(), normal.GetY(), normal.GetZ(), impulse);
+            });
+        m_collisionEndHandler = AzPhysics::SimulatedBodyEvents::OnCollisionEnd::Handler(
+            [handle]([[maybe_unused]] AzPhysics::SimulatedBodyHandle bodyHandle, const AzPhysics::CollisionEvent& event)
+            {
+                const AZ::u64 otherEntityId = event.m_body2 ? static_cast<AZ::u64>(event.m_body2->GetEntityId()) : 0;
+                ScriptHost::Instance().ScriptOnCollisionExit(handle, otherEntityId);
+            });
+        AzPhysics::SimulatedBodyEvents::RegisterOnCollisionBeginHandler(sceneHandle, bodyHandle, m_collisionBeginHandler);
+        AzPhysics::SimulatedBodyEvents::RegisterOnCollisionEndHandler(sceneHandle, bodyHandle, m_collisionEndHandler);
+        m_collisionHandlersRegistered = true;
     }
 } // namespace CSharpScripting

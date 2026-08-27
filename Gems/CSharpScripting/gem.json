@@ -17,5 +17,7 @@
     ],
     "requirements": "Requires the .NET 8 SDK ('dotnet') on the machine running the Editor or game.",
     "documentation_url": "",
-    "dependencies": []
+    "dependencies": [
+        "LmbrCentral"
+    ]
 }
