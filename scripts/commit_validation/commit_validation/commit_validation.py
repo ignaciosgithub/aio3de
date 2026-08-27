@@ -183,4 +183,5 @@ EXCLUDED_VALIDATION_PATTERNS = [
     '*/user/log/*',
     '*/user/log_test_1/*',
     '*/user/log_test_2/*',
+    '*/Managed/*.csproj', # hand-written C# project files (managed scripting), not MSVS artifacts
 ]

@@ -8,6 +8,8 @@
 
 #include "ScriptHost.h"
 
+#include <AzCore/PlatformDef.h>
+
 #include <AzCore/Component/ComponentApplicationBus.h>
 #include <AzCore/Component/Entity.h>
 #include <AzCore/Component/TransformBus.h>
@@ -112,7 +114,7 @@ namespace CSharpScripting
 
         bool RunCommand(const AZStd::string& command, AZStd::string& output)
         {
-#if defined(_WIN32)
+#if defined(AZ_PLATFORM_WINDOWS)
             FILE* pipe = _popen((command + " 2>&1").c_str(), "r");
 #else
             FILE* pipe = popen((command + " 2>&1").c_str(), "r");
@@ -126,7 +128,7 @@ namespace CSharpScripting
             {
                 output += buffer;
             }
-#if defined(_WIN32)
+#if defined(AZ_PLATFORM_WINDOWS)
             const int exitCode = _pclose(pipe);
 #else
             const int exitCode = pclose(pipe);

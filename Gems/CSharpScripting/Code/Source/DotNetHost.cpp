@@ -8,6 +8,8 @@
 
 #include "DotNetHost.h"
 
+#include <AzCore/PlatformDef.h>
+
 #include <AzCore/Debug/Trace.h>
 #include <AzCore/IO/SystemFile.h>
 #include <AzCore/std/containers/fixed_vector.h>
@@ -15,7 +17,7 @@
 
 #include <cstdlib>
 
-#if defined(_WIN32)
+#if defined(AZ_PLATFORM_WINDOWS)
 #include <Windows.h>
 #else
 #include <dlfcn.h>
@@ -27,7 +29,7 @@ namespace CSharpScripting
     // builds without .NET SDK headers; the library itself is loaded dynamically.
     namespace HostFxr
     {
-#if defined(_WIN32)
+#if defined(AZ_PLATFORM_WINDOWS)
         using char_t = wchar_t;
 #else
         using char_t = char;
@@ -62,7 +64,7 @@ namespace CSharpScripting
     {
         void* LoadLibraryPortable(const char* path)
         {
-#if defined(_WIN32)
+#if defined(AZ_PLATFORM_WINDOWS)
             return ::LoadLibraryA(path);
 #else
             return ::dlopen(path, RTLD_NOW | RTLD_GLOBAL);
@@ -71,14 +73,14 @@ namespace CSharpScripting
 
         void* GetSymbolPortable(void* handle, const char* name)
         {
-#if defined(_WIN32)
+#if defined(AZ_PLATFORM_WINDOWS)
             return reinterpret_cast<void*>(::GetProcAddress(static_cast<HMODULE>(handle), name));
 #else
             return ::dlsym(handle, name);
 #endif
         }
 
-#if defined(_WIN32)
+#if defined(AZ_PLATFORM_WINDOWS)
         AZStd::wstring ToHostString(const AZStd::string& value)
         {
             AZStd::wstring result;
@@ -120,7 +122,7 @@ namespace CSharpScripting
 
         AZStd::string FindHostFxrLibrary()
         {
-#if defined(_WIN32)
+#if defined(AZ_PLATFORM_WINDOWS)
             const char* libraryName = "hostfxr.dll";
 #elif defined(__APPLE__)
             const char* libraryName = "libhostfxr.dylib";
@@ -132,7 +134,7 @@ namespace CSharpScripting
             {
                 roots.push_back(dotnetRoot);
             }
-#if defined(_WIN32)
+#if defined(AZ_PLATFORM_WINDOWS)
             roots.push_back("C:\\Program Files\\dotnet");
 #else
             roots.push_back("/usr/lib/dotnet");
@@ -153,7 +155,7 @@ namespace CSharpScripting
 
     AZStd::string DotNetHost::FindDotNetCli()
     {
-#if defined(_WIN32)
+#if defined(AZ_PLATFORM_WINDOWS)
         const char* cliName = "dotnet.exe";
 #else
         const char* cliName = "dotnet";
@@ -163,7 +165,7 @@ namespace CSharpScripting
         {
             roots.push_back(dotnetRoot);
         }
-#if defined(_WIN32)
+#if defined(AZ_PLATFORM_WINDOWS)
         roots.push_back("C:\\Program Files\\dotnet");
 #else
         roots.push_back("/usr/lib/dotnet");
