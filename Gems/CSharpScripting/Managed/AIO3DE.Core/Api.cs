@@ -226,6 +226,30 @@ namespace AIO3DE
 
         public static Entity Find(string name) => new(Native.FindEntityByName(name));
 
+        /// <summary>Finds the first entity with the given tag (needs a Tag component).</summary>
+        public static Entity FindByTag(string tag) => new(Native.FindEntityByTag(tag));
+
+        /// <summary>Finds all entities with the given tag (needs Tag components).</summary>
+        public static Entity[] FindAllByTag(string tag)
+        {
+            ulong[] ids = Native.FindEntitiesByTag(tag);
+            var entities = new Entity[ids.Length];
+            for (int i = 0; i < ids.Length; i++)
+            {
+                entities[i] = new Entity(ids[i]);
+            }
+            return entities;
+        }
+
+        /// <summary>Returns true if the entity's Tag component has the given tag.</summary>
+        public bool HasTag(string tag) => Native.HasTag(Id, tag);
+
+        /// <summary>Adds a tag to the entity's Tag component.</summary>
+        public void AddTag(string tag) => Native.AddTag(Id, tag);
+
+        /// <summary>Removes a tag from the entity's Tag component.</summary>
+        public void RemoveTag(string tag) => Native.RemoveTag(Id, tag);
+
         /// <summary>Creates and activates a new empty entity with a transform.</summary>
         public static Entity Create(string name) => new(Native.CreateEntity(name));
 
@@ -361,5 +385,65 @@ namespace AIO3DE
         public virtual void OnDeactivate()
         {
         }
+
+        /// <summary>Called when this entity's simulated body starts touching another body (needs a collider).</summary>
+        public virtual void OnCollisionEnter(Collision collision)
+        {
+        }
+
+        /// <summary>Called when this entity's simulated body stops touching another body.</summary>
+        public virtual void OnCollisionExit(Entity other)
+        {
+        }
+    }
+
+    /// <summary>Contact information delivered to <see cref="ScriptComponent.OnCollisionEnter"/>.</summary>
+    public struct Collision
+    {
+        /// <summary>The other entity involved in the collision.</summary>
+        public Entity Other;
+        /// <summary>World-space position of the first contact point.</summary>
+        public Vector3 Position;
+        /// <summary>World-space contact normal of the first contact point.</summary>
+        public Vector3 Normal;
+        /// <summary>Magnitude of the separating impulse at the first contact point.</summary>
+        public float Impulse;
+    }
+
+    /// <summary>A spawned prefab (spawnable) instance. Keep it to despawn later.</summary>
+    public readonly struct PrefabInstance
+    {
+        internal readonly ulong TicketId;
+
+        internal PrefabInstance(ulong ticketId)
+        {
+            TicketId = ticketId;
+        }
+
+        /// <summary>True if the spawn request was issued successfully.</summary>
+        public bool IsValid => TicketId != 0;
+
+        /// <summary>
+        /// The root entity of the spawned instance. Spawning is asynchronous:
+        /// this is invalid (Id == 0) until the entities finish spawning, usually the next frame.
+        /// </summary>
+        public unsafe Entity RootEntity => new(Native.Api.GetSpawnedRoot(TicketId));
+
+        /// <summary>Despawns all entities of this instance.</summary>
+        public unsafe void Despawn() => Native.Api.Despawn(TicketId);
+    }
+
+    /// <summary>Spawns prefab (.spawnable) instances at runtime.</summary>
+    public static class Prefab
+    {
+        /// <summary>
+        /// Spawns a processed prefab by its cache path, e.g. "prefabs/enemy.spawnable",
+        /// offset by <paramref name="position"/>. Returns a handle usable to despawn it.
+        /// </summary>
+        public static PrefabInstance Spawn(string spawnablePath, Vector3 position) =>
+            new(Native.SpawnPrefab(spawnablePath, position.X, position.Y, position.Z));
+
+        /// <summary>Spawns a processed prefab at its authored position.</summary>
+        public static PrefabInstance Spawn(string spawnablePath) => Spawn(spawnablePath, Vector3.Zero);
     }
 }

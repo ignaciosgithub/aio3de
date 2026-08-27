@@ -18,6 +18,7 @@ ly_add_target(
         PUBLIC
             AZ::AzCore
             AZ::AzFramework
+            Gem::LmbrCentral.API
 )
 
 if(NOT WIN32)

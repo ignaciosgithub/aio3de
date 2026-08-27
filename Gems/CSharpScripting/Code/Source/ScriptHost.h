@@ -66,6 +66,18 @@ namespace CSharpScripting
         float (*m_getMass)(AZ::u64 entityId);
         void (*m_setGravityEnabled)(AZ::u64 entityId, int enabled);
         void (*m_setKinematic)(AZ::u64 entityId, int kinematic);
+
+        // Tags (LmbrCentral Tag component)
+        int (*m_hasTag)(AZ::u64 entityId, const char* tag);
+        void (*m_addTag)(AZ::u64 entityId, const char* tag);
+        void (*m_removeTag)(AZ::u64 entityId, const char* tag);
+        AZ::u64 (*m_findEntityByTag)(const char* tag);
+        int (*m_findEntitiesByTag)(const char* tag, AZ::u64* buffer, int bufferSize);
+
+        // Spawnables (prefabs)
+        AZ::u64 (*m_spawnPrefab)(const char* spawnablePath, float x, float y, float z);
+        AZ::u64 (*m_getSpawnedRoot)(AZ::u64 ticketId);
+        void (*m_despawn)(AZ::u64 ticketId);
     };
 
     //! Owns the .NET runtime, compiles the managed core + project scripts with the dotnet CLI,
@@ -86,6 +98,11 @@ namespace CSharpScripting
         void ScriptOnUpdate(AZ::s64 handle, float deltaTime);
         void ScriptOnDeactivate(AZ::s64 handle);
         void DestroyScript(AZ::s64 handle);
+        void ScriptOnCollisionEnter(
+            AZ::s64 handle, AZ::u64 otherEntityId,
+            float positionX, float positionY, float positionZ,
+            float normalX, float normalY, float normalZ, float impulse);
+        void ScriptOnCollisionExit(AZ::s64 handle, AZ::u64 otherEntityId);
 
     private:
         bool InitializeRuntime();
@@ -110,5 +127,10 @@ namespace CSharpScripting
         void (*m_managedScriptOnUpdate)(AZ::s64 handle, float deltaTime) = nullptr;
         void (*m_managedScriptOnDeactivate)(AZ::s64 handle) = nullptr;
         void (*m_managedDestroyScript)(AZ::s64 handle) = nullptr;
+        void (*m_managedScriptOnCollisionEnter)(
+            AZ::s64 handle, AZ::u64 otherEntityId,
+            float positionX, float positionY, float positionZ,
+            float normalX, float normalY, float normalZ, float impulse) = nullptr;
+        void (*m_managedScriptOnCollisionExit)(AZ::s64 handle, AZ::u64 otherEntityId) = nullptr;
     };
 } // namespace CSharpScripting

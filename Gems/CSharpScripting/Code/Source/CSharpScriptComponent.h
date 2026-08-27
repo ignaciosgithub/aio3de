@@ -11,6 +11,7 @@
 #include <AzCore/Component/Component.h>
 #include <AzCore/Component/TickBus.h>
 #include <AzCore/std/string/string.h>
+#include <AzFramework/Physics/Common/PhysicsSimulatedBodyEvents.h>
 
 namespace CSharpScripting
 {
@@ -38,7 +39,12 @@ namespace CSharpScripting
         void OnTick(float deltaTime, AZ::ScriptTimePoint time) override;
 
     private:
+        void RegisterCollisionHandlers();
+
         AZStd::string m_className;
         AZ::s64 m_handle = 0;
+        bool m_collisionHandlersRegistered = false;
+        AzPhysics::SimulatedBodyEvents::OnCollisionBegin::Handler m_collisionBeginHandler;
+        AzPhysics::SimulatedBodyEvents::OnCollisionEnd::Handler m_collisionEndHandler;
     };
 } // namespace CSharpScripting
