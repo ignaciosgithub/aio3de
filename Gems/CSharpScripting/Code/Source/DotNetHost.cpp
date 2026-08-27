@@ -14,8 +14,7 @@
 #include <AzCore/IO/SystemFile.h>
 #include <AzCore/std/containers/fixed_vector.h>
 #include <AzCore/std/string/conversions.h>
-
-#include <cstdlib>
+#include <AzCore/Utils/Utils.h>
 
 #if defined(AZ_PLATFORM_WINDOWS)
 #include <Windows.h>
@@ -120,6 +119,16 @@ namespace CSharpScripting
             return best;
         }
 
+        AZStd::string GetDotNetRootEnv()
+        {
+            char buffer[AZ::IO::MaxPathLength];
+            if (auto outcome = AZ::Utils::GetEnv(AZStd::span<char>(buffer), "DOTNET_ROOT"); outcome.IsSuccess())
+            {
+                return AZStd::string(outcome.GetValue());
+            }
+            return {};
+        }
+
         AZStd::string FindHostFxrLibrary()
         {
 #if defined(AZ_PLATFORM_WINDOWS)
@@ -130,9 +139,9 @@ namespace CSharpScripting
             const char* libraryName = "libhostfxr.so";
 #endif
             AZStd::fixed_vector<AZStd::string, 4> roots;
-            if (const char* dotnetRoot = ::getenv("DOTNET_ROOT"); dotnetRoot && dotnetRoot[0])
+            if (AZStd::string dotnetRoot = GetDotNetRootEnv(); !dotnetRoot.empty())
             {
-                roots.push_back(dotnetRoot);
+                roots.push_back(AZStd::move(dotnetRoot));
             }
 #if defined(AZ_PLATFORM_WINDOWS)
             roots.push_back("C:\\Program Files\\dotnet");
@@ -160,10 +169,10 @@ namespace CSharpScripting
 #else
         const char* cliName = "dotnet";
 #endif
-        AZStd::fixed_vector<AZStd::string, 4> roots;
-        if (const char* dotnetRoot = ::getenv("DOTNET_ROOT"); dotnetRoot && dotnetRoot[0])
+        AZStd::fixed_vector<AZStd::string, 5> roots;
+        if (AZStd::string dotnetRoot = GetDotNetRootEnv(); !dotnetRoot.empty())
         {
-            roots.push_back(dotnetRoot);
+            roots.push_back(AZStd::move(dotnetRoot));
         }
 #if defined(AZ_PLATFORM_WINDOWS)
         roots.push_back("C:\\Program Files\\dotnet");
