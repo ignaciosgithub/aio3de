@@ -19,7 +19,18 @@
 #include <AzCore/Math/Transform.h>
 #include <AzCore/Math/Vector3.h>
 #include <AzCore/StringFunc/StringFunc.h>
+#include <AzCore/Time/ITime.h>
 #include <AzCore/Utils/Utils.h>
+
+#include <AzFramework/Components/TransformComponent.h>
+#include <AzFramework/Entity/GameEntityContextBus.h>
+#include <AzFramework/Input/Buses/Requests/InputChannelRequestBus.h>
+#include <AzFramework/Input/Buses/Requests/InputSystemCursorRequestBus.h>
+#include <AzFramework/Input/Channels/InputChannel.h>
+#include <AzFramework/Input/Devices/Mouse/InputDeviceMouse.h>
+#include <AzFramework/Physics/Common/PhysicsSceneQueries.h>
+#include <AzFramework/Physics/PhysicsScene.h>
+#include <AzFramework/Physics/RigidBodyBus.h>
 
 #include <cstdio>
 
@@ -110,6 +121,255 @@ namespace CSharpScripting
                 name, &AZ::ComponentApplicationBus::Events::GetEntityName, AZ::EntityId(entityId));
             azstrncpy(buffer, bufferSize, name.c_str(), bufferSize - 1);
             buffer[bufferSize - 1] = '\0';
+        }
+
+        void ApiGetLocalPosition(AZ::u64 entityId, float* xyz)
+        {
+            AZ::Vector3 position = AZ::Vector3::CreateZero();
+            AZ::TransformBus::EventResult(position, AZ::EntityId(entityId), &AZ::TransformBus::Events::GetLocalTranslation);
+            xyz[0] = position.GetX();
+            xyz[1] = position.GetY();
+            xyz[2] = position.GetZ();
+        }
+
+        void ApiSetLocalPosition(AZ::u64 entityId, float x, float y, float z)
+        {
+            AZ::TransformBus::Event(AZ::EntityId(entityId), &AZ::TransformBus::Events::SetLocalTranslation, AZ::Vector3(x, y, z));
+        }
+
+        void ApiGetWorldRotationQuaternion(AZ::u64 entityId, float* xyzw)
+        {
+            AZ::Quaternion rotation = AZ::Quaternion::CreateIdentity();
+            AZ::TransformBus::EventResult(rotation, AZ::EntityId(entityId), &AZ::TransformBus::Events::GetWorldRotationQuaternion);
+            xyzw[0] = rotation.GetX();
+            xyzw[1] = rotation.GetY();
+            xyzw[2] = rotation.GetZ();
+            xyzw[3] = rotation.GetW();
+        }
+
+        void ApiSetWorldRotationQuaternion(AZ::u64 entityId, float x, float y, float z, float w)
+        {
+            AZ::Quaternion rotation(x, y, z, w);
+            rotation.Normalize();
+            AZ::Transform transform = AZ::Transform::CreateIdentity();
+            AZ::TransformBus::EventResult(transform, AZ::EntityId(entityId), &AZ::TransformBus::Events::GetWorldTM);
+            transform.SetRotation(rotation);
+            AZ::TransformBus::Event(AZ::EntityId(entityId), &AZ::TransformBus::Events::SetWorldTM, transform);
+        }
+
+        void ApiGetWorldBasis(AZ::u64 entityId, float* rightForwardUp9)
+        {
+            AZ::Transform transform = AZ::Transform::CreateIdentity();
+            AZ::TransformBus::EventResult(transform, AZ::EntityId(entityId), &AZ::TransformBus::Events::GetWorldTM);
+            const AZ::Vector3 right = transform.GetBasisX();
+            const AZ::Vector3 forward = transform.GetBasisY();
+            const AZ::Vector3 up = transform.GetBasisZ();
+            rightForwardUp9[0] = right.GetX();
+            rightForwardUp9[1] = right.GetY();
+            rightForwardUp9[2] = right.GetZ();
+            rightForwardUp9[3] = forward.GetX();
+            rightForwardUp9[4] = forward.GetY();
+            rightForwardUp9[5] = forward.GetZ();
+            rightForwardUp9[6] = up.GetX();
+            rightForwardUp9[7] = up.GetY();
+            rightForwardUp9[8] = up.GetZ();
+        }
+
+        void ApiSetParent(AZ::u64 entityId, AZ::u64 parentId)
+        {
+            AZ::TransformBus::Event(AZ::EntityId(entityId), &AZ::TransformBus::Events::SetParent, AZ::EntityId(parentId));
+        }
+
+        AZ::u64 ApiGetParent(AZ::u64 entityId)
+        {
+            AZ::EntityId parentId;
+            AZ::TransformBus::EventResult(parentId, AZ::EntityId(entityId), &AZ::TransformBus::Events::GetParentId);
+            return static_cast<AZ::u64>(parentId);
+        }
+
+        AZ::u64 ApiCreateEntity(const char* name)
+        {
+            AZ::Entity* entity = nullptr;
+            AzFramework::GameEntityContextRequestBus::BroadcastResult(
+                entity, &AzFramework::GameEntityContextRequestBus::Events::CreateGameEntity, name);
+            if (!entity)
+            {
+                return 0;
+            }
+            entity->CreateComponent<AzFramework::TransformComponent>();
+            AzFramework::GameEntityContextRequestBus::Broadcast(
+                &AzFramework::GameEntityContextRequestBus::Events::ActivateGameEntity, entity->GetId());
+            return static_cast<AZ::u64>(entity->GetId());
+        }
+
+        void ApiDestroyEntity(AZ::u64 entityId)
+        {
+            AzFramework::GameEntityContextRequestBus::Broadcast(
+                &AzFramework::GameEntityContextRequestBus::Events::DestroyGameEntity, AZ::EntityId(entityId));
+        }
+
+        void ApiSetEntityActive(AZ::u64 entityId, int active)
+        {
+            if (active)
+            {
+                AzFramework::GameEntityContextRequestBus::Broadcast(
+                    &AzFramework::GameEntityContextRequestBus::Events::ActivateGameEntity, AZ::EntityId(entityId));
+            }
+            else
+            {
+                AzFramework::GameEntityContextRequestBus::Broadcast(
+                    &AzFramework::GameEntityContextRequestBus::Events::DeactivateGameEntity, AZ::EntityId(entityId));
+            }
+        }
+
+        int ApiIsEntityActive(AZ::u64 entityId)
+        {
+            AZ::Entity* entity = nullptr;
+            AZ::ComponentApplicationBus::BroadcastResult(
+                entity, &AZ::ComponentApplicationBus::Events::FindEntity, AZ::EntityId(entityId));
+            return (entity && entity->GetState() == AZ::Entity::State::Active) ? 1 : 0;
+        }
+
+        const AzFramework::InputChannel* FindChannel(const char* channelName)
+        {
+            const AzFramework::InputChannel* channel = nullptr;
+            const AzFramework::InputChannelRequests::BusIdType requestId{ AzFramework::InputChannelId(channelName) };
+            AzFramework::InputChannelRequestBus::EventResult(
+                channel, requestId, &AzFramework::InputChannelRequests::GetInputChannel);
+            return channel;
+        }
+
+        int ApiIsChannelActive(const char* channelName)
+        {
+            const AzFramework::InputChannel* channel = FindChannel(channelName);
+            return (channel && channel->IsActive()) ? 1 : 0;
+        }
+
+        float ApiGetChannelValue(const char* channelName)
+        {
+            const AzFramework::InputChannel* channel = FindChannel(channelName);
+            return channel ? channel->GetValue() : 0.0f;
+        }
+
+        void ApiGetCursorPositionNormalized(float* xy)
+        {
+            AZ::Vector2 position = AZ::Vector2::CreateZero();
+            AzFramework::InputSystemCursorRequestBus::EventResult(
+                position,
+                AzFramework::InputDeviceMouse::Id,
+                &AzFramework::InputSystemCursorRequests::GetSystemCursorPositionNormalized);
+            xy[0] = position.GetX();
+            xy[1] = position.GetY();
+        }
+
+        double ApiGetTimeSeconds()
+        {
+            if (const AZ::ITime* time = AZ::Interface<AZ::ITime>::Get())
+            {
+                return static_cast<double>(static_cast<AZ::s64>(time->GetElapsedTimeUs())) / 1e6;
+            }
+            return 0.0;
+        }
+
+        int ApiRayCast(
+            float originX, float originY, float originZ,
+            float directionX, float directionY, float directionZ,
+            float maxDistance, float* hitPositionNormal6, float* hitDistance, AZ::u64* hitEntityId)
+        {
+            auto* sceneInterface = AZ::Interface<AzPhysics::SceneInterface>::Get();
+            if (!sceneInterface)
+            {
+                return 0;
+            }
+            const AzPhysics::SceneHandle sceneHandle = sceneInterface->GetSceneHandle(AzPhysics::DefaultPhysicsSceneName);
+            if (sceneHandle == AzPhysics::InvalidSceneHandle)
+            {
+                return 0;
+            }
+
+            AzPhysics::RayCastRequest request;
+            request.m_start = AZ::Vector3(originX, originY, originZ);
+            request.m_direction = AZ::Vector3(directionX, directionY, directionZ).GetNormalizedSafe();
+            request.m_distance = maxDistance;
+            const AzPhysics::SceneQueryHits hits = sceneInterface->QueryScene(sceneHandle, &request);
+            if (hits.m_hits.empty())
+            {
+                return 0;
+            }
+
+            const AzPhysics::SceneQueryHit& hit = hits.m_hits.front();
+            hitPositionNormal6[0] = hit.m_position.GetX();
+            hitPositionNormal6[1] = hit.m_position.GetY();
+            hitPositionNormal6[2] = hit.m_position.GetZ();
+            hitPositionNormal6[3] = hit.m_normal.GetX();
+            hitPositionNormal6[4] = hit.m_normal.GetY();
+            hitPositionNormal6[5] = hit.m_normal.GetZ();
+            *hitDistance = hit.m_distance;
+            *hitEntityId = static_cast<AZ::u64>(hit.m_entityId);
+            return 1;
+        }
+
+        void ApiGetLinearVelocity(AZ::u64 entityId, float* xyz)
+        {
+            AZ::Vector3 velocity = AZ::Vector3::CreateZero();
+            Physics::RigidBodyRequestBus::EventResult(
+                velocity, AZ::EntityId(entityId), &Physics::RigidBodyRequests::GetLinearVelocity);
+            xyz[0] = velocity.GetX();
+            xyz[1] = velocity.GetY();
+            xyz[2] = velocity.GetZ();
+        }
+
+        void ApiSetLinearVelocity(AZ::u64 entityId, float x, float y, float z)
+        {
+            Physics::RigidBodyRequestBus::Event(
+                AZ::EntityId(entityId), &Physics::RigidBodyRequests::SetLinearVelocity, AZ::Vector3(x, y, z));
+        }
+
+        void ApiGetAngularVelocity(AZ::u64 entityId, float* xyz)
+        {
+            AZ::Vector3 velocity = AZ::Vector3::CreateZero();
+            Physics::RigidBodyRequestBus::EventResult(
+                velocity, AZ::EntityId(entityId), &Physics::RigidBodyRequests::GetAngularVelocity);
+            xyz[0] = velocity.GetX();
+            xyz[1] = velocity.GetY();
+            xyz[2] = velocity.GetZ();
+        }
+
+        void ApiSetAngularVelocity(AZ::u64 entityId, float x, float y, float z)
+        {
+            Physics::RigidBodyRequestBus::Event(
+                AZ::EntityId(entityId), &Physics::RigidBodyRequests::SetAngularVelocity, AZ::Vector3(x, y, z));
+        }
+
+        void ApiApplyLinearImpulse(AZ::u64 entityId, float x, float y, float z)
+        {
+            Physics::RigidBodyRequestBus::Event(
+                AZ::EntityId(entityId), &Physics::RigidBodyRequests::ApplyLinearImpulse, AZ::Vector3(x, y, z));
+        }
+
+        void ApiApplyAngularImpulse(AZ::u64 entityId, float x, float y, float z)
+        {
+            Physics::RigidBodyRequestBus::Event(
+                AZ::EntityId(entityId), &Physics::RigidBodyRequests::ApplyAngularImpulse, AZ::Vector3(x, y, z));
+        }
+
+        float ApiGetMass(AZ::u64 entityId)
+        {
+            float mass = 0.0f;
+            Physics::RigidBodyRequestBus::EventResult(mass, AZ::EntityId(entityId), &Physics::RigidBodyRequests::GetMass);
+            return mass;
+        }
+
+        void ApiSetGravityEnabled(AZ::u64 entityId, int enabled)
+        {
+            Physics::RigidBodyRequestBus::Event(
+                AZ::EntityId(entityId), &Physics::RigidBodyRequests::SetGravityEnabled, enabled != 0);
+        }
+
+        void ApiSetKinematic(AZ::u64 entityId, int kinematic)
+        {
+            Physics::RigidBodyRequestBus::Event(
+                AZ::EntityId(entityId), &Physics::RigidBodyRequests::SetKinematic, kinematic != 0);
         }
 
         bool RunCommand(const AZStd::string& command, AZStd::string& output)
@@ -263,6 +523,31 @@ namespace CSharpScripting
             &ApiSetUniformScale,
             &ApiFindEntityByName,
             &ApiGetEntityName,
+            &ApiGetLocalPosition,
+            &ApiSetLocalPosition,
+            &ApiGetWorldRotationQuaternion,
+            &ApiSetWorldRotationQuaternion,
+            &ApiGetWorldBasis,
+            &ApiSetParent,
+            &ApiGetParent,
+            &ApiCreateEntity,
+            &ApiDestroyEntity,
+            &ApiSetEntityActive,
+            &ApiIsEntityActive,
+            &ApiIsChannelActive,
+            &ApiGetChannelValue,
+            &ApiGetCursorPositionNormalized,
+            &ApiGetTimeSeconds,
+            &ApiRayCast,
+            &ApiGetLinearVelocity,
+            &ApiSetLinearVelocity,
+            &ApiGetAngularVelocity,
+            &ApiSetAngularVelocity,
+            &ApiApplyLinearImpulse,
+            &ApiApplyAngularImpulse,
+            &ApiGetMass,
+            &ApiSetGravityEnabled,
+            &ApiSetKinematic,
         };
         if (m_managedInitialize(&api) == 0)
         {

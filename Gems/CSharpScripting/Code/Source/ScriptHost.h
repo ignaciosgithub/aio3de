@@ -28,6 +28,44 @@ namespace CSharpScripting
         void (*m_setUniformScale)(AZ::u64 entityId, float scale);
         AZ::u64 (*m_findEntityByName)(const char* name);
         void (*m_getEntityName)(AZ::u64 entityId, char* buffer, int bufferSize);
+
+        // Transform extras
+        void (*m_getLocalPosition)(AZ::u64 entityId, float* xyz);
+        void (*m_setLocalPosition)(AZ::u64 entityId, float x, float y, float z);
+        void (*m_getWorldRotationQuaternion)(AZ::u64 entityId, float* xyzw);
+        void (*m_setWorldRotationQuaternion)(AZ::u64 entityId, float x, float y, float z, float w);
+        void (*m_getWorldBasis)(AZ::u64 entityId, float* rightForwardUp9);
+        void (*m_setParent)(AZ::u64 entityId, AZ::u64 parentId);
+        AZ::u64 (*m_getParent)(AZ::u64 entityId);
+
+        // Entity lifecycle
+        AZ::u64 (*m_createEntity)(const char* name);
+        void (*m_destroyEntity)(AZ::u64 entityId);
+        void (*m_setEntityActive)(AZ::u64 entityId, int active);
+        int (*m_isEntityActive)(AZ::u64 entityId);
+
+        // Input
+        int (*m_isChannelActive)(const char* channelName);
+        float (*m_getChannelValue)(const char* channelName);
+        void (*m_getCursorPositionNormalized)(float* xy);
+
+        // Time
+        double (*m_getTimeSeconds)();
+
+        // Physics
+        int (*m_rayCast)(
+            float originX, float originY, float originZ,
+            float directionX, float directionY, float directionZ,
+            float maxDistance, float* hitPositionNormal6, float* hitDistance, AZ::u64* hitEntityId);
+        void (*m_getLinearVelocity)(AZ::u64 entityId, float* xyz);
+        void (*m_setLinearVelocity)(AZ::u64 entityId, float x, float y, float z);
+        void (*m_getAngularVelocity)(AZ::u64 entityId, float* xyz);
+        void (*m_setAngularVelocity)(AZ::u64 entityId, float x, float y, float z);
+        void (*m_applyLinearImpulse)(AZ::u64 entityId, float x, float y, float z);
+        void (*m_applyAngularImpulse)(AZ::u64 entityId, float x, float y, float z);
+        float (*m_getMass)(AZ::u64 entityId);
+        void (*m_setGravityEnabled)(AZ::u64 entityId, int enabled);
+        void (*m_setKinematic)(AZ::u64 entityId, int kinematic);
     };
 
     //! Owns the .NET runtime, compiles the managed core + project scripts with the dotnet CLI,

@@ -47,12 +47,17 @@ See `Examples/Mover.cs` for a complete sample.
 
 ### API (AIO3DE.Core)
 
-- `ScriptComponent` — base class; lifecycle: `OnActivate()`, `OnUpdate(float deltaTime)`, `OnDeactivate()`; `Entity` property = the entity the script is on.
-- `Entity` — `Position` (world), `RotationEuler` (world, degrees), `UniformScale`, `Name`, `Entity.Find(name)`.
+- `ScriptComponent` — base class; lifecycle: `OnActivate()`, `OnUpdate(float deltaTime)`, `OnDeactivate()`; `Entity` field = the entity the script is on.
+- `Entity` — transform: `Position`, `LocalPosition`, `RotationEuler` (degrees), `Rotation` (quaternion), `UniformScale`, `ForwardVector`/`RightVector`/`UpVector`, `Parent` (get/set); lifecycle: `Entity.Find(name)`, `Entity.Create(name)`, `Destroy()`, `IsActive`, `SetActive(bool)`; rigid body (needs a Rigid Body component): `LinearVelocity`, `AngularVelocity`, `ApplyImpulse`, `ApplyAngularImpulse`, `Mass`, `SetGravityEnabled`, `SetKinematic`.
+- `Input` — `GetKey("W")` / `GetKey("Space")` / `GetKey("LShift")`..., `GetMouseButton(0/1/2)`, `MouseDelta`, `CursorPosition` (normalized), plus raw channels: `IsHeld("keyboard_key_alphanumeric_W")`, `GetValue("mouse_delta_x")` (any O3DE input channel name, including gamepads).
+- `Physics` — `Raycast(origin, direction, maxDistance, out RaycastHit hit)` against the default physics scene; `RaycastHit` has `Position`, `Normal`, `Distance`, `Entity`.
+- `Time` — `TimeSinceStart` (seconds since app start; per-frame delta comes via `OnUpdate`).
 - `Debug` — `Log`, `LogWarning`, `LogError` (go to the engine console/log).
-- `Vector3` — simple float3 with +, -, * and `Length()`.
+- `Vector3` — full float3 math: operators, `Dot`, `Cross`, `Normalized()`, `Distance`, `Lerp`, `Zero/One/Up/Forward/Right`.
+- `Quaternion` — `Identity`, `FromAxisAngle(axis, degrees)`, multiplication, `Rotate(vector)`.
 
-More bindings (physics, raycasts, input, spawning) will arrive in later iterations.
+Note: Z is up, Y is forward (O3DE convention). Entities spawned with `Entity.Create` start empty
+with just a transform; prefab/spawnable instantiation is a future binding.
 
 ## How it works
 
