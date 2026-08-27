@@ -36,6 +36,7 @@
         "Gems/CertificateManager",
         "Gems/Compression",
         "Gems/CrashReporting",
+        "Gems/CSharpScripting",
         "Gems/CustomAssetExample",
         "Gems/DebugDraw",
         "Gems/DevTextures",
