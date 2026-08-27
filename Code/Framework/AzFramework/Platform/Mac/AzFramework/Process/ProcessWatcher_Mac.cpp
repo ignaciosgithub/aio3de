@@ -13,7 +13,7 @@
 
 #include <AzCore/base.h>
 #include <AzCore/IO/SystemFile.h>
-#include <AzCore/std/containers/fixed_vector.h>
+#include <AzCore/std/containers/vector.h>
 #include <AzCore/std/parallel/thread.h>
 #include <AzCore/std/smart_ptr/shared_ptr.h>
 #include <AzCore/StringFunc/StringFunc.h>
@@ -286,9 +286,7 @@ namespace AzFramework
         }
         commandAndArgs[commandTokens.size()] = nullptr;
         
-        constexpr int MaxEnvVariables = 128;
-        using EnvironmentVariableContainer = AZStd::fixed_vector<char*, MaxEnvVariables>;
-        EnvironmentVariableContainer environmentVariables;
+        AZStd::vector<char*> environmentVariables;
         for (char **env = ::environ; *env; env++)
         {
             environmentVariables.push_back(*env);
