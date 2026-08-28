@@ -233,6 +233,9 @@ scripts\o3de.bat enable-gem -gn <GemName> -pp <project path>
 ```
 
 GUI: Project Manager → project card → **⋮ → Configure Gems** → toggle → save.
+The onboarding hub has the same thing in its **Gems** tab (pick the project,
+toggle gems), and on the CLI `scripts/o3de.sh hub gems -pp <project>
+[--enable NAME] [--disable NAME]` lists and flips them in one command.
 
 **Rules that trip everyone up:**
 
@@ -268,6 +271,11 @@ GUI: Project Manager → project card → **⋮ → Configure Gems** → toggle 
 | `EMotionFX` | code | Actor + Anim Graph animation |
 | `DebugDraw` | code | on-screen debug text/shapes (used by the HUD) |
 | `WhiteBox` | code | in-Editor blockout modeling |
+| `CSharpScripting` | code | Unity-style C# scripting on .NET 8 (CoreCLR) |
+| `FluidDynamics` | code | particle fluids (PBF) + analytic wind |
+| `Replay` | code | Quake-demo-style record/playback of tracked entities |
+| `VideoTexture` | code | video files as textures (in-game screens/TVs) |
+| `LLMAssist` | tools | in-Editor AI assistant + Gem Manager panel |
 
 ---
 
@@ -570,6 +578,24 @@ mode currently supports Simple collision only. The CPU solver parallelizes
 across cores via `AZ::ParallelFor` and supports every feature. The mode is a
 per-component dropdown, so you can A/B them live.
 
+### 9.5 Fluid dynamics (FluidDynamics gem)
+
+The **FluidDynamics** gem simulates particle fluids (position-based fluids)
+on the CPU. Enable the `FluidDynamics` gem, then add a **Fluid Volume**
+component to an entity:
+
+- **Preset**: *Water*, *Honey* (viscous), or *Custom* (hand-tune rest
+  density, viscosity, particle spacing, substeps/iterations, damping).
+- **Spawn half extents**: the box (local space) filled with particles at
+  activation.
+- **Container enabled**: on = particles stay inside the container box
+  (with adjustable wall restitution); off = the fluid spills freely under
+  gravity.
+- **Affected by wind**: couple the fluid to any **Wind** component in the
+  level (analytic wind field with drag).
+- Solvers parallelize across cores (`Parallel` toggle) and particles render
+  through the built-in visualization.
+
 ---
 
 ## 10. Particles (OpenParticleSystem)
@@ -647,10 +673,12 @@ at the moving root.
 
 ## 13. Scripting and game logic
 
-Two first-class scripting options, usable together:
+Three first-class scripting options, usable together:
 
 - **Lua** (Lua Script component) — full API surface, best for gameplay systems.
 - **Script Canvas** — node-based visual scripting, same underlying buses.
+- **C#** (C# Script component, `CSharpScripting` gem) — Unity-style scripts on
+  .NET 8; see [§13.2](#132-c-scripting-csharpscripting-gem).
 
 The core mental model is the **EBus**: components and scripts communicate by
 sending/handling events on addressable buses (per-entity or broadcast). The
@@ -707,6 +735,61 @@ Demos store world-transform keyframes (position, rotation, uniform scale)
 per track and interpolate between them on playback, so files stay small.
 During playback the recorded entities are driven kinematically; entities
 that can't be matched by name are skipped with a warning.
+
+### 13.2 C# scripting (CSharpScripting gem)
+
+The **CSharpScripting** gem hosts .NET 8 (CoreCLR) in-process, on Linux and
+Windows. Requirements: the .NET 8 SDK (`sudo apt install dotnet-sdk-8.0` on
+Ubuntu, or the installer from dotnet.microsoft.com).
+
+Setup:
+
+1. Enable the `CSharpScripting` gem (code gem → reconfigure + rebuild).
+2. Put `.cs` files in `<project>/Scripts`.
+3. Add a **C# Script** component to an entity and set **Class name**.
+
+Scripts derive from `AIO3DE.ScriptComponent` (Unity `MonoBehaviour`-style):
+
+```csharp
+using AIO3DE;
+
+public class Mover : ScriptComponent
+{
+    public override void OnActivate() { Debug.Log($"hello from {Entity.Name}"); }
+    public override void OnUpdate(float deltaTime) { /* runs every frame */ }
+    public override void OnCollisionEnter(Collision c) { Debug.Log($"hit {c.Other.Name}"); }
+    public override void OnDeactivate() { }
+}
+```
+
+API surface (`AIO3DE.Core`): transforms (world/local position, quaternion
+rotation, basis vectors, parenting), entity lifecycle (`Entity.Find`,
+`Entity.Create`, `Destroy`, `SetActive`), tags (`HasTag`/`AddTag`/`RemoveTag`,
+`Entity.FindByTag`/`FindAllByTag`), input (keys, mouse, any O3DE input channel
+including gamepads), physics (`Physics.Raycast`, rigid-body velocity /
+impulses / mass / gravity / kinematic), collision callbacks
+(`OnCollisionEnter`/`OnCollisionExit`), prefab instantiation
+(`Prefab.Spawn("prefabs/enemy.spawnable", position)` → async `PrefabInstance`
+with `RootEntity` and `Despawn()`), `Time`, `Debug` logging, and full
+`Vector3`/`Quaternion` math.
+
+Scripts compile automatically with `dotnet build`; recompile with the
+component's **Rebuild scripts** button or the `csharp_rebuild` console
+command. Hot reload is safe: scripts live in a collectible
+`AssemblyLoadContext`, so a rebuild deactivates old instances and unloads the
+old assembly. Full reference and samples (`Mover.cs`, `FpsController.cs`,
+`Spawner.cs`): `Gems/CSharpScripting/README.md`.
+
+### 13.3 In-Editor AI assistant (LLMAssist gem)
+
+The **LLMAssist** gem (script-only, no rebuild) adds two Editor panes under
+**Tools**: **AI Assistant** — chat with OpenAI/Anthropic/Kimi models, with an
+optional docs-aware mode that feeds this fork's documentation into the
+conversation and an *Apply file edits* button for `FILE:` blocks in replies
+(with backups) — and **Gem Manager** for per-project gem toggling. API keys go
+in the Settings tab (stored in `~/.o3de/llmassist_keys.json`, never
+committed); environment variables like `OPENAI_API_KEY` also work. Details:
+`Gems/LLMAssist/README.md`.
 
 ---
 
@@ -1352,7 +1435,32 @@ in the Asset Browser. Check the Editor console for red `ParticleSystem` lines.
 - With encryption on: both sides need `net_UdpUseEncryption true` and the same
   cert (pinning rejects mismatches); check the logs for SSL validation errors.
 
-### 20.8 Where the logs are
+### 20.8 Vulkan cannot present / Editor shows a "cannot present" error
+
+An error like `No Vulkan queue on device ... supports presenting to the
+display surface` means the GPU driver cannot put frames on your window.
+Common causes, in order:
+
+1. **Wrong/missing GPU driver** — Vulkan fell back to CPU rendering
+   (`llvmpipe`) or the wrong device. Check `vulkaninfo --summary` (package
+   `vulkan-tools`). NVIDIA: `nvidia-smi` must work; if not, install the
+   driver (`sudo ubuntu-drivers autoinstall`). Under Secure Boot the NVIDIA
+   module must be MOK-signed — complete the blue "MOK Management" enrollment
+   on reboot, or disable Secure Boot. AMD/Intel: `sudo apt install
+   mesa-vulkan-drivers`.
+2. **Wayland session** — log out and pick **"Ubuntu on Xorg"** at the login
+   screen (gear icon).
+3. **No DRI3 in Xorg** (`No DRI3 support detected` in the terminal) — enable
+   it in `/etc/X11/xorg.conf.d/` (`Option "DRI" "3"` on the device section)
+   and re-login.
+4. **Remote desktop** (VNC/xrdp/ssh -X) — these X servers cannot present
+   Vulkan; use the machine's real display or a GPU-accelerated streaming
+   solution.
+
+Also check the monitor is plugged into the GPU you expect (hybrid systems
+render fastest when the displaying GPU is the rendering GPU).
+
+### 20.9 Where the logs are
 
 - Editor: `<project>\user\log\Editor.log`
 - Launchers: `<project>\user\log\Game.log` / server log next to it
@@ -1441,6 +1549,8 @@ Deeper, per-topic documents in this repository:
 | `Gems/GameSettings/README.md` | settings persistence & rebinding |
 | `Gems/ServerBrowser/README.md` | master server + browser setup |
 | `Gems/VoiceChat/README.md` | voice chat setup & security notes |
+| `Gems/CSharpScripting/README.md` | C# scripting setup + API reference |
+| `Gems/LLMAssist/README.md` | in-Editor AI assistant setup |
 
 For everything the fork does **not** change, use the upstream O3DE docs — see
 [§1.1](#11-upstream-o3de-documentation).
