@@ -348,6 +348,16 @@ namespace UnitTest
             EXPECT_STREQ(AZStd::any_cast<AZStd::string>(stringOutcomeSet.GetValue()).data(), AZStd::any_cast<AZStd::string>(stringOutcomeGet.GetValue()).data());
         }
 
+        {
+            // A string_view value (e.g. a python str) converts to an AZStd::string property
+            PropertyTreeEditor::PropertyAccessOutcome stringOutcomeSet = propertyTree.SetProperty("My String", AZStd::make_any<AZStd::string_view>("View Value"));
+            EXPECT_TRUE(stringOutcomeSet.IsSuccess());
+
+            PropertyTreeEditor::PropertyAccessOutcome stringOutcomeGet = propertyTree.GetProperty("My String");
+            EXPECT_TRUE(stringOutcomeGet.IsSuccess());
+            EXPECT_STREQ(AZStd::any_cast<AZStd::string>(stringOutcomeGet.GetValue()).data(), "View Value");
+        }
+
 
         // Test non-existing properties
 
