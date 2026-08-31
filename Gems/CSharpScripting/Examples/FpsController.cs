@@ -19,6 +19,11 @@ public class FpsController : ScriptComponent
     private float _jumpSpeed = 5.0f;
     private float _gravity = 9.81f;
     private float _groundCheckDistance = 1.1f;
+    // Artificial drag: fraction of rigid-body velocity removed per second, so
+    // momentary impacts (impulses, collisions) decay instead of pushing the
+    // character forever. Set to 0 to disable.
+    private float _linearDrag = 8.0f;
+    private float _angularDrag = 12.0f;
     private float _yaw;
     private float _pitch;
     private float _verticalVelocity;
@@ -101,6 +106,23 @@ public class FpsController : ScriptComponent
         if (_verticalVelocity != 0.0f)
         {
             Entity.Position += Vector3.Up * (_verticalVelocity * deltaTime);
+        }
+
+        // Artificial drag on the rigid body (if any): exponentially decay the
+        // velocity picked up from collisions/impulses.
+        if (_linearDrag > 0.0f)
+        {
+            float factor = 1.0f / (1.0f + _linearDrag * deltaTime);
+            Vector3 velocity = Entity.LinearVelocity * factor;
+            if (grounded)
+            {
+                velocity.Z = 0.0f;
+            }
+            Entity.LinearVelocity = velocity;
+        }
+        if (_angularDrag > 0.0f)
+        {
+            Entity.AngularVelocity *= 1.0f / (1.0f + _angularDrag * deltaTime);
         }
 
         if (Input.GetMouseButton(0))
