@@ -24,6 +24,7 @@
 #include <Atom/RPI.Reflect/ResourcePoolAsset.h>
 #include <AtomBridge/PerViewportDynamicDrawInterface.h>
 
+#include <AzCore/Asset/AssetManagerBus.h>
 #include <AzCore/Asset/AssetSerializer.h>
 #include <AzCore/Component/EntityBus.h>
 #include <AzCore/Math/MatrixUtils.h>
@@ -399,6 +400,29 @@ namespace Camera
     void CameraComponentController::CreateRenderPipelineForTexture()
     {
         auto scene = AZ::RPI::RPISystemInterface::Get()->GetSceneByName(AZ::Name("Main"));
+
+        // A render target asset that is missing from the catalog would produce a broken pipeline
+        // (unknown attachment type/format) that floods the pass system with errors every frame.
+        if (!m_pipTargetAsset.GetId().IsValid() && m_config.m_renderTextureAsset.GetId().IsValid())
+        {
+            AZ::Data::AssetInfo assetInfo;
+            AZ::Data::AssetCatalogRequestBus::BroadcastResult(
+                assetInfo, &AZ::Data::AssetCatalogRequestBus::Events::GetAssetInfoById, m_config.m_renderTextureAsset.GetId());
+            if (!assetInfo.m_assetId.IsValid())
+            {
+                AZStd::string entityName;
+                AZ::ComponentApplicationBus::BroadcastResult(
+                    entityName, &AZ::ComponentApplicationRequests::GetEntityName, m_entityId);
+                AZ_Error(
+                    "Camera",
+                    false,
+                    "Camera entity '%s': render target texture asset %s is not in the asset catalog "
+                    "(missing, moved or not processed yet) - skipping render-to-texture pipeline creation.",
+                    entityName.c_str(),
+                    m_config.m_renderTextureAsset.GetId().ToString<AZStd::string>().c_str());
+                return;
+            }
+        }
 
         const AZStd::string pipelineName = "Camera_" + m_entityId.ToString() + "_Pipeline";
 

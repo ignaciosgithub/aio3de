@@ -747,6 +747,11 @@ namespace AZ
             auto setAttachmentLoadStoreActionFunc =
                 [&](const uint32_t attachmentIndex, const RHI::AttachmentLoadStoreAction& loadStoreAction)
             {
+                if (attachmentIndex >= RHI::Limits::Pipeline::RenderAttachmentCountMax)
+                {
+                    AZ_Error("Vulkan", false, "Invalid render attachment index %u in render attachment layout", attachmentIndex);
+                    return;
+                }
                 auto& attachmentLoadStoreAction = renderPassDesc.m_attachments[attachmentIndex].m_loadStoreAction;
                 attachmentLoadStoreAction.m_loadAction = loadActionSet.test(attachmentIndex)
                     ? CombineLoadOp(attachmentLoadStoreAction.m_loadAction, loadStoreAction.m_loadAction)
@@ -801,6 +806,16 @@ namespace AZ
                     RenderPass::SubpassAttachment& subpassAttachment = subpassDescriptor.m_rendertargetAttachments[colorAttachmentIndex];
                     subpassAttachment.m_attachmentIndex = renderAttachmentDescriptor.m_attachmentIndex;
                     subpassAttachment.m_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                    if (subpassAttachment.m_attachmentIndex >= RHI::Limits::Pipeline::RenderAttachmentCountMax)
+                    {
+                        AZ_Error(
+                            "Vulkan",
+                            false,
+                            "Invalid render target attachment index %u in subpass %u",
+                            subpassAttachment.m_attachmentIndex,
+                            subpassIndex);
+                        continue;
+                    }
                     usedAttachments.set(subpassAttachment.m_attachmentIndex);
 
                     setLayoutFunc(
@@ -849,6 +864,16 @@ namespace AZ
                         inputAttachmentDescriptor.m_aspectFlags,
                         GetImageAspectFlags(layout.m_attachmentFormats[inputAttachmentDescriptor.m_attachmentIndex]));
                     subpassAttachment.m_imageAspectFlags = ConvertImageAspectFlags(filteredFlags);
+                    if (subpassAttachment.m_attachmentIndex >= RHI::Limits::Pipeline::RenderAttachmentCountMax)
+                    {
+                        AZ_Error(
+                            "Vulkan",
+                            false,
+                            "Invalid subpass input attachment index %u in subpass %u",
+                            subpassAttachment.m_attachmentIndex,
+                            subpassIndex);
+                        continue;
+                    }
                     usedAttachments.set(subpassAttachment.m_attachmentIndex);
 
                     setLayoutFunc(
