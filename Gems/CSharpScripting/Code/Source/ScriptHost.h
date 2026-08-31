@@ -103,6 +103,8 @@ namespace CSharpScripting
             float positionX, float positionY, float positionZ,
             float normalX, float normalY, float normalZ, float impulse);
         void ScriptOnCollisionExit(AZ::s64 handle, AZ::u64 otherEntityId);
+        void ScriptOnTriggerEnter(AZ::s64 handle, AZ::u64 otherEntityId);
+        void ScriptOnTriggerExit(AZ::s64 handle, AZ::u64 otherEntityId);
 
     private:
         bool InitializeRuntime();
@@ -132,5 +134,7 @@ namespace CSharpScripting
             float positionX, float positionY, float positionZ,
             float normalX, float normalY, float normalZ, float impulse) = nullptr;
         void (*m_managedScriptOnCollisionExit)(AZ::s64 handle, AZ::u64 otherEntityId) = nullptr;
+        void (*m_managedScriptOnTriggerEnter)(AZ::s64 handle, AZ::u64 otherEntityId) = nullptr;
+        void (*m_managedScriptOnTriggerExit)(AZ::s64 handle, AZ::u64 otherEntityId) = nullptr;
     };
 } // namespace CSharpScripting

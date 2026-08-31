@@ -46,5 +46,7 @@ namespace CSharpScripting
         bool m_collisionHandlersRegistered = false;
         AzPhysics::SimulatedBodyEvents::OnCollisionBegin::Handler m_collisionBeginHandler;
         AzPhysics::SimulatedBodyEvents::OnCollisionEnd::Handler m_collisionEndHandler;
+        AzPhysics::SimulatedBodyEvents::OnTriggerEnter::Handler m_triggerEnterHandler;
+        AzPhysics::SimulatedBodyEvents::OnTriggerExit::Handler m_triggerExitHandler;
     };
 } // namespace CSharpScripting

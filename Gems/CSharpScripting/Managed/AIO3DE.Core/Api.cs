@@ -395,6 +395,19 @@ namespace AIO3DE
         public virtual void OnCollisionExit(Entity other)
         {
         }
+
+        /// <summary>
+        /// Called when a body enters a trigger. Fires on both sides: on the trigger's script
+        /// (other = the body that entered) and on the entering body's script (other = the trigger).
+        /// </summary>
+        public virtual void OnTriggerEnter(Entity other)
+        {
+        }
+
+        /// <summary>Called when a body leaves a trigger (see <see cref="OnTriggerEnter"/>).</summary>
+        public virtual void OnTriggerExit(Entity other)
+        {
+        }
     }
 
     /// <summary>Contact information delivered to <see cref="ScriptComponent.OnCollisionEnter"/>.</summary>

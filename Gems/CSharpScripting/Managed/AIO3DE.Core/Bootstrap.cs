@@ -214,6 +214,24 @@ namespace AIO3DE.Interop
             }
         }
 
+        [UnmanagedCallersOnly]
+        public static void ScriptOnTriggerEnter(long handle, ulong otherEntityId)
+        {
+            if (s_instances.TryGetValue(handle, out var script))
+            {
+                Guarded(() => script.OnTriggerEnter(new Entity(otherEntityId)), script, "OnTriggerEnter");
+            }
+        }
+
+        [UnmanagedCallersOnly]
+        public static void ScriptOnTriggerExit(long handle, ulong otherEntityId)
+        {
+            if (s_instances.TryGetValue(handle, out var script))
+            {
+                Guarded(() => script.OnTriggerExit(new Entity(otherEntityId)), script, "OnTriggerExit");
+            }
+        }
+
         private static void Guarded(Action action, ScriptComponent script, string phase)
         {
             try
