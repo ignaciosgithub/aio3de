@@ -642,10 +642,15 @@ namespace CSharpScripting
             m_host.GetFunction(coreDll, bootstrapType, "ScriptOnCollisionEnter"));
         m_managedScriptOnCollisionExit =
             reinterpret_cast<void (*)(AZ::s64, AZ::u64)>(m_host.GetFunction(coreDll, bootstrapType, "ScriptOnCollisionExit"));
+        m_managedScriptOnTriggerEnter =
+            reinterpret_cast<void (*)(AZ::s64, AZ::u64)>(m_host.GetFunction(coreDll, bootstrapType, "ScriptOnTriggerEnter"));
+        m_managedScriptOnTriggerExit =
+            reinterpret_cast<void (*)(AZ::s64, AZ::u64)>(m_host.GetFunction(coreDll, bootstrapType, "ScriptOnTriggerExit"));
 
         if (!m_managedInitialize || !m_managedLoadScripts || !m_managedCreateScript || !m_managedScriptOnActivate ||
             !m_managedScriptOnUpdate || !m_managedScriptOnDeactivate || !m_managedDestroyScript ||
-            !m_managedScriptOnCollisionEnter || !m_managedScriptOnCollisionExit)
+            !m_managedScriptOnCollisionEnter || !m_managedScriptOnCollisionExit ||
+            !m_managedScriptOnTriggerEnter || !m_managedScriptOnTriggerExit)
         {
             return false;
         }
@@ -853,6 +858,22 @@ namespace CSharpScripting
         if (handle != 0 && m_managedScriptOnCollisionExit)
         {
             m_managedScriptOnCollisionExit(handle, otherEntityId);
+        }
+    }
+
+    void ScriptHost::ScriptOnTriggerEnter(AZ::s64 handle, AZ::u64 otherEntityId)
+    {
+        if (handle != 0 && m_managedScriptOnTriggerEnter)
+        {
+            m_managedScriptOnTriggerEnter(handle, otherEntityId);
+        }
+    }
+
+    void ScriptHost::ScriptOnTriggerExit(AZ::s64 handle, AZ::u64 otherEntityId)
+    {
+        if (handle != 0 && m_managedScriptOnTriggerExit)
+        {
+            m_managedScriptOnTriggerExit(handle, otherEntityId);
         }
     }
 } // namespace CSharpScripting
