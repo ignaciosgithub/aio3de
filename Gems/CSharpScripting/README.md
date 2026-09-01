@@ -45,6 +45,44 @@ public class Mover : ScriptComponent
 
 See `Examples/Mover.cs`, `Examples/FpsController.cs`, and `Examples/Spawner.cs` for samples.
 
+### Inspector fields (Unity-style)
+
+Public fields of supported types are shown in the Inspector on the C# Script component, with the
+script's initializers as defaults — edit them per entity, no code change needed:
+
+```csharp
+public class Enemy : ScriptComponent
+{
+    public float MoveSpeed = 4.0f;        // shows as "Move Speed"
+    public int Health = 100;
+    public bool Aggressive = true;
+    public string DisplayName = "Grunt";
+    public Vector3 PatrolOffset = new Vector3(0, 5, 0);
+
+    [SerializeField] private float _attackRange = 2.0f;  // private but exposed
+    [HideInInspector] public float Internal;             // public but hidden
+}
+```
+
+Supported types: `float`, `int`, `bool`, `string`, `Vector3`. Values are saved with the level,
+applied to the script instance right before `OnActivate`, and re-read from the class (keeping
+your edits for fields that still exist) when you change the class name or press Rebuild scripts.
+
+Lua scripts get the same via the standard `Properties` table on the Script component:
+
+```lua
+local enemy = {
+    Properties = {
+        MoveSpeed = 4.0,
+        Health = { default = 100, min = 0, description = "Hit points" },
+    },
+}
+function enemy:OnActivate()
+    Debug.Log("speed " .. tostring(self.Properties.MoveSpeed))
+end
+return enemy
+```
+
 ### API (AIO3DE.Core)
 
 - `ScriptComponent` — base class; lifecycle: `OnActivate()`, `OnUpdate(float deltaTime)`, `OnDeactivate()`; collision callbacks (needs a PhysX collider/rigid body on the entity): `OnCollisionEnter(Collision)`, `OnCollisionExit(Entity other)`; trigger callbacks (fire on both the trigger and the entering body, needs a trigger collider on one of them): `OnTriggerEnter(Entity other)`, `OnTriggerExit(Entity other)`; `Entity` field = the entity the script is on.

@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include "ScriptField.h"
+
 #include <AzCore/std/string/string.h>
 #include <AzToolsFramework/ToolsComponents/EditorComponentBase.h>
 
@@ -25,11 +27,16 @@ namespace CSharpScripting
         static void GetRequiredServices(AZ::ComponentDescriptor::DependencyArrayType& required);
 
         // EditorComponentBase
+        void Activate() override;
         void BuildGameEntity(AZ::Entity* gameEntity) override;
 
     private:
         AZ::Crc32 OnRebuildPressed();
+        AZ::Crc32 OnClassNameChanged();
+        //! Re-reflects the C# class's fields, keeping values of fields that still exist.
+        void RefreshFields();
 
         AZStd::string m_className;
+        ScriptFieldList m_fields;
     };
 } // namespace CSharpScripting

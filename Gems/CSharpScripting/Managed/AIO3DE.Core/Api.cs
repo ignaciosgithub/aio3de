@@ -410,6 +410,21 @@ namespace AIO3DE
         }
     }
 
+    /// <summary>
+    /// Exposes a non-public field in the Inspector (public fields of supported types are
+    /// exposed automatically). Supported types: float, int, bool, string, Vector3.
+    /// </summary>
+    [System.AttributeUsage(System.AttributeTargets.Field)]
+    public sealed class SerializeField : System.Attribute
+    {
+    }
+
+    /// <summary>Hides a public field from the Inspector.</summary>
+    [System.AttributeUsage(System.AttributeTargets.Field)]
+    public sealed class HideInInspector : System.Attribute
+    {
+    }
+
     /// <summary>Contact information delivered to <see cref="ScriptComponent.OnCollisionEnter"/>.</summary>
     public struct Collision
     {

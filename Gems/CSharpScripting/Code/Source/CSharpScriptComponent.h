@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include "ScriptField.h"
+
 #include <AzCore/Component/Component.h>
 #include <AzCore/Component/TickBus.h>
 #include <AzCore/std/string/string.h>
@@ -29,7 +31,7 @@ namespace CSharpScripting
         static void GetRequiredServices(AZ::ComponentDescriptor::DependencyArrayType& required);
 
         CSharpScriptComponent() = default;
-        explicit CSharpScriptComponent(const AZStd::string& className);
+        explicit CSharpScriptComponent(const AZStd::string& className, ScriptFieldList fields = {});
 
     protected:
         void Activate() override;
@@ -42,6 +44,7 @@ namespace CSharpScripting
         void RegisterCollisionHandlers();
 
         AZStd::string m_className;
+        ScriptFieldList m_fields;
         AZ::s64 m_handle = 0;
         bool m_collisionHandlersRegistered = false;
         AzPhysics::SimulatedBodyEvents::OnCollisionBegin::Handler m_collisionBeginHandler;
