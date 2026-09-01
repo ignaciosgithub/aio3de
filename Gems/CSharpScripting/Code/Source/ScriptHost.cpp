@@ -632,6 +632,10 @@ namespace CSharpScripting
         m_managedLoadScripts = reinterpret_cast<int (*)(const char*)>(m_host.GetFunction(coreDll, bootstrapType, "LoadScripts"));
         m_managedCreateScript =
             reinterpret_cast<AZ::s64 (*)(const char*, AZ::u64)>(m_host.GetFunction(coreDll, bootstrapType, "CreateScript"));
+        m_managedDescribeScript =
+            reinterpret_cast<int (*)(const char*, char*, int)>(m_host.GetFunction(coreDll, bootstrapType, "DescribeScript"));
+        m_managedSetScriptField =
+            reinterpret_cast<int (*)(AZ::s64, const char*, const char*)>(m_host.GetFunction(coreDll, bootstrapType, "SetScriptField"));
         m_managedScriptOnActivate = reinterpret_cast<void (*)(AZ::s64)>(m_host.GetFunction(coreDll, bootstrapType, "ScriptOnActivate"));
         m_managedScriptOnUpdate =
             reinterpret_cast<void (*)(AZ::s64, float)>(m_host.GetFunction(coreDll, bootstrapType, "ScriptOnUpdate"));
@@ -647,7 +651,8 @@ namespace CSharpScripting
         m_managedScriptOnTriggerExit =
             reinterpret_cast<void (*)(AZ::s64, AZ::u64)>(m_host.GetFunction(coreDll, bootstrapType, "ScriptOnTriggerExit"));
 
-        if (!m_managedInitialize || !m_managedLoadScripts || !m_managedCreateScript || !m_managedScriptOnActivate ||
+        if (!m_managedInitialize || !m_managedLoadScripts || !m_managedCreateScript ||
+            !m_managedDescribeScript || !m_managedSetScriptField || !m_managedScriptOnActivate ||
             !m_managedScriptOnUpdate || !m_managedScriptOnDeactivate || !m_managedDestroyScript ||
             !m_managedScriptOnCollisionEnter || !m_managedScriptOnCollisionExit ||
             !m_managedScriptOnTriggerEnter || !m_managedScriptOnTriggerExit)
@@ -808,6 +813,90 @@ namespace CSharpScripting
             "and that it derives from AIO3DE.ScriptComponent.",
             className.c_str());
         return handle;
+    }
+
+    bool ScriptHost::DescribeScript(const AZStd::string& className, ScriptFieldList& outFields)
+    {
+        outFields.clear();
+        if (className.empty() || !EnsureReady())
+        {
+            return false;
+        }
+
+        AZStd::vector<char> buffer(64 * 1024);
+        const int written = m_managedDescribeScript(className.c_str(), buffer.data(), static_cast<int>(buffer.size()));
+        if (written < 0)
+        {
+            return false;
+        }
+
+        // Records separated by \x1e, fields inside a record by \x1f: name \x1f type \x1f value
+        const AZStd::string_view payload(buffer.data(), static_cast<size_t>(written));
+        size_t recordStart = 0;
+        while (recordStart <= payload.size())
+        {
+            size_t recordEnd = payload.find('\x1e', recordStart);
+            if (recordEnd == AZStd::string_view::npos)
+            {
+                recordEnd = payload.size();
+            }
+            const AZStd::string_view record = payload.substr(recordStart, recordEnd - recordStart);
+            if (!record.empty())
+            {
+                const size_t sep1 = record.find('\x1f');
+                const size_t sep2 = sep1 == AZStd::string_view::npos ? AZStd::string_view::npos : record.find('\x1f', sep1 + 1);
+                if (sep2 != AZStd::string_view::npos)
+                {
+                    ScriptField field;
+                    field.m_name = record.substr(0, sep1);
+                    const AZStd::string_view typeName = record.substr(sep1 + 1, sep2 - sep1 - 1);
+                    if (typeName == "float")
+                    {
+                        field.m_type = static_cast<AZ::u32>(ScriptField::Type::Float);
+                    }
+                    else if (typeName == "int")
+                    {
+                        field.m_type = static_cast<AZ::u32>(ScriptField::Type::Int);
+                    }
+                    else if (typeName == "bool")
+                    {
+                        field.m_type = static_cast<AZ::u32>(ScriptField::Type::Bool);
+                    }
+                    else if (typeName == "string")
+                    {
+                        field.m_type = static_cast<AZ::u32>(ScriptField::Type::String);
+                    }
+                    else if (typeName == "vector3")
+                    {
+                        field.m_type = static_cast<AZ::u32>(ScriptField::Type::Vector3);
+                    }
+                    else
+                    {
+                        recordStart = recordEnd + 1;
+                        continue;
+                    }
+                    field.SetValueFromString(AZStd::string(record.substr(sep2 + 1)));
+                    outFields.push_back(AZStd::move(field));
+                }
+            }
+            if (recordEnd == payload.size())
+            {
+                break;
+            }
+            recordStart = recordEnd + 1;
+        }
+        return true;
+    }
+
+    void ScriptHost::SetScriptField(AZ::s64 handle, const AZStd::string& fieldName, const AZStd::string& value)
+    {
+        if (handle != 0 && m_managedSetScriptField)
+        {
+            if (m_managedSetScriptField(handle, fieldName.c_str(), value.c_str()) == 0)
+            {
+                AZ_Warning("CSharpScripting", false, "Could not set C# script field '%s'.", fieldName.c_str());
+            }
+        }
     }
 
     void ScriptHost::ScriptOnActivate(AZ::s64 handle)

@@ -773,6 +773,14 @@ impulses / mass / gravity / kinematic), collision callbacks
 with `RootEntity` and `Despawn()`), `Time`, `Debug` logging, and full
 `Vector3`/`Quaternion` math.
 
+**Inspector fields (Unity-style):** public fields of type `float`, `int`,
+`bool`, `string`, or `Vector3` appear in the Inspector on the C# Script
+component with the script's initializers as defaults; edit per entity, values
+are saved with the level and applied right before `OnActivate`. Use
+`[SerializeField]` to expose a private field and `[HideInInspector]` to hide a
+public one. Lua scripts expose variables the same way through the standard
+`Properties` table on the Lua Script component.
+
 Scripts compile automatically with `dotnet build`; recompile with the
 component's **Rebuild scripts** button or the `csharp_rebuild` console
 command. Hot reload is safe: scripts live in a collectible

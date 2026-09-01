@@ -9,6 +9,7 @@
 #pragma once
 
 #include "DotNetHost.h"
+#include "ScriptField.h"
 
 #include <AzCore/Component/EntityId.h>
 #include <AzCore/std/string/string.h>
@@ -94,6 +95,14 @@ namespace CSharpScripting
         bool RebuildScripts();
 
         AZ::s64 CreateScript(const AZStd::string& className, AZ::EntityId entityId);
+
+        //! Reflects the inspectable fields (public / [SerializeField]) of a script class with their defaults.
+        //! Compiles and loads scripts if needed. Returns false if the class can't be described.
+        bool DescribeScript(const AZStd::string& className, ScriptFieldList& outFields);
+
+        //! Sets a field value on a live script instance (value in ScriptField::ValueString form).
+        void SetScriptField(AZ::s64 handle, const AZStd::string& fieldName, const AZStd::string& value);
+
         void ScriptOnActivate(AZ::s64 handle);
         void ScriptOnUpdate(AZ::s64 handle, float deltaTime);
         void ScriptOnDeactivate(AZ::s64 handle);
@@ -125,6 +134,8 @@ namespace CSharpScripting
         int (*m_managedInitialize)(const NativeApi* api) = nullptr;
         int (*m_managedLoadScripts)(const char* assemblyPath) = nullptr;
         AZ::s64 (*m_managedCreateScript)(const char* className, AZ::u64 entityId) = nullptr;
+        int (*m_managedDescribeScript)(const char* className, char* buffer, int bufferSize) = nullptr;
+        int (*m_managedSetScriptField)(AZ::s64 handle, const char* fieldName, const char* value) = nullptr;
         void (*m_managedScriptOnActivate)(AZ::s64 handle) = nullptr;
         void (*m_managedScriptOnUpdate)(AZ::s64 handle, float deltaTime) = nullptr;
         void (*m_managedScriptOnDeactivate)(AZ::s64 handle) = nullptr;

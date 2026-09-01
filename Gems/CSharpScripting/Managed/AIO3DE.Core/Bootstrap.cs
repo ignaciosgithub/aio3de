@@ -146,6 +146,156 @@ namespace AIO3DE.Interop
             }
         }
 
+        /// <summary>
+        /// Writes the inspectable fields of a script class (with default values) into the
+        /// buffer as records "name\x1ftype\x1fvalue" separated by '\x1e'.
+        /// Returns the written byte count, or -1 on failure / too-small buffer.
+        /// </summary>
+        [UnmanagedCallersOnly]
+        public static int DescribeScript(byte* className, byte* buffer, int bufferSize)
+        {
+            try
+            {
+                string? name = Marshal.PtrToStringUTF8((nint)className);
+                if (string.IsNullOrEmpty(name))
+                {
+                    return -1;
+                }
+                Type? type = FindType(name);
+                if (type == null || !typeof(ScriptComponent).IsAssignableFrom(type))
+                {
+                    return -1;
+                }
+
+                object? defaults = null;
+                try
+                {
+                    defaults = Activator.CreateInstance(type);
+                }
+                catch
+                {
+                    // No usable defaults; report zeros.
+                }
+
+                var records = new List<string>();
+                foreach (FieldInfo field in EnumerateInspectableFields(type))
+                {
+                    string? typeName = FieldTypeName(field.FieldType);
+                    if (typeName == null)
+                    {
+                        continue;
+                    }
+                    object? value = defaults != null ? field.GetValue(defaults) : null;
+                    records.Add($"{field.Name}\x1f{typeName}\x1f{FieldValueToString(field.FieldType, value)}");
+                }
+
+                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(string.Join('\x1e', records));
+                if (bytes.Length > bufferSize)
+                {
+                    return -1;
+                }
+                Marshal.Copy(bytes, 0, (nint)buffer, bytes.Length);
+                return bytes.Length;
+            }
+            catch (Exception e)
+            {
+                Native.Log(2, $"DescribeScript failed: {e.Message}");
+                return -1;
+            }
+        }
+
+        /// <summary>Sets a field on a live script instance from its string form. Returns 1 on success.</summary>
+        [UnmanagedCallersOnly]
+        public static int SetScriptField(long handle, byte* fieldName, byte* value)
+        {
+            try
+            {
+                if (!s_instances.TryGetValue(handle, out var script))
+                {
+                    return 0;
+                }
+                string? name = Marshal.PtrToStringUTF8((nint)fieldName);
+                string? text = Marshal.PtrToStringUTF8((nint)value);
+                if (string.IsNullOrEmpty(name) || text == null)
+                {
+                    return 0;
+                }
+                FieldInfo? field = script.GetType().GetField(
+                    name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (field == null || FieldTypeName(field.FieldType) == null || !IsInspectable(field))
+                {
+                    return 0;
+                }
+                field.SetValue(script, ParseFieldValue(field.FieldType, text));
+                return 1;
+            }
+            catch (Exception e)
+            {
+                Native.Log(2, $"SetScriptField failed: {e.Message}");
+                return 0;
+            }
+        }
+
+        private static bool IsInspectable(FieldInfo field)
+        {
+            if (field.IsInitOnly || field.IsDefined(typeof(HideInInspector), inherit: true))
+            {
+                return false;
+            }
+            // The ScriptComponent.Entity field is assigned by the engine, not the Inspector.
+            if (field.DeclaringType == typeof(ScriptComponent))
+            {
+                return false;
+            }
+            return field.IsPublic || field.IsDefined(typeof(SerializeField), inherit: true);
+        }
+
+        private static IEnumerable<FieldInfo> EnumerateInspectableFields(Type type)
+        {
+            foreach (FieldInfo field in type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (IsInspectable(field))
+                {
+                    yield return field;
+                }
+            }
+        }
+
+        private static string? FieldTypeName(Type type)
+        {
+            if (type == typeof(float)) return "float";
+            if (type == typeof(int)) return "int";
+            if (type == typeof(bool)) return "bool";
+            if (type == typeof(string)) return "string";
+            if (type == typeof(Vector3)) return "vector3";
+            return null;
+        }
+
+        private static string FieldValueToString(Type type, object? value)
+        {
+            var culture = System.Globalization.CultureInfo.InvariantCulture;
+            if (type == typeof(float)) return ((float)(value ?? 0.0f)).ToString("R", culture);
+            if (type == typeof(int)) return ((int)(value ?? 0)).ToString(culture);
+            if (type == typeof(bool)) return ((bool)(value ?? false)) ? "true" : "false";
+            if (type == typeof(string)) return (string?)value ?? string.Empty;
+            var v = (Vector3)(value ?? Vector3.Zero);
+            return string.Create(culture, $"{v.X:R} {v.Y:R} {v.Z:R}");
+        }
+
+        private static object ParseFieldValue(Type type, string text)
+        {
+            var culture = System.Globalization.CultureInfo.InvariantCulture;
+            if (type == typeof(float)) return float.Parse(text, culture);
+            if (type == typeof(int)) return (int)long.Parse(text, culture);
+            if (type == typeof(bool)) return text == "true" || text == "True" || text == "1";
+            if (type == typeof(string)) return text;
+            string[] parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return new Vector3(
+                float.Parse(parts[0], culture),
+                float.Parse(parts[1], culture),
+                float.Parse(parts[2], culture));
+        }
+
         [UnmanagedCallersOnly]
         public static void ScriptOnActivate(long handle)
         {

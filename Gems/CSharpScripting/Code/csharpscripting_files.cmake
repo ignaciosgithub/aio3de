@@ -11,6 +11,8 @@ set(FILES
     Source/CSharpScriptComponent.h
     Source/DotNetHost.cpp
     Source/DotNetHost.h
+    Source/ScriptField.cpp
+    Source/ScriptField.h
     Source/ScriptHost.cpp
     Source/ScriptHost.h
 )

@@ -29,11 +29,14 @@ namespace CSharpScripting
 
     void CSharpScriptComponent::Reflect(AZ::ReflectContext* context)
     {
+        ScriptField::Reflect(context);
+
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
             serializeContext->Class<CSharpScriptComponent, AZ::Component>()
-                ->Version(1)
-                ->Field("ClassName", &CSharpScriptComponent::m_className);
+                ->Version(2)
+                ->Field("ClassName", &CSharpScriptComponent::m_className)
+                ->Field("Fields", &CSharpScriptComponent::m_fields);
         }
     }
 
@@ -47,8 +50,9 @@ namespace CSharpScripting
         required.push_back(AZ_CRC_CE("TransformService"));
     }
 
-    CSharpScriptComponent::CSharpScriptComponent(const AZStd::string& className)
+    CSharpScriptComponent::CSharpScriptComponent(const AZStd::string& className, ScriptFieldList fields)
         : m_className(className)
+        , m_fields(AZStd::move(fields))
     {
     }
 
@@ -62,6 +66,10 @@ namespace CSharpScripting
         m_handle = ScriptHost::Instance().CreateScript(m_className, GetEntityId());
         if (m_handle != 0)
         {
+            for (const ScriptField& field : m_fields)
+            {
+                ScriptHost::Instance().SetScriptField(m_handle, field.m_name, field.ValueString());
+            }
             ScriptHost::Instance().ScriptOnActivate(m_handle);
             AZ::TickBus::Handler::BusConnect();
         }
