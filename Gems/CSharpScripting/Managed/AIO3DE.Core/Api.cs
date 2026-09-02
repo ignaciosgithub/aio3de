@@ -226,7 +226,7 @@ namespace AIO3DE
 
         /// <summary>
         /// True when this entity has a component whose type name contains
-        /// <paramref name="typeName"/> (case-insensitive) — e.g. "RigidBody", "Mesh",
+        /// <paramref name="typeName"/> (case-insensitive) - e.g. "RigidBody", "Mesh",
         /// "Camera", "Tag", "BoxShape".
         /// </summary>
         public bool HasComponent(string typeName) => Native.HasComponent(Id, typeName);
