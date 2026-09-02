@@ -20,6 +20,7 @@ namespace AIO3DE.Interop
         private static AssemblyLoadContext? s_scriptsContext;
         private static string? s_scriptsDirectory;
         private static readonly Dictionary<long, ScriptComponent> s_instances = new();
+        private static readonly HashSet<long> s_disabled = new();
         private static long s_nextHandle = 1;
 
         /// <summary>
@@ -268,6 +269,7 @@ namespace AIO3DE.Interop
             if (type == typeof(bool)) return "bool";
             if (type == typeof(string)) return "string";
             if (type == typeof(Vector3)) return "vector3";
+            if (type == typeof(Entity)) return "entity";
             return null;
         }
 
@@ -278,6 +280,7 @@ namespace AIO3DE.Interop
             if (type == typeof(int)) return ((int)(value ?? 0)).ToString(culture);
             if (type == typeof(bool)) return ((bool)(value ?? false)) ? "true" : "false";
             if (type == typeof(string)) return (string?)value ?? string.Empty;
+            if (type == typeof(Entity)) return ((Entity)(value ?? default(Entity))).Id.ToString(culture);
             var v = (Vector3)(value ?? Vector3.Zero);
             return string.Create(culture, $"{v.X:R} {v.Y:R} {v.Z:R}");
         }
@@ -289,6 +292,7 @@ namespace AIO3DE.Interop
             if (type == typeof(int)) return (int)long.Parse(text, culture);
             if (type == typeof(bool)) return text == "true" || text == "True" || text == "1";
             if (type == typeof(string)) return text;
+            if (type == typeof(Entity)) return new Entity(ulong.Parse(text, culture));
             string[] parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             return new Vector3(
                 float.Parse(parts[0], culture),
@@ -301,14 +305,35 @@ namespace AIO3DE.Interop
         {
             if (s_instances.TryGetValue(handle, out var script))
             {
+                if (!RequirementsMet(script))
+                {
+                    s_disabled.Add(handle);
+                    return;
+                }
+                s_disabled.Remove(handle);
                 Guarded(() => script.OnActivate(), script, "OnActivate");
             }
+        }
+
+        private static bool RequirementsMet(ScriptComponent script)
+        {
+            foreach (RequireComponent requirement in script.GetType().GetCustomAttributes<RequireComponent>(inherit: true))
+            {
+                if (!script.Entity.HasComponent(requirement.TypeName))
+                {
+                    Native.Log(1,
+                        $"{script.GetType().Name} on entity '{script.Entity.Name}' is disabled: " +
+                        $"required component '{requirement.TypeName}' is missing.");
+                    return false;
+                }
+            }
+            return true;
         }
 
         [UnmanagedCallersOnly]
         public static void ScriptOnUpdate(long handle, float deltaTime)
         {
-            if (s_instances.TryGetValue(handle, out var script))
+            if (s_instances.TryGetValue(handle, out var script) && !s_disabled.Contains(handle))
             {
                 try
                 {
@@ -324,7 +349,7 @@ namespace AIO3DE.Interop
         [UnmanagedCallersOnly]
         public static void ScriptOnDeactivate(long handle)
         {
-            if (s_instances.TryGetValue(handle, out var script))
+            if (s_instances.TryGetValue(handle, out var script) && !s_disabled.Contains(handle))
             {
                 Guarded(() => script.OnDeactivate(), script, "OnDeactivate");
             }
@@ -334,6 +359,7 @@ namespace AIO3DE.Interop
         public static void DestroyScript(long handle)
         {
             s_instances.Remove(handle);
+            s_disabled.Remove(handle);
         }
 
         [UnmanagedCallersOnly]
@@ -342,7 +368,7 @@ namespace AIO3DE.Interop
             float positionX, float positionY, float positionZ,
             float normalX, float normalY, float normalZ, float impulse)
         {
-            if (s_instances.TryGetValue(handle, out var script))
+            if (s_instances.TryGetValue(handle, out var script) && !s_disabled.Contains(handle))
             {
                 var collision = new Collision
                 {
@@ -358,7 +384,7 @@ namespace AIO3DE.Interop
         [UnmanagedCallersOnly]
         public static void ScriptOnCollisionExit(long handle, ulong otherEntityId)
         {
-            if (s_instances.TryGetValue(handle, out var script))
+            if (s_instances.TryGetValue(handle, out var script) && !s_disabled.Contains(handle))
             {
                 Guarded(() => script.OnCollisionExit(new Entity(otherEntityId)), script, "OnCollisionExit");
             }
@@ -367,7 +393,7 @@ namespace AIO3DE.Interop
         [UnmanagedCallersOnly]
         public static void ScriptOnTriggerEnter(long handle, ulong otherEntityId)
         {
-            if (s_instances.TryGetValue(handle, out var script))
+            if (s_instances.TryGetValue(handle, out var script) && !s_disabled.Contains(handle))
             {
                 Guarded(() => script.OnTriggerEnter(new Entity(otherEntityId)), script, "OnTriggerEnter");
             }
@@ -376,7 +402,7 @@ namespace AIO3DE.Interop
         [UnmanagedCallersOnly]
         public static void ScriptOnTriggerExit(long handle, ulong otherEntityId)
         {
-            if (s_instances.TryGetValue(handle, out var script))
+            if (s_instances.TryGetValue(handle, out var script) && !s_disabled.Contains(handle))
             {
                 Guarded(() => script.OnTriggerExit(new Entity(otherEntityId)), script, "OnTriggerExit");
             }

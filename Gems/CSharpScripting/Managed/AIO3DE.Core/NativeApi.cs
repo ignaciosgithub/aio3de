@@ -72,6 +72,9 @@ namespace AIO3DE.Interop
         public delegate* unmanaged<byte*, float, float, float, ulong> SpawnPrefab;
         public delegate* unmanaged<ulong, ulong> GetSpawnedRoot;
         public delegate* unmanaged<ulong, void> Despawn;
+
+        // Components
+        public delegate* unmanaged<ulong, byte*, int> HasComponent;
     }
 
     internal static unsafe class Native
@@ -182,6 +185,15 @@ namespace AIO3DE.Interop
             fixed (byte* p = utf8)
             {
                 return Api.SpawnPrefab(p, x, y, z);
+            }
+        }
+
+        internal static bool HasComponent(ulong entityId, string typeName)
+        {
+            byte[] utf8 = System.Text.Encoding.UTF8.GetBytes(typeName + "\0");
+            fixed (byte* p = utf8)
+            {
+                return Api.HasComponent(entityId, p) != 0;
             }
         }
 

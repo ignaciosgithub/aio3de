@@ -79,6 +79,9 @@ namespace CSharpScripting
         AZ::u64 (*m_spawnPrefab)(const char* spawnablePath, float x, float y, float z);
         AZ::u64 (*m_getSpawnedRoot)(AZ::u64 ticketId);
         void (*m_despawn)(AZ::u64 ticketId);
+
+        // Components
+        int (*m_hasComponent)(AZ::u64 entityId, const char* typeName);
     };
 
     //! Owns the .NET runtime, compiles the managed core + project scripts with the dotnet CLI,
