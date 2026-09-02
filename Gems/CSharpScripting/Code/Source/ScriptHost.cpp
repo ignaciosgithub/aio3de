@@ -504,6 +504,31 @@ namespace CSharpScripting
             s_spawnRecords.erase(ticketId);
         }
 
+        int ApiHasComponent(AZ::u64 entityId, const char* typeName)
+        {
+            if (!typeName || typeName[0] == '\0')
+            {
+                return 0;
+            }
+            AZ::Entity* entity = nullptr;
+            AZ::ComponentApplicationBus::BroadcastResult(
+                entity, &AZ::ComponentApplicationBus::Events::FindEntity, AZ::EntityId(entityId));
+            if (!entity)
+            {
+                return 0;
+            }
+            for (const AZ::Component* component : entity->GetComponents())
+            {
+                // Case-insensitive substring match against the component's RTTI type name,
+                // so "RigidBody" matches "PhysX::RigidBodyComponent".
+                if (AZ::StringFunc::Find(component->RTTI_GetTypeName(), typeName, 0, false, false) != AZStd::string::npos)
+                {
+                    return 1;
+                }
+            }
+            return 0;
+        }
+
         bool RunCommand(const AZStd::string& command, AZStd::string& output)
         {
 #if defined(AZ_PLATFORM_WINDOWS)
@@ -703,6 +728,7 @@ namespace CSharpScripting
             &ApiSpawnPrefab,
             &ApiGetSpawnedRoot,
             &ApiDespawn,
+            &ApiHasComponent,
         };
         if (m_managedInitialize(&api) == 0)
         {
@@ -869,6 +895,10 @@ namespace CSharpScripting
                     else if (typeName == "vector3")
                     {
                         field.m_type = static_cast<AZ::u32>(ScriptField::Type::Vector3);
+                    }
+                    else if (typeName == "entity")
+                    {
+                        field.m_type = static_cast<AZ::u32>(ScriptField::Type::EntityRef);
                     }
                     else
                     {

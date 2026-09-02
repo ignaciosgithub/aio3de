@@ -224,6 +224,13 @@ namespace AIO3DE
 
         public bool IsValid => Id != 0;
 
+        /// <summary>
+        /// True when this entity has a component whose type name contains
+        /// <paramref name="typeName"/> (case-insensitive) - e.g. "RigidBody", "Mesh",
+        /// "Camera", "Tag", "BoxShape".
+        /// </summary>
+        public bool HasComponent(string typeName) => Native.HasComponent(Id, typeName);
+
         public static Entity Find(string name) => new(Native.FindEntityByName(name));
 
         /// <summary>Finds the first entity with the given tag (needs a Tag component).</summary>
@@ -412,7 +419,7 @@ namespace AIO3DE
 
     /// <summary>
     /// Exposes a non-public field in the Inspector (public fields of supported types are
-    /// exposed automatically). Supported types: float, int, bool, string, Vector3.
+    /// exposed automatically). Supported types: float, int, bool, string, Vector3, Entity.
     /// </summary>
     [System.AttributeUsage(System.AttributeTargets.Field)]
     public sealed class SerializeField : System.Attribute
@@ -423,6 +430,22 @@ namespace AIO3DE
     [System.AttributeUsage(System.AttributeTargets.Field)]
     public sealed class HideInInspector : System.Attribute
     {
+    }
+
+    /// <summary>
+    /// Declares that the script only runs when the entity has a matching component
+    /// (name matching as in <see cref="Entity.HasComponent"/>). If any requirement is
+    /// missing, the script logs a warning and receives no lifecycle callbacks.
+    /// </summary>
+    [System.AttributeUsage(System.AttributeTargets.Class, AllowMultiple = true, Inherited = true)]
+    public sealed class RequireComponent : System.Attribute
+    {
+        public string TypeName { get; }
+
+        public RequireComponent(string typeName)
+        {
+            TypeName = typeName;
+        }
     }
 
     /// <summary>Contact information delivered to <see cref="ScriptComponent.OnCollisionEnter"/>.</summary>

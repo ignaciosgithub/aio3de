@@ -14,6 +14,7 @@
 
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
 
 namespace CSharpScripting
 {
@@ -29,7 +30,8 @@ namespace CSharpScripting
                 ->Field("IntValue", &ScriptField::m_intValue)
                 ->Field("BoolValue", &ScriptField::m_boolValue)
                 ->Field("StringValue", &ScriptField::m_stringValue)
-                ->Field("Vector3Value", &ScriptField::m_vector3Value);
+                ->Field("Vector3Value", &ScriptField::m_vector3Value)
+                ->Field("EntityValue", &ScriptField::m_entityValue);
 
             if (auto* editContext = serializeContext->GetEditContext())
             {
@@ -45,7 +47,9 @@ namespace CSharpScripting
                     ->DataElement(AZ::Edit::UIHandlers::Default, &ScriptField::m_stringValue, "Value", "Field value")
                         ->Attribute(AZ::Edit::Attributes::Visibility, &ScriptField::StringVisibility)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &ScriptField::m_vector3Value, "Value", "Field value")
-                        ->Attribute(AZ::Edit::Attributes::Visibility, &ScriptField::Vector3Visibility);
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &ScriptField::Vector3Visibility)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &ScriptField::m_entityValue, "Value", "Field value")
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &ScriptField::EntityRefVisibility);
             }
         }
     }
@@ -101,6 +105,8 @@ namespace CSharpScripting
                 static_cast<float>(m_vector3Value.GetX()),
                 static_cast<float>(m_vector3Value.GetY()),
                 static_cast<float>(m_vector3Value.GetZ()));
+        case Type::EntityRef:
+            return AZStd::string::format("%llu", static_cast<unsigned long long>(static_cast<AZ::u64>(m_entityValue)));
         }
         return {};
     }
@@ -132,6 +138,9 @@ namespace CSharpScripting
             }
             break;
         }
+        case Type::EntityRef:
+            m_entityValue = AZ::EntityId(strtoull(value.c_str(), nullptr, 10));
+            break;
         }
     }
 
@@ -158,5 +167,10 @@ namespace CSharpScripting
     AZ::Crc32 ScriptField::Vector3Visibility() const
     {
         return m_type == static_cast<AZ::u32>(Type::Vector3) ? AZ::Edit::PropertyVisibility::Show : AZ::Edit::PropertyVisibility::Hide;
+    }
+
+    AZ::Crc32 ScriptField::EntityRefVisibility() const
+    {
+        return m_type == static_cast<AZ::u32>(Type::EntityRef) ? AZ::Edit::PropertyVisibility::Show : AZ::Edit::PropertyVisibility::Hide;
     }
 } // namespace CSharpScripting

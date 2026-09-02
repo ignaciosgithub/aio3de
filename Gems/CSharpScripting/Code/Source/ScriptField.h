@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <AzCore/Component/EntityId.h>
 #include <AzCore/Math/Vector3.h>
 #include <AzCore/Memory/SystemAllocator.h>
 #include <AzCore/RTTI/TypeInfoSimple.h>
@@ -34,6 +35,7 @@ namespace CSharpScripting
             Bool,
             String,
             Vector3,
+            EntityRef,
         };
 
         static void Reflect(AZ::ReflectContext* context);
@@ -46,6 +48,7 @@ namespace CSharpScripting
         bool m_boolValue = false;
         AZStd::string m_stringValue;
         AZ::Vector3 m_vector3Value = AZ::Vector3::CreateZero();
+        AZ::EntityId m_entityValue;
 
         //! Unity-style display name ("_moveSpeed" -> "Move Speed").
         AZStd::string GetDisplayName() const;
@@ -60,6 +63,7 @@ namespace CSharpScripting
         AZ::Crc32 BoolVisibility() const;
         AZ::Crc32 StringVisibility() const;
         AZ::Crc32 Vector3Visibility() const;
+        AZ::Crc32 EntityRefVisibility() const;
     };
 
     using ScriptFieldList = AZStd::vector<ScriptField>;

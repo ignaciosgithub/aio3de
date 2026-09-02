@@ -43,7 +43,15 @@ public class Mover : ScriptComponent
 }
 ```
 
-See `Examples/Mover.cs`, `Examples/FpsController.cs`, and `Examples/Spawner.cs` for samples.
+See the `Examples/` folder for samples:
+
+- `Mover.cs` — minimal movement + input.
+- `FpsController.cs` — full FPS character (mouse/gamepad look, jump, drag, shooting).
+- `Spawner.cs` — prefab spawning, tags, collision callbacks.
+- `PhysicsPusher.cs` — `[RequireComponent("RigidBody")]`-gated physics: impulses, torque, toggling gravity/kinematic, reading/zeroing velocity and mass.
+- `FollowTarget.cs` — another entity as an Inspector variable (`public Entity Target`) with a name-lookup fallback.
+- `LifetimeManager.cs` — creating empty entities, spawning/despawning prefabs, destroying another entity (Inspector-assigned `Victim`), and self-destructing.
+- `RaycastZapper.cs` — raycasts plus per-hit `HasComponent("RigidBody")` checks before pushing other entities.
 
 ### Inspector fields (Unity-style)
 
@@ -64,9 +72,31 @@ public class Enemy : ScriptComponent
 }
 ```
 
-Supported types: `float`, `int`, `bool`, `string`, `Vector3`. Values are saved with the level,
+Supported types: `float`, `int`, `bool`, `string`, `Vector3`, `Entity`. `Entity` fields show an
+entity picker — pick (or drag from the Outliner) any entity in the level to reference it from the
+script, then guard with `if (target.IsValid)`. Values are saved with the level,
 applied to the script instance right before `OnActivate`, and re-read from the class (keeping
 your edits for fields that still exist) when you change the class name or press Rebuild scripts.
+
+### Required components
+
+Gate a script on a component with `[RequireComponent("...")]` (repeatable) or query at runtime
+with `Entity.HasComponent("...")`. Matching is a case-insensitive substring of the component's
+type name, so `"RigidBody"` matches the PhysX Rigid Body component, and `"Camera"`, `"Mesh"`,
+`"Tag"`, `"BoxShape"` etc. work the same way:
+
+```csharp
+[RequireComponent("RigidBody")]
+public class PhysicsPusher : ScriptComponent { ... }
+```
+
+If a required component is missing, the script logs a warning at activation and receives no
+lifecycle callbacks (no `OnActivate`/`OnUpdate`/collision/trigger calls) — it does not add the
+component for you.
+
+Runtime parameter changes go through the typed API (transform, rigid-body velocity/impulses/
+gravity/kinematic, `SetActive`, tags); arbitrary reflection over other components' properties is
+not exposed yet.
 
 Lua scripts get the same via the standard `Properties` table on the Script component:
 
@@ -88,7 +118,7 @@ return enemy
 - `ScriptComponent` — base class; lifecycle: `OnActivate()`, `OnUpdate(float deltaTime)`, `OnDeactivate()`; collision callbacks (needs a PhysX collider/rigid body on the entity): `OnCollisionEnter(Collision)`, `OnCollisionExit(Entity other)`; trigger callbacks (fire on both the trigger and the entering body, needs a trigger collider on one of them): `OnTriggerEnter(Entity other)`, `OnTriggerExit(Entity other)`; `Entity` field = the entity the script is on.
 - `Collision` — payload for `OnCollisionEnter`: `Other` entity, first contact `Position`, `Normal`, and `Impulse` magnitude.
 - `Prefab` — `Prefab.Spawn("path/to/thing.spawnable", position)` instantiates a processed prefab (spawnable) at runtime. Spawning is asynchronous: the returned `PrefabInstance.RootEntity` becomes valid once spawning completes (usually the next frame). Keep the `PrefabInstance` and call `Despawn()` to remove all its entities.
-- `Entity` — transform: `Position`, `LocalPosition`, `RotationEuler` (degrees), `Rotation` (quaternion), `UniformScale`, `ForwardVector`/`RightVector`/`UpVector`, `Parent` (get/set); lifecycle: `Entity.Find(name)`, `Entity.Create(name)`, `Destroy()`, `IsActive`, `SetActive(bool)`; rigid body (needs a Rigid Body component): `LinearVelocity`, `AngularVelocity`, `ApplyImpulse`, `ApplyAngularImpulse`, `Mass`, `SetGravityEnabled`, `SetKinematic`; tags (needs a Tag component): `HasTag`, `AddTag`, `RemoveTag`, `Entity.FindByTag(tag)`, `Entity.FindAllByTag(tag)`.
+- `Entity` — transform: `Position`, `LocalPosition`, `RotationEuler` (degrees), `Rotation` (quaternion), `UniformScale`, `ForwardVector`/`RightVector`/`UpVector`, `Parent` (get/set); lifecycle: `Entity.Find(name)`, `Entity.Create(name)`, `Destroy()`, `IsActive`, `SetActive(bool)`; component queries: `HasComponent("RigidBody")` (case-insensitive substring of the component type name); rigid body (needs a Rigid Body component): `LinearVelocity`, `AngularVelocity`, `ApplyImpulse`, `ApplyAngularImpulse`, `Mass`, `SetGravityEnabled`, `SetKinematic`; tags (needs a Tag component): `HasTag`, `AddTag`, `RemoveTag`, `Entity.FindByTag(tag)`, `Entity.FindAllByTag(tag)`.
 - `Input` — `GetKey("W")` / `GetKey("Space")` / `GetKey("LShift")`..., `GetMouseButton(0/1/2)`, `MouseDelta`, `CursorPosition` (normalized), plus raw channels: `IsHeld("keyboard_key_alphanumeric_W")`, `GetValue("mouse_delta_x")` (any O3DE input channel name, including gamepads).
 - `Physics` — `Raycast(origin, direction, maxDistance, out RaycastHit hit)` against the default physics scene; `RaycastHit` has `Position`, `Normal`, `Distance`, `Entity`.
 - `Time` — `TimeSinceStart` (seconds since app start; per-frame delta comes via `OnUpdate`).
