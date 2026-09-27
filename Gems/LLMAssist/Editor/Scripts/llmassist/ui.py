@@ -13,7 +13,8 @@ SPDX-License-Identifier: Apache-2.0 OR MIT
 """
 # The in-Editor view panes:
 #  - AIAssistantDialog (Tools > AI Assistant): Chat tab (provider/model picker,
-#    docs-aware toggle, apply-file-edit flow with user-save priority) and a
+#    docs-aware toggle, scene-aware toggle, apply-file-edit flow with user-save
+#    priority, apply-scene-actions flow with confirmation + undo batch) and a
 #    Settings tab (API keys, stored per-user, never in the project).
 #  - GemManagerDialog (Tools > Gem Manager): list/search all engine gems,
 #    enable/disable with one click, rebuild guidance for code gems.
@@ -29,6 +30,7 @@ from . import gem_manager
 from . import keystore
 from . import memory
 from . import providers
+from . import scene_actions
 
 _FILE_BLOCK = re.compile(
     r"FILE:\s*(?P<path>[^\n]+)\n+```[a-zA-Z0-9_+-]*\n(?P<body>.*?)```", re.DOTALL)
@@ -60,6 +62,8 @@ class AIAssistantDialog(QtWidgets.QDialog):
         self.resize(760, 640)
         self._history = []
         self._worker = None
+        self._last_reply = ""
+        self._backend = None
 
         tabs = QtWidgets.QTabWidget()
         tabs.addTab(self._build_chat_tab(), "Chat")
@@ -91,10 +95,21 @@ class AIAssistantDialog(QtWidgets.QDialog):
                              "(kept in ~/.o3de/llmassist_models.json)")
         add_model.clicked.connect(self._on_add_model)
         top.addWidget(add_model)
+        layout.addLayout(top)
+
+        options = QtWidgets.QHBoxLayout()
         self._docs_aware = QtWidgets.QCheckBox("Docs-aware (engine docs + updates)")
         self._docs_aware.setChecked(True)
-        top.addWidget(self._docs_aware)
-        layout.addLayout(top)
+        options.addWidget(self._docs_aware)
+        self._scene_aware = QtWidgets.QCheckBox("Scene-aware (open level + selection)")
+        self._scene_aware.setChecked(True)
+        self._scene_aware.setToolTip(
+            "Give the assistant the entities of the open level and the components/properties "
+            "of the selected entities, and let it propose scene actions (create/select/modify "
+            "entities and components, rebuild C#) that you apply with one click.")
+        options.addWidget(self._scene_aware)
+        options.addStretch(1)
+        layout.addLayout(options)
 
         self._transcript = QtWidgets.QPlainTextEdit()
         self._transcript.setReadOnly(True)
@@ -102,7 +117,8 @@ class AIAssistantDialog(QtWidgets.QDialog):
 
         self._input = QtWidgets.QPlainTextEdit()
         self._input.setPlaceholderText(
-            "Ask about the engine, the docs, or request a file edit...")
+            "Ask about the engine, the docs, request a file edit, or ask for changes to the "
+            "open level (e.g. 'add a crate with a rigid body above the player')...")
         self._input.setFixedHeight(90)
         layout.addWidget(self._input)
 
@@ -114,6 +130,10 @@ class AIAssistantDialog(QtWidgets.QDialog):
         self._apply.setEnabled(False)
         self._apply.clicked.connect(self._on_apply_edits)
         buttons.addWidget(self._apply)
+        self._apply_actions = QtWidgets.QPushButton("Apply scene actions from last reply")
+        self._apply_actions.setEnabled(False)
+        self._apply_actions.clicked.connect(self._on_apply_actions)
+        buttons.addWidget(self._apply_actions)
         clear = QtWidgets.QPushButton("Clear")
         clear.clicked.connect(self._on_clear)
         buttons.addWidget(clear)
@@ -143,6 +163,7 @@ class AIAssistantDialog(QtWidgets.QDialog):
         self._history = []
         self._transcript.clear()
         self._apply.setEnabled(False)
+        self._apply_actions.setEnabled(False)
 
     def _on_send(self):
         question = self._input.toPlainText().strip()
@@ -162,6 +183,8 @@ class AIAssistantDialog(QtWidgets.QDialog):
         system = ""
         if self._docs_aware.isChecked():
             system = docs_context.system_prompt(question)
+        if self._scene_aware.isChecked():
+            system = (system + "\n\n" + self._scene_prompt()).strip()
         memory_block = memory.context_block()
         if memory_block:
             system = (system + "\n\n--- PROJECT MEMORY ---\n" + memory_block).strip()
@@ -194,6 +217,7 @@ class AIAssistantDialog(QtWidgets.QDialog):
         self._append("assistant", reply)
         self._last_reply = reply
         self._apply.setEnabled(bool(_FILE_BLOCK.search(reply)))
+        self._apply_actions.setEnabled(scene_actions.has_actions(reply))
 
     def _on_error(self, message):
         self._finish_request()
@@ -202,7 +226,7 @@ class AIAssistantDialog(QtWidgets.QDialog):
     # ---- applying AI file edits (user-save priority) ----
 
     def _on_apply_edits(self):
-        reply = getattr(self, "_last_reply", "")
+        reply = self._last_reply
         edits = [(m.group("path").strip(), m.group("body")) for m in _FILE_BLOCK.finditer(reply)]
         if not edits:
             return
@@ -247,6 +271,63 @@ class AIAssistantDialog(QtWidgets.QDialog):
             if backup:
                 note += f" (backup: {os.path.basename(backup)})"
             self._append("system", note)
+
+    # ---- scene actions (act on the open level, confirmed, one undo batch) ----
+
+    def _get_backend(self):
+        if self._backend is None:
+            self._backend = scene_actions.EditorBackend()
+        return self._backend
+
+    def _scene_prompt(self):
+        try:
+            context = scene_actions.scene_context(self._get_backend())
+        except Exception as e:  # e.g. running outside the Editor
+            context = f"(scene unavailable: {e})"
+        if not context:
+            context = "(no level is open, or it has no entities)"
+        return ("--- OPEN LEVEL ---\n" + context + "\n\n--- SCENE ACTIONS ---\n"
+                + scene_actions.ACTION_DOCS)
+
+    def _on_apply_actions(self):
+        try:
+            actions = scene_actions.parse_actions(self._last_reply)
+        except scene_actions.ActionError as e:
+            QtWidgets.QMessageBox.warning(self, "Scene actions", str(e))
+            self._append("error", str(e))
+            return
+        if not actions:
+            return
+        try:
+            backend = self._get_backend()
+        except Exception as e:
+            self._append("error", f"Scene actions need the Editor Python bindings: {e}")
+            return
+
+        preview = "\n".join(
+            f"{i}. {'[confirm] ' if scene_actions.is_destructive(a) else ''}{scene_actions.describe(a)}"
+            for i, a in enumerate(actions, start=1))
+        answer = QtWidgets.QMessageBox.question(
+            self, "Apply scene actions",
+            f"The assistant wants to change the open level:\n\n{preview}\n\n"
+            "Actions marked [confirm] are destructive and will be confirmed one by one. "
+            "Everything is applied as one undo step (Ctrl+Z reverts it). Apply?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+        if answer != QtWidgets.QMessageBox.Yes:
+            self._append("system", "Scene actions skipped (user declined).")
+            return
+
+        def confirm(action, text):
+            reply = QtWidgets.QMessageBox.question(
+                self, "Confirm destructive action",
+                f"{text}\n\nProceed?",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+            return reply == QtWidgets.QMessageBox.Yes
+
+        executor = scene_actions.Executor(backend, confirm=confirm)
+        applied, messages = executor.run(actions)
+        self._append("system", f"Scene actions: {applied}/{len(actions)} applied\n" + "\n".join(messages))
+        self._apply_actions.setEnabled(False)
 
     # ---- Memory tab (per-project, persists across Editor restarts) ----
 

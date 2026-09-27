@@ -33,6 +33,40 @@ the Editor). Restart the Editor; two new panes appear in **Tools**:
   2. refuses to write if the file changed on disk since the AI read it
      (re-ask so it works from your latest content);
   3. writes a timestamped `.bak` backup next to the file before applying.
+- **Scene-aware + scene actions**: with the checkbox on (default), the
+  assistant sees the open level — every entity as `name [id] (parent)` plus
+  the components and property paths/values of the **selected** entities — and
+  can propose changes as an `actions` block:
+
+  ````text
+  ```actions
+  [
+    {"action": "create_entity", "name": "Crate", "parent": "Props", "position": [0, 0, 2]},
+    {"action": "add_component", "entity": "Crate", "component": "PhysX Dynamic Rigid Body"},
+    {"action": "set_property", "entity": "Crate", "component": "PhysX Dynamic Rigid Body",
+     "property": "Mass", "value": 25},
+    {"action": "select", "entities": ["Crate"]},
+    {"action": "rebuild_csharp"}
+  ]
+  ```
+  ````
+
+  The *Apply scene actions* button shows the full list and asks once before
+  running it; destructive actions (`delete_entity`, `remove_component`,
+  `save_level`, `run_console`) are confirmed one by one. Everything runs
+  inside a single undo batch — **Ctrl+Z reverts the whole reply** — and stops
+  at the first failure (the transcript shows what was applied / why it
+  stopped). Supported actions: `create_entity`, `delete_entity`,
+  `rename_entity`, `set_parent`, `select`, `set_transform` (position /
+  rotation_degrees / uniform scale), `add_component`, `remove_component`,
+  `set_property` (numbers, bools, strings, `[x,y,z]` vectors, colors,
+  entity names for entity-reference properties), `rebuild_csharp` (runs
+  `csharp_rebuild`), `run_console`, `save_level`. Entities are referenced by
+  name (case-insensitive) or by the `[id]` from the listing when names
+  repeat; component and property names may be partial as long as they are
+  unambiguous. Lua scripts need no rebuild — edited `.lua` files are picked up
+  by the Asset Processor. Script *source* changes still go through `FILE:`
+  edits; both kinds can appear in the same reply.
 - **Memory tab — per-project persistent memory**: the assistant remembers
   across Editor restarts, per project. Durable **facts** (add them in the tab
   or type `remember: <fact>` in the chat) are always included in its context,
@@ -62,4 +96,12 @@ The backend is plain Python — usable from any Editor script:
 ```python
 from llmassist import providers
 reply = providers.chat("anthropic", [{"role": "user", "content": "hi"}])
+
+from llmassist import scene_actions
+backend = scene_actions.EditorBackend()          # azlmbr-backed, Editor only
+print(scene_actions.scene_context(backend))      # what the assistant sees
+actions = scene_actions.parse_actions(reply)     # ```actions blocks -> list
+scene_actions.Executor(backend).run(actions)     # (applied, messages)
 ```
+
+Unit tests (no Editor needed): `python -m unittest discover -s Gems/LLMAssist/Tests`.

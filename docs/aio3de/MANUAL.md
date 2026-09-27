@@ -821,8 +821,14 @@ old assembly. Full reference and samples (`Mover.cs`, `FpsController.cs`,
 The **LLMAssist** gem (script-only, no rebuild) adds two Editor panes under
 **Tools**: **AI Assistant** — chat with OpenAI/Anthropic/Kimi models, with an
 optional docs-aware mode that feeds this fork's documentation into the
-conversation and an *Apply file edits* button for `FILE:` blocks in replies
-(with backups) — and **Gem Manager** for per-project gem toggling. API keys go
+conversation, an *Apply file edits* button for `FILE:` blocks in replies
+(with backups), and a **scene-aware** mode: the assistant sees the open
+level's entities plus the components/properties of your selection, and can
+propose **scene actions** (create/rename/parent/select entities, set
+transforms, add/remove components, set any reflected property, `csharp_rebuild`)
+that you apply with one click after a preview — destructive ones are
+confirmed individually and the whole batch is one Ctrl+Z step — and **Gem
+Manager** for per-project gem toggling. API keys go
 in the Settings tab (stored in `~/.o3de/llmassist_keys.json`, never
 committed); environment variables like `OPENAI_API_KEY` also work. Details:
 `Gems/LLMAssist/README.md`.
