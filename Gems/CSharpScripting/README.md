@@ -52,6 +52,7 @@ See the `Examples/` folder for samples:
 - `FollowTarget.cs` — another entity as an Inspector variable (`public Entity Target`) with a name-lookup fallback.
 - `LifetimeManager.cs` — creating empty entities, spawning/despawning prefabs, destroying another entity (Inspector-assigned `Victim`), and self-destructing.
 - `RaycastZapper.cs` — raycasts plus per-hit `HasComponent("RigidBody")` checks before pushing other entities.
+- `ComponentTweaker.cs` — generic component access: listing components/properties, reading and writing any reflected property (`GetComponent("RigidBody").Set("Linear damping", ...)`), `AddComponent`/`RemoveComponent` at runtime, and calling another entity's script via `GetScript<T>()`.
 
 ### Inspector fields (Unity-style)
 
@@ -94,9 +95,48 @@ If a required component is missing, the script logs a warning at activation and 
 lifecycle callbacks (no `OnActivate`/`OnUpdate`/collision/trigger calls) — it does not add the
 component for you.
 
-Runtime parameter changes go through the typed API (transform, rigid-body velocity/impulses/
-gravity/kinematic, `SetActive`, tags); arbitrary reflection over other components' properties is
-not exposed yet.
+### Generic component access
+
+Any component's serialized properties can be read and written by name through a `Component`
+handle, and components can be added/removed at runtime:
+
+```csharp
+Component body = Entity.GetComponent("RigidBody");   // partial, case-insensitive type name
+if (body.IsValid)
+{
+    foreach (string p in body.Properties) Debug.Log(p);   // "RigidBodyConfiguration/Mass|float", ...
+    float mass = body.GetFloat("Mass");                    // short name: matched at any depth
+    body.Set("Linear damping", 0.5f, reactivate: true);    // spaces/underscores/case ignored
+    body.Set("RigidBodyConfiguration/Gravity Enabled", false, reactivate: true);
+}
+
+Entity.GetComponent("BoxShape").Set("Dimensions", new Vector3(2, 2, 2), reactivate: true);
+Entity.AddComponent("BoxShape");     // applied next frame; false if no such component type exists
+Entity.RemoveComponent("Tag");       // applied next frame; false when the entity has none
+string[] names = Entity.Components;  // every component type name on the entity
+
+// Script-to-script calls (Unity's GetComponent<MyScript>()):
+PhysicsPusher? pusher = other.GetScript<PhysicsPusher>();
+if (pusher != null) pusher.ImpulseStrength = 10;
+```
+
+Getters: `GetFloat`, `GetInt`, `GetBool`, `GetString`, `GetVector3`, `GetQuaternion`, `GetEntity`,
+`GetFloats` (vector2/vector4/color components), `GetRaw`/`TypeOf`/`Has`. `Set(...)` overloads
+take `float`, `int`, `bool`, `string`, `Vector3`, `Quaternion`, `Entity`, `float[]`, or a raw
+string. Every call is safe on a missing entity/component/property: getters return the fallback
+(or `null`) and setters return `false`.
+
+Supported property types: `float`/`double`, integers, `bool`, `string`, `Vector2/3/4`,
+`Quaternion`, `Color`, `EntityId`. Asset references, enums, containers and nested objects are not
+exposed (they do not show up in `Properties`); use the typed API or a Lua/EBus path for those.
+
+Lifecycle notes: most components read their configuration when the entity activates, so pass
+`reactivate: true` to make a written value take effect - the entity is deactivated and
+reactivated at the start of the next frame, which also re-runs `OnDeactivate`/`OnActivate` on
+its scripts. `AddComponent`/`RemoveComponent` do the same reactivation. Properties written
+without `reactivate` change the serialized value immediately but the component may keep
+using its old runtime state until the next activation. In the Editor, runtime changes made
+in game mode are discarded on exit like every other game-mode change.
 
 Lua scripts get the same via the standard `Properties` table on the Script component:
 
@@ -116,9 +156,10 @@ return enemy
 ### API (AIO3DE.Core)
 
 - `ScriptComponent` — base class; lifecycle: `OnActivate()`, `OnUpdate(float deltaTime)`, `OnDeactivate()`; collision callbacks (needs a PhysX collider/rigid body on the entity): `OnCollisionEnter(Collision)`, `OnCollisionExit(Entity other)`; trigger callbacks (fire on both the trigger and the entering body, needs a trigger collider on one of them): `OnTriggerEnter(Entity other)`, `OnTriggerExit(Entity other)`; `Entity` field = the entity the script is on.
+- `Component` — reflection-backed handle from `Entity.GetComponent`: `IsValid`, `Properties`, `Has`, `TypeOf`, `GetRaw`, `GetFloat/GetInt/GetBool/GetString/GetVector3/GetQuaternion/GetEntity/GetFloats`, `Set(property, value, reactivate)` overloads, `SetRaw`.
 - `Collision` — payload for `OnCollisionEnter`: `Other` entity, first contact `Position`, `Normal`, and `Impulse` magnitude.
 - `Prefab` — `Prefab.Spawn("path/to/thing.spawnable", position)` instantiates a processed prefab (spawnable) at runtime. Spawning is asynchronous: the returned `PrefabInstance.RootEntity` becomes valid once spawning completes (usually the next frame). Keep the `PrefabInstance` and call `Despawn()` to remove all its entities.
-- `Entity` — transform: `Position`, `LocalPosition`, `RotationEuler` (degrees), `Rotation` (quaternion), `UniformScale`, `ForwardVector`/`RightVector`/`UpVector`, `Parent` (get/set); lifecycle: `Entity.Find(name)`, `Entity.Create(name)`, `Destroy()`, `IsActive`, `SetActive(bool)`; component queries: `HasComponent("RigidBody")` (case-insensitive substring of the component type name); rigid body (needs a Rigid Body component): `LinearVelocity`, `AngularVelocity`, `ApplyImpulse`, `ApplyAngularImpulse`, `Mass`, `SetGravityEnabled`, `SetKinematic`; tags (needs a Tag component): `HasTag`, `AddTag`, `RemoveTag`, `Entity.FindByTag(tag)`, `Entity.FindAllByTag(tag)`.
+- `Entity` — transform: `Position`, `LocalPosition`, `RotationEuler` (degrees), `Rotation` (quaternion), `UniformScale`, `ForwardVector`/`RightVector`/`UpVector`, `Parent` (get/set); lifecycle: `Entity.Find(name)`, `Entity.Create(name)`, `Destroy()`, `IsActive`, `SetActive(bool)`; component queries: `HasComponent("RigidBody")` (case-insensitive substring of the component type name), `Components`, `GetComponent(name)` -> `Component`, `AddComponent(name)`, `RemoveComponent(name)`; scripts: `GetScript<T>()`, `GetScripts()`; rigid body (needs a Rigid Body component): `LinearVelocity`, `AngularVelocity`, `ApplyImpulse`, `ApplyAngularImpulse`, `Mass`, `SetGravityEnabled`, `SetKinematic`; tags (needs a Tag component): `HasTag`, `AddTag`, `RemoveTag`, `Entity.FindByTag(tag)`, `Entity.FindAllByTag(tag)`.
 - `Input` — `GetKey("W")` / `GetKey("Space")` / `GetKey("LShift")`..., `GetMouseButton(0/1/2)`, `MouseDelta`, `CursorPosition` (normalized), plus raw channels: `IsHeld("keyboard_key_alphanumeric_W")`, `GetValue("mouse_delta_x")` (any O3DE input channel name, including gamepads).
 - `Physics` — `Raycast(origin, direction, maxDistance, out RaycastHit hit)` against the default physics scene; `RaycastHit` has `Position`, `Normal`, `Distance`, `Entity`.
 - `Time` — `TimeSinceStart` (seconds since app start; per-frame delta comes via `OnUpdate`).

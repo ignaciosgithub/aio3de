@@ -7,6 +7,8 @@
 #
 
 set(FILES
+    Source/ComponentAccess.cpp
+    Source/ComponentAccess.h
     Source/CSharpScriptComponent.cpp
     Source/CSharpScriptComponent.h
     Source/DotNetHost.cpp

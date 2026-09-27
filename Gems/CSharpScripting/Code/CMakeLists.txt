@@ -104,3 +104,26 @@ if(PAL_TRAIT_BUILD_HOST_TOOLS)
 
     o3de_add_variant_dependencies_for_gem_dependencies(GEM_NAME ${gem_name} VARIANTS Tools Builders)
 endif()
+
+if(PAL_TRAIT_BUILD_TESTS_SUPPORTED)
+    ly_add_target(
+        NAME ${gem_name}.Tests ${PAL_TRAIT_TEST_TARGET_TYPE}
+        NAMESPACE Gem
+        FILES_CMAKE
+            csharpscripting_tests_files.cmake
+        INCLUDE_DIRECTORIES
+            PRIVATE
+                Tests
+                Source
+        BUILD_DEPENDENCIES
+            PRIVATE
+                AZ::AzTest
+                AZ::AzTestShared
+                AZ::AzCore
+                Gem::${gem_name}.Static
+    )
+
+    ly_add_googletest(
+        NAME Gem::${gem_name}.Tests
+    )
+endif()

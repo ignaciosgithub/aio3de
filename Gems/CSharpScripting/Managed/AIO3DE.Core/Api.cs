@@ -212,6 +212,131 @@ namespace AIO3DE
         }
     }
 
+    /// <summary>
+    /// Reflection-backed handle to any component on an entity. Properties are addressed by their
+    /// serialized field name (spaces/underscores/case ignored), either alone ("Mass", matched at any
+    /// depth) or as a '/' path ("RigidBodyConfiguration/Mass"). Use <see cref="Properties"/> to list them.
+    /// Supported value types: float, int, bool, string, Vector3, Quaternion, Entity, and
+    /// float[] for vector2/vector4/color.
+    /// </summary>
+    public readonly struct Component
+    {
+        public readonly Entity Entity;
+        public readonly string TypeName;
+
+        public Component(Entity entity, string typeName)
+        {
+            Entity = entity;
+            TypeName = typeName;
+        }
+
+        public bool IsValid => Entity.IsValid && Native.HasComponent(Entity.Id, TypeName);
+
+        /// <summary>"path|type" for every readable/writable property, e.g. "RigidBodyConfiguration/Mass|float".</summary>
+        public string[] Properties => Native.GetComponentProperties(Entity.Id, TypeName);
+
+        public bool Has(string property) => Native.GetComponentProperty(Entity.Id, TypeName, property, out _, out _);
+
+        /// <summary>Raw text form of a property ("1.5", "true", "0 0 1"), or null when missing.</summary>
+        public string? GetRaw(string property) =>
+            Native.GetComponentProperty(Entity.Id, TypeName, property, out _, out string value) ? value : null;
+
+        /// <summary>Type name of a property ("float", "int", "bool", "string", "vector3", "entity"...), or null.</summary>
+        public string? TypeOf(string property) =>
+            Native.GetComponentProperty(Entity.Id, TypeName, property, out string type, out _) ? type : null;
+
+        public float GetFloat(string property, float fallback = 0.0f) =>
+            GetRaw(property) is string s && float.TryParse(s, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out float v) ? v : fallback;
+
+        public int GetInt(string property, int fallback = 0) =>
+            GetRaw(property) is string s && long.TryParse(s, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out long v) ? (int)v : fallback;
+
+        public bool GetBool(string property, bool fallback = false) =>
+            GetRaw(property) is string s ? s == "true" || s == "1" : fallback;
+
+        public string GetString(string property, string fallback = "") => GetRaw(property) ?? fallback;
+
+        public Vector3 GetVector3(string property, Vector3 fallback = default)
+        {
+            float[]? f = GetFloats(property);
+            return f != null && f.Length >= 3 ? new Vector3(f[0], f[1], f[2]) : fallback;
+        }
+
+        public Quaternion GetQuaternion(string property)
+        {
+            float[]? f = GetFloats(property);
+            return f != null && f.Length >= 4 ? new Quaternion(f[0], f[1], f[2], f[3]) : Quaternion.Identity;
+        }
+
+        public Entity GetEntity(string property) =>
+            GetRaw(property) is string s && ulong.TryParse(s, out ulong id) ? new Entity(id) : default;
+
+        /// <summary>Numeric components of a vector2/vector3/vector4/quaternion/color property.</summary>
+        public float[]? GetFloats(string property)
+        {
+            string? raw = GetRaw(property);
+            if (raw == null)
+            {
+                return null;
+            }
+            string[] parts = raw.Split(' ', System.StringSplitOptions.RemoveEmptyEntries);
+            var result = new float[parts.Length];
+            for (int i = 0; i < parts.Length; i++)
+            {
+                float.TryParse(parts[i], System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out result[i]);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Writes a property from its text form. Many components only read their configuration on
+        /// activation; pass <paramref name="reactivate"/> = true to deactivate/reactivate the entity
+        /// at the start of the next frame so the new value takes effect (scripts on the entity get
+        /// OnDeactivate/OnActivate again). Returns false when the property is missing or the text
+        /// does not parse.
+        /// </summary>
+        public bool SetRaw(string property, string value, bool reactivate = false) =>
+            Native.SetComponentProperty(Entity.Id, TypeName, property, value, reactivate);
+
+        public bool Set(string property, float value, bool reactivate = false) =>
+            SetRaw(property, value.ToString("R", System.Globalization.CultureInfo.InvariantCulture), reactivate);
+
+        public bool Set(string property, int value, bool reactivate = false) =>
+            SetRaw(property, value.ToString(System.Globalization.CultureInfo.InvariantCulture), reactivate);
+
+        public bool Set(string property, bool value, bool reactivate = false) =>
+            SetRaw(property, value ? "true" : "false", reactivate);
+
+        public bool Set(string property, string value, bool reactivate = false) => SetRaw(property, value, reactivate);
+
+        public bool Set(string property, Vector3 value, bool reactivate = false) =>
+            SetRaw(property, Join(value.X, value.Y, value.Z), reactivate);
+
+        public bool Set(string property, Quaternion value, bool reactivate = false) =>
+            SetRaw(property, Join(value.X, value.Y, value.Z, value.W), reactivate);
+
+        public bool Set(string property, Entity value, bool reactivate = false) =>
+            SetRaw(property, value.Id.ToString(System.Globalization.CultureInfo.InvariantCulture), reactivate);
+
+        /// <summary>Writes a vector2/vector4/color (r g b [a]) property from its components.</summary>
+        public bool Set(string property, float[] values, bool reactivate = false) => SetRaw(property, Join(values), reactivate);
+
+        private static string Join(params float[] values)
+        {
+            var parts = new string[values.Length];
+            for (int i = 0; i < values.Length; i++)
+            {
+                parts[i] = values[i].ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+            }
+            return string.Join(' ', parts);
+        }
+
+        public override string ToString() => $"{TypeName} on {Entity.Id}";
+    }
+
     /// <summary>A handle to an engine entity with transform, physics, and lifecycle access.</summary>
     public readonly struct Entity
     {
@@ -230,6 +355,37 @@ namespace AIO3DE
         /// "Camera", "Tag", "BoxShape".
         /// </summary>
         public bool HasComponent(string typeName) => Native.HasComponent(Id, typeName);
+
+        /// <summary>
+        /// Generic handle to a component on this entity, found by (partial) type name -
+        /// "RigidBody", "Mesh", "PointLight", "BoxShape"... Check <see cref="Component.IsValid"/>.
+        /// </summary>
+        public Component GetComponent(string typeName) => new(this, typeName);
+
+        /// <summary>Type names of every component on this entity.</summary>
+        public string[] Components => Native.GetComponents(Id);
+
+        /// <summary>
+        /// Adds a component by (partial) type name, e.g. "RigidBody", "BoxShape", "Tag".
+        /// Applied at the start of the next frame: the entity is deactivated and reactivated,
+        /// so scripts on it get OnDeactivate/OnActivate again. Returns false if no such type exists.
+        /// </summary>
+        public bool AddComponent(string typeName) => Native.AddComponent(Id, typeName);
+
+        /// <summary>
+        /// Removes the first component matching <paramref name="typeName"/> at the start of the
+        /// next frame (entity is deactivated/reactivated). Returns false when there is no match.
+        /// </summary>
+        public bool RemoveComponent(string typeName) => Native.RemoveComponent(Id, typeName);
+
+        /// <summary>
+        /// Live C# script instance of type <typeparamref name="T"/> attached to this entity, for
+        /// script-to-script calls (Unity's GetComponent&lt;MyScript&gt;()). Null when absent or disabled.
+        /// </summary>
+        public T? GetScript<T>() where T : ScriptComponent => Bootstrap.FindScript<T>(Id);
+
+        /// <summary>All live C# scripts attached to this entity.</summary>
+        public ScriptComponent[] GetScripts() => Bootstrap.FindScripts(Id);
 
         public static Entity Find(string name) => new(Native.FindEntityByName(name));
 
