@@ -82,6 +82,20 @@ namespace CSharpScripting
 
         // Components
         int (*m_hasComponent)(AZ::u64 entityId, const char* typeName);
+
+        // Generic component access (reflection-driven). Strings are UTF-8; list results are
+        // '\x1f'-separated records; property values use the ScriptField text formats.
+        int (*m_addComponent)(AZ::u64 entityId, const char* typeName);
+        int (*m_removeComponent)(AZ::u64 entityId, const char* typeName);
+        void (*m_getComponents)(AZ::u64 entityId, char* buffer, int bufferSize);
+        void (*m_getComponentProperties)(AZ::u64 entityId, const char* typeName, char* buffer, int bufferSize);
+        // Returns 1 when found; typeBuffer receives the property type name, valueBuffer the value text.
+        int (*m_getComponentProperty)(
+            AZ::u64 entityId, const char* typeName, const char* propertyPath,
+            char* typeBuffer, int typeBufferSize, char* valueBuffer, int valueBufferSize);
+        // Returns 1 on success. reactivate != 0 queues a deactivate/activate cycle so the component applies the new value.
+        int (*m_setComponentProperty)(
+            AZ::u64 entityId, const char* typeName, const char* propertyPath, const char* value, int reactivate);
     };
 
     //! Owns the .NET runtime, compiles the managed core + project scripts with the dotnet CLI,

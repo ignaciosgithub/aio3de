@@ -106,6 +106,33 @@ namespace AIO3DE.Interop
             }
         }
 
+        /// <summary>First live, enabled script of type T attached to the entity, or null.</summary>
+        internal static T? FindScript<T>(ulong entityId) where T : ScriptComponent
+        {
+            foreach (var pair in s_instances)
+            {
+                if (pair.Value is T script && script.Entity.Id == entityId && !s_disabled.Contains(pair.Key))
+                {
+                    return script;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>All live, enabled scripts attached to the entity.</summary>
+        internal static ScriptComponent[] FindScripts(ulong entityId)
+        {
+            var result = new List<ScriptComponent>();
+            foreach (var pair in s_instances)
+            {
+                if (pair.Value.Entity.Id == entityId && !s_disabled.Contains(pair.Key))
+                {
+                    result.Add(pair.Value);
+                }
+            }
+            return result.ToArray();
+        }
+
         [UnmanagedCallersOnly]
         public static long CreateScript(byte* className, ulong entityId)
         {

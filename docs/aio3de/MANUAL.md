@@ -790,6 +790,25 @@ callbacks. See `Gems/CSharpScripting/Examples/` for focused samples covering
 required components, entity references, spawn/destroy (self and others), and
 runtime physics/parameter changes.
 
+**Generic component access:** `Entity.GetComponent("RigidBody")` returns a
+reflection-backed `Component` handle for any component (partial, case-insensitive
+type name). List its serialized properties with `.Properties`
+(`"RigidBodyConfiguration/Mass|float"`, ...), read them with
+`GetFloat`/`GetInt`/`GetBool`/`GetString`/`GetVector3`/`GetQuaternion`/`GetEntity`
+and write them with `Set("Linear damping", 0.5f, reactivate: true)` - a short
+name matches at any depth, spaces/underscores/case are ignored, and `/` paths
+disambiguate. Most components only read their configuration on activation, so
+`reactivate: true` deactivates/reactivates the entity next frame (its scripts see
+`OnDeactivate`/`OnActivate` again). `Entity.AddComponent("BoxShape")` and
+`Entity.RemoveComponent("Tag")` add/remove components at runtime the same way;
+if the change would leave the entity unable to activate (missing or incompatible
+services) it is reverted with a warning. `Entity.Components` lists type names,
+and `other.GetScript<MyScript>()` returns another entity's live C# script for
+script-to-script calls. Supported property types: float/double, integers, bool,
+string, Vector2/3/4, Quaternion, Color, EntityId (asset references, enums and
+containers are not exposed). All calls are safe on missing entities, components
+or properties (fallback values / `false`). Sample: `Examples/ComponentTweaker.cs`.
+
 Scripts compile automatically with `dotnet build`; recompile with the
 component's **Rebuild scripts** button or the `csharp_rebuild` console
 command. Hot reload is safe: scripts live in a collectible

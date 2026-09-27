@@ -8,6 +8,8 @@
 
 #include "ScriptHost.h"
 
+#include "ComponentAccess.h"
+
 #include <AzCore/PlatformDef.h>
 
 #include <AzCore/Asset/AssetManager.h>
@@ -529,6 +531,76 @@ namespace CSharpScripting
             return 0;
         }
 
+        void CopyToBuffer(const AZStd::string& text, char* buffer, int bufferSize)
+        {
+            if (!buffer || bufferSize <= 0)
+            {
+                return;
+            }
+            azstrncpy(buffer, bufferSize, text.c_str(), bufferSize - 1);
+            buffer[bufferSize - 1] = '\0';
+        }
+
+        int ApiAddComponent(AZ::u64 entityId, const char* typeName)
+        {
+            return ComponentAccess::QueueAddComponent(AZ::EntityId(entityId), typeName) ? 1 : 0;
+        }
+
+        int ApiRemoveComponent(AZ::u64 entityId, const char* typeName)
+        {
+            return ComponentAccess::QueueRemoveComponent(AZ::EntityId(entityId), typeName) ? 1 : 0;
+        }
+
+        void ApiGetComponents(AZ::u64 entityId, char* buffer, int bufferSize)
+        {
+            CopyToBuffer(ComponentAccess::ListComponents(ComponentAccess::FindEntity(AZ::EntityId(entityId))), buffer, bufferSize);
+        }
+
+        void ApiGetComponentProperties(AZ::u64 entityId, const char* typeName, char* buffer, int bufferSize)
+        {
+            AZ::Component* component =
+                ComponentAccess::FindComponent(ComponentAccess::FindEntity(AZ::EntityId(entityId)), typeName);
+            CopyToBuffer(ComponentAccess::ListProperties(component), buffer, bufferSize);
+        }
+
+        int ApiGetComponentProperty(
+            AZ::u64 entityId,
+            const char* typeName,
+            const char* propertyPath,
+            char* typeBuffer,
+            int typeBufferSize,
+            char* valueBuffer,
+            int valueBufferSize)
+        {
+            AZ::Component* component =
+                ComponentAccess::FindComponent(ComponentAccess::FindEntity(AZ::EntityId(entityId)), typeName);
+            AZStd::string value;
+            const AZStd::string type = ComponentAccess::GetProperty(component, propertyPath, value);
+            if (type.empty())
+            {
+                return 0;
+            }
+            CopyToBuffer(type, typeBuffer, typeBufferSize);
+            CopyToBuffer(value, valueBuffer, valueBufferSize);
+            return 1;
+        }
+
+        int ApiSetComponentProperty(
+            AZ::u64 entityId, const char* typeName, const char* propertyPath, const char* value, int reactivate)
+        {
+            AZ::Component* component =
+                ComponentAccess::FindComponent(ComponentAccess::FindEntity(AZ::EntityId(entityId)), typeName);
+            if (!ComponentAccess::SetProperty(component, propertyPath, value))
+            {
+                return 0;
+            }
+            if (reactivate != 0)
+            {
+                ComponentAccess::QueueReactivate(AZ::EntityId(entityId));
+            }
+            return 1;
+        }
+
         bool RunCommand(const AZStd::string& command, AZStd::string& output)
         {
 #if defined(AZ_PLATFORM_WINDOWS)
@@ -729,6 +801,12 @@ namespace CSharpScripting
             &ApiGetSpawnedRoot,
             &ApiDespawn,
             &ApiHasComponent,
+            &ApiAddComponent,
+            &ApiRemoveComponent,
+            &ApiGetComponents,
+            &ApiGetComponentProperties,
+            &ApiGetComponentProperty,
+            &ApiSetComponentProperty,
         };
         if (m_managedInitialize(&api) == 0)
         {

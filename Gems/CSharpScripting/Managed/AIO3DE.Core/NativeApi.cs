@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
 
+using System;
 using System.Runtime.InteropServices;
 
 namespace AIO3DE.Interop
@@ -75,6 +76,14 @@ namespace AIO3DE.Interop
 
         // Components
         public delegate* unmanaged<ulong, byte*, int> HasComponent;
+
+        // Generic component access
+        public delegate* unmanaged<ulong, byte*, int> AddComponent;
+        public delegate* unmanaged<ulong, byte*, int> RemoveComponent;
+        public delegate* unmanaged<ulong, byte*, int, void> GetComponents;
+        public delegate* unmanaged<ulong, byte*, byte*, int, void> GetComponentProperties;
+        public delegate* unmanaged<ulong, byte*, byte*, byte*, int, byte*, int, int> GetComponentProperty;
+        public delegate* unmanaged<ulong, byte*, byte*, byte*, int, int> SetComponentProperty;
     }
 
     internal static unsafe class Native
@@ -202,6 +211,78 @@ namespace AIO3DE.Interop
             byte* buffer = stackalloc byte[256];
             Api.GetEntityName(entityId, buffer, 256);
             return Marshal.PtrToStringUTF8((nint)buffer) ?? string.Empty;
+        }
+
+        private static byte[] Utf8(string text) => System.Text.Encoding.UTF8.GetBytes(text + "\0");
+
+        internal static bool AddComponent(ulong entityId, string typeName)
+        {
+            fixed (byte* p = Utf8(typeName))
+            {
+                return Api.AddComponent(entityId, p) != 0;
+            }
+        }
+
+        internal static bool RemoveComponent(ulong entityId, string typeName)
+        {
+            fixed (byte* p = Utf8(typeName))
+            {
+                return Api.RemoveComponent(entityId, p) != 0;
+            }
+        }
+
+        private const int ListBufferSize = 16384;
+
+        internal static string[] GetComponents(ulong entityId)
+        {
+            byte[] buffer = new byte[ListBufferSize];
+            fixed (byte* b = buffer)
+            {
+                Api.GetComponents(entityId, b, ListBufferSize);
+                return SplitRecords(Marshal.PtrToStringUTF8((nint)b));
+            }
+        }
+
+        internal static string[] GetComponentProperties(ulong entityId, string typeName)
+        {
+            byte[] buffer = new byte[ListBufferSize];
+            fixed (byte* t = Utf8(typeName))
+            fixed (byte* b = buffer)
+            {
+                Api.GetComponentProperties(entityId, t, b, ListBufferSize);
+                return SplitRecords(Marshal.PtrToStringUTF8((nint)b));
+            }
+        }
+
+        internal static bool GetComponentProperty(ulong entityId, string typeName, string path, out string type, out string value)
+        {
+            byte* typeBuffer = stackalloc byte[32];
+            byte[] valueBuffer = new byte[4096];
+            int ok;
+            fixed (byte* t = Utf8(typeName))
+            fixed (byte* p = Utf8(path))
+            fixed (byte* v = valueBuffer)
+            {
+                ok = Api.GetComponentProperty(entityId, t, p, typeBuffer, 32, v, valueBuffer.Length);
+                type = ok != 0 ? Marshal.PtrToStringUTF8((nint)typeBuffer) ?? string.Empty : string.Empty;
+                value = ok != 0 ? Marshal.PtrToStringUTF8((nint)v) ?? string.Empty : string.Empty;
+            }
+            return ok != 0;
+        }
+
+        internal static bool SetComponentProperty(ulong entityId, string typeName, string path, string value, bool reactivate)
+        {
+            fixed (byte* t = Utf8(typeName))
+            fixed (byte* p = Utf8(path))
+            fixed (byte* v = Utf8(value))
+            {
+                return Api.SetComponentProperty(entityId, t, p, v, reactivate ? 1 : 0) != 0;
+            }
+        }
+
+        private static string[] SplitRecords(string? text)
+        {
+            return string.IsNullOrEmpty(text) ? Array.Empty<string>() : text.Split('\u001f');
         }
     }
 }
