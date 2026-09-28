@@ -27,6 +27,12 @@ panes appear in **Tools** and the Editor console prints
   type any model id directly — and the **+** button saves it to your personal
   list in `~/.o3de/llmassist_models.json`, so newly released models can be
   added without any engine update.
+- **Reasoning models** (`gpt-5*`, `o3`, `o4-mini`) are called with
+  `max_completion_tokens` (answer budget + thinking headroom) and
+  `reasoning_effort: low` so replies stay quick; set the environment variable
+  `LLMASSIST_REASONING_EFFORT=medium|high` before launching the Editor for
+  harder problems. If a model still spends its whole budget thinking, the
+  assistant reports it instead of showing an empty reply.
 - **Docs-aware**: with the checkbox on (default), the assistant is given the
   most relevant sections of the engine's documentation
   (`docs/aio3de/*.md`, gem READMEs) **and the recent engine updates** (git
