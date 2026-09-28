@@ -2,16 +2,22 @@
 
 In-Editor AI assistant backed by **OpenAI**, **Anthropic** or **Kimi
 (Moonshot)**, plus a one-click **Gem Manager**. Script-only gem — no C++
-build; enable it and restart the Editor.
+build; enable it, re-run the CMake configure and restart the Editor.
 
 ## Enable
 
 ```
-scripts\o3de.bat enable-gem -gn LLMAssist -pp <your project path>
+scripts\o3de.bat enable-gem -gn LLMAssist -pp <your project path>   (Windows)
+scripts/o3de.sh  enable-gem -gn LLMAssist -pp <your project path>   (Linux/macOS)
 ```
 
-Requires the `EditorPythonBindings` and `QtForPython` gems (on by default in
-the Editor). Restart the Editor; two new panes appear in **Tools**:
+Then re-run the CMake configure for your project (e.g. `cmake -B build/linux -S .`
+in the project folder, or the hub's **Configure** button) — that step writes the
+gem into the `cmake_dependencies.*.setreg` the Editor reads to know which gems
+are active; no compile is needed. Requires the `EditorPythonBindings` and
+`QtForPython` gems (on by default in the Editor). Restart the Editor; two new
+panes appear in **Tools** and the Editor console prints
+`LLMAssist: registered AI Assistant and Gem Manager view panes (Tools menu).`
 
 ## Tools > AI Assistant
 
@@ -87,7 +93,8 @@ official `o3de enable-gem`/`disable-gem` CLI so `project.json` stays
 canonical, and the panel tells you what's needed afterwards:
 
 - **Code gems** → re-run CMake configure → rebuild the Editor → relaunch.
-- **Asset/Tool gems** → just restart the Editor / Asset Processor.
+- **Asset/Tool gems** → re-run CMake configure (no compile) → restart the
+  Editor / Asset Processor.
 
 ## Scripting API
 

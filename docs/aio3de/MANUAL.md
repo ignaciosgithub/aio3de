@@ -239,8 +239,11 @@ toggle gems), and on the CLI `scripts/o3de.sh hub gems -pp <project>
 
 **Rules that trip everyone up:**
 
-- *Asset-only gems* (e.g. `ArenaShooter`) need no rebuild — restart the
-  Editor/Asset Processor and the assets appear.
+- *Asset-only / script-only gems* (e.g. `ArenaShooter`, `LLMAssist`,
+  `AIBackbone`) need no compile — **enable → re-run CMake configure → restart
+  the Editor/Asset Processor**. The configure step is what registers the gem as
+  active (it writes the `cmake_dependencies.*.setreg` the Editor reads at
+  startup); without it the gem's assets and Editor Python tools stay hidden.
 - *Code gems* (e.g. `NeuralBots`, `ArenaShooterNet`, `OpenParticleSystem`,
   `SoftBodyPhysics`, `LevelStreaming`) require: **enable → re-run CMake
   configure → rebuild the Editor → relaunch**. Their components do **not**
@@ -818,7 +821,8 @@ old assembly. Full reference and samples (`Mover.cs`, `FpsController.cs`,
 
 ### 13.3 In-Editor AI assistant (LLMAssist gem)
 
-The **LLMAssist** gem (script-only, no rebuild) adds two Editor panes under
+The **LLMAssist** gem (script-only: enable, re-run CMake configure, restart the
+Editor — no compile) adds two Editor panes under
 **Tools**: **AI Assistant** — chat with OpenAI/Anthropic/Kimi models, with an
 optional docs-aware mode that feeds this fork's documentation into the
 conversation, an *Apply file edits* button for `FILE:` blocks in replies
