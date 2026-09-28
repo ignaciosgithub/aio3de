@@ -21,6 +21,7 @@ SPDX-License-Identifier: Apache-2.0 OR MIT
 
 import os
 import re
+import threading
 
 from PySide6 import QtCore, QtWidgets
 
@@ -36,23 +37,51 @@ _FILE_BLOCK = re.compile(
     r"FILE:\s*(?P<path>[^\n]+)\n+```[a-zA-Z0-9_+-]*\n(?P<body>.*?)```", re.DOTALL)
 
 
-class _ChatWorker(QtCore.QThread):
-    """Runs the network call off the UI thread."""
+# Requests in flight. Workers are deliberately unparented: closing the pane while
+# a reply is pending must not destroy the request mid-flight (a QThread child of
+# the dialog would be deleted while running and abort the Editor). The daemon
+# thread also never blocks Editor shutdown.
+_IN_FLIGHT_WORKERS = set()
+
+
+class _ChatWorker(QtCore.QObject):
+    """Runs the network call on a daemon thread and reports back on the UI thread."""
     finished_ok = QtCore.Signal(str)
     finished_err = QtCore.Signal(str)
+    _done = QtCore.Signal()
 
-    def __init__(self, provider, messages, model, parent=None):
-        super().__init__(parent)
+    def __init__(self, provider, messages, model):
+        super().__init__()
         self._provider = provider
         self._messages = messages
         self._model = model
+        self._thread = threading.Thread(
+            target=self._run, name="LLMAssist-chat", daemon=True)
+        self._done.connect(self._release)
 
-    def run(self):
+    def start(self):
+        _IN_FLIGHT_WORKERS.add(self)
+        self._thread.start()
+
+    def detach(self):
+        """Stop reporting to the UI (the pane went away); the request finishes quietly."""
+        for signal in (self.finished_ok, self.finished_err):
+            try:
+                signal.disconnect()
+            except RuntimeError:
+                pass  # nothing connected
+
+    def _run(self):
         try:
             reply = providers.chat(self._provider, self._messages, model=self._model)
             self.finished_ok.emit(reply)
         except Exception as e:  # surfaced to the user, never crashes the Editor
             self.finished_err.emit(str(e))
+        finally:
+            self._done.emit()
+
+    def _release(self):
+        _IN_FLIGHT_WORKERS.discard(self)
 
 
 class AIAssistantDialog(QtWidgets.QDialog):
@@ -62,6 +91,7 @@ class AIAssistantDialog(QtWidgets.QDialog):
         self.resize(760, 640)
         self._history = []
         self._worker = None
+        self._pending_question = ""
         self._last_reply = ""
         self._backend = None
 
@@ -196,19 +226,28 @@ class AIAssistantDialog(QtWidgets.QDialog):
 
         self._send.setEnabled(False)
         self._send.setText("Waiting...")
+        self._pending_question = question
         self._worker = _ChatWorker(
             self._provider.currentText(), messages,
-            self._model.currentText().strip() or None, self)
-        self._worker.finished_ok.connect(lambda reply: self._on_reply(question, reply))
+            self._model.currentText().strip() or None)
+        self._worker.finished_ok.connect(self._on_reply)
         self._worker.finished_err.connect(self._on_error)
         self._worker.start()
+
+    def closeEvent(self, event):
+        if self._worker is not None:
+            self._worker.detach()
+            self._worker = None
+        super().closeEvent(event)
 
     def _finish_request(self):
         self._send.setEnabled(True)
         self._send.setText("Send")
         self._worker = None
 
-    def _on_reply(self, question, reply):
+    def _on_reply(self, reply):
+        question = self._pending_question
+        self._pending_question = ""
         self._finish_request()
         self._history.append({"role": "user", "content": question})
         self._history.append({"role": "assistant", "content": reply})

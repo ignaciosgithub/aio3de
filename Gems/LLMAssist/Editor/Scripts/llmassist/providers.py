@@ -14,6 +14,7 @@ SPDX-License-Identifier: Apache-2.0 OR MIT
 
 import json
 import os
+import ssl
 import urllib.request
 import urllib.error
 
@@ -114,20 +115,29 @@ def default_model(provider):
 DEFAULT_MODELS = {provider: KNOWN_MODELS[provider][0] for provider in PROVIDERS}
 
 _TIMEOUT_SECONDS = 120
+# Reasoning models think before they answer and can take minutes on big prompts.
+_REASONING_TIMEOUT_SECONDS = 600
+# Reasoning tokens count against `max_completion_tokens`, so reasoning models get
+# this much extra budget on top of the visible-answer budget; otherwise a hard
+# question spends the whole budget thinking and the answer comes back empty.
+_REASONING_HEADROOM_TOKENS = 16000
+# low keeps in-Editor replies responsive; override with LLMASSIST_REASONING_EFFORT
+# (minimal|low|medium|high) for harder problems.
+_DEFAULT_REASONING_EFFORT = "low"
 
 
 class LlmError(RuntimeError):
     pass
 
 
-def _post_json(url, headers, payload):
+def _post_json(url, headers, payload, timeout=_TIMEOUT_SECONDS):
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(url, data=body, method="POST")
     request.add_header("Content-Type", "application/json")
     for name, value in headers.items():
         request.add_header(name, value)
     try:
-        with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         detail = ""
@@ -137,27 +147,58 @@ def _post_json(url, headers, payload):
             pass
         raise LlmError(f"HTTP {e.code} from provider: {detail}") from e
     except urllib.error.URLError as e:
+        if isinstance(e.reason, ssl.SSLCertVerificationError):
+            raise LlmError(
+                f"TLS certificate verification failed: {e.reason}. The Editor's bundled "
+                "Python found no system CA certificates; point SSL_CERT_FILE at your "
+                "distribution's CA bundle (e.g. /etc/ssl/certs/ca-certificates.crt) "
+                "before launching the Editor.") from e
         raise LlmError(f"Network error contacting provider: {e.reason}") from e
+    except TimeoutError as e:
+        raise LlmError(f"Provider did not answer within {timeout}s.") from e
+
+
+def _reasoning_effort():
+    effort = os.environ.get("LLMASSIST_REASONING_EFFORT", "").strip().lower()
+    return effort if effort in ("minimal", "low", "medium", "high") else _DEFAULT_REASONING_EFFORT
 
 
 def _chat_openai_style(base_url, key, model, messages, max_tokens, temperature,
                        reasoning_style=False):
     payload = {"model": model, "messages": messages}
+    timeout = _TIMEOUT_SECONDS
     if reasoning_style:
         # Newer OpenAI models (gpt-5*, o-series) reject `max_tokens` and only
         # accept the default temperature.
-        payload["max_completion_tokens"] = max_tokens
+        payload["max_completion_tokens"] = max_tokens + _REASONING_HEADROOM_TOKENS
+        payload["reasoning_effort"] = _reasoning_effort()
+        timeout = _REASONING_TIMEOUT_SECONDS
     else:
         payload["max_tokens"] = max_tokens
         payload["temperature"] = temperature
     data = _post_json(
         base_url + "/chat/completions",
         {"Authorization": f"Bearer {key}"},
-        payload)
+        payload,
+        timeout)
     try:
-        return data["choices"][0]["message"]["content"]
+        choice = data["choices"][0]
+        message = choice["message"]
+        content = message.get("content")
+        finish_reason = choice.get("finish_reason")
     except (KeyError, IndexError, TypeError) as e:
         raise LlmError(f"Unexpected response shape: {str(data)[:300]}") from e
+    if content:
+        return content
+    refusal = message.get("refusal")
+    if refusal:
+        raise LlmError(f"The model refused to answer: {refusal}")
+    if finish_reason == "length":
+        raise LlmError(
+            f"'{model}' used its whole token budget before producing an answer "
+            "(reasoning models spend tokens thinking first). Ask a narrower question, "
+            "or pick a non-reasoning model such as gpt-4.1.")
+    raise LlmError(f"Empty reply from provider (finish_reason={finish_reason}).")
 
 
 def _chat_anthropic(key, model, messages, max_tokens, temperature):
