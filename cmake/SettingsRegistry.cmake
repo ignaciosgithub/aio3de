@@ -188,6 +188,8 @@ endfunction()
 #!ly_populate_gem_objects: Creates a mapping of gem name -> structure of gem module targets and source paths
 #
 # \arg:output_gem_setreg_object- Variable to populate with configured gem_name_template for each gem dependency
+# \arg:all_gem_dependencies - gem module targets to describe
+# \arg:ARGN(optional) - names of active code-less gems (no module targets) to list with an empty "Targets" object
 function(ly_populate_gem_objects output_gem_setreg_objects all_gem_dependencies)
     unset(gem_name_list)
     foreach(gem_target ${all_gem_dependencies})
@@ -213,6 +215,13 @@ function(ly_populate_gem_objects output_gem_setreg_objects all_gem_dependencies)
 
         # Create a "mapping" of gem_name to gem module configured object
         list(APPEND gem_root_target_objects_${gem_name_value} ${gem_module_json})
+    endforeach()
+
+    # Code-less gems are active gems too (Registry/ merge, Editor/Scripts/bootstrap.py); list them without modules
+    foreach(codeless_gem_name IN LISTS ARGN)
+        if (NOT codeless_gem_name IN_LIST gem_name_list)
+            list(APPEND gem_name_list ${codeless_gem_name})
+        endif()
     endforeach()
 
     unset(gem_setreg_objects)
@@ -284,9 +293,12 @@ function(ly_delayed_generate_settings_registry)
         set(all_gem_dependencies ${new_gem_dependencies})
         list(REMOVE_DUPLICATES all_gem_dependencies)
 
+        # Gems enabled for this (project, target) tuple that have no module targets at all
+        get_property(codeless_gems GLOBAL PROPERTY LY_DELAYED_LOAD_CODELESS_GEMS_"${prefix_target_variant}")
+
         # Fill out the gem_setreg_objects variable with the json fields for each gem
         unset(gem_setreg_objects)
-        ly_populate_gem_objects(gem_load_dependencies_json "${all_gem_dependencies}")
+        ly_populate_gem_objects(gem_load_dependencies_json "${all_gem_dependencies}" ${codeless_gems})
 
         string(REPLACE "." "_" escaped_target ${target})
         string(JOIN "." specialization_name ${prefix} ${escaped_target})
@@ -311,6 +323,7 @@ function(ly_delayed_generate_settings_registry)
 
         # Clear out load dependencies for the prefix,target,variant combination
         set_property(GLOBAL PROPERTY LY_DELAYED_LOAD_"${prefix_target_variant}")
+        set_property(GLOBAL PROPERTY LY_DELAYED_LOAD_CODELESS_GEMS_"${prefix_target_variant}")
     endforeach()
 
     # Clear out the load targets from the global load dependencies list

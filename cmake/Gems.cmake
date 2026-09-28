@@ -506,6 +506,19 @@ function(ly_enable_gems)
 endfunction()
 
 
+#! o3de_gem_has_module_targets: Sets output_var to TRUE if the gem exposes any CMake target
+#  following the <GemName>[.<Variant>] naming convention, FALSE for code-less gems
+#  (asset-only or Editor-Python-only gems that ship no C++ module).
+function(o3de_gem_has_module_targets output_var gem_name)
+    set(${output_var} FALSE PARENT_SCOPE)
+    foreach(suffix "" ".Clients" ".Servers" ".Unified" ".Tools" ".Builders" ".Editor")
+        if(TARGET ${gem_name}${suffix})
+            set(${output_var} TRUE PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+endfunction()
+
 function(ly_add_gem_dependencies_to_project_variants)
     set(options)
     set(oneValueArgs PROJECT_NAME TARGET VARIANT)
@@ -525,9 +538,13 @@ function(ly_add_gem_dependencies_to_project_variants)
     if(${ly_add_gem_dependencies_PROJECT_NAME} STREQUAL "__NOPROJECT__")
         # special case, apply to all
         unset(PREFIX_CLAUSE)
+        unset(load_dependency_prefix)
     else()
         set(PREFIX_CLAUSE "PREFIX;${ly_add_gem_dependencies_PROJECT_NAME}")
+        set(load_dependency_prefix ${ly_add_gem_dependencies_PROJECT_NAME})
     endif()
+    # Same key format as ly_add_target_dependencies uses for the cmake_dependencies.*.setreg generation
+    set(delayed_load_dependency_key "${load_dependency_prefix},${ly_add_gem_dependencies_TARGET},${ly_add_gem_dependencies_VARIANT}")
 
     # apply the list of gem targets.  Adding a gem really just means adding the appropriate dependency.
     foreach(gem_name ${ly_add_gem_dependencies_GEM_DEPENDENCIES})
@@ -553,6 +570,21 @@ function(ly_add_gem_dependencies_to_project_variants)
                 TARGETS ${ly_add_gem_dependencies_TARGET}
                DEPENDENT_TARGETS ${dealiased_gem_target}
                 GEM_VARIANT ${ly_add_gem_dependencies_VARIANT})
+        else()
+            # Code-less gems (asset-only, Editor Python only) have no module to load, but they are still
+            # active gems: their Registry/ folder must be merged and their Editor/Scripts/bootstrap.py run.
+            # Record them so the cmake_dependencies.*.setreg lists them with an empty "Targets" object.
+            o3de_gem_has_module_targets(gem_has_module_targets ${gem_name})
+            if (NOT gem_has_module_targets)
+                get_property(load_dependencies_set GLOBAL PROPERTY LY_DELAYED_LOAD_DEPENDENCIES)
+                if(NOT "${delayed_load_dependency_key}" IN_LIST load_dependencies_set)
+                    set_property(GLOBAL APPEND PROPERTY LY_DELAYED_LOAD_DEPENDENCIES "${delayed_load_dependency_key}")
+                endif()
+                get_property(codeless_gems GLOBAL PROPERTY LY_DELAYED_LOAD_CODELESS_GEMS_"${delayed_load_dependency_key}")
+                if(NOT "${gem_name}" IN_LIST codeless_gems)
+                    set_property(GLOBAL APPEND PROPERTY LY_DELAYED_LOAD_CODELESS_GEMS_"${delayed_load_dependency_key}" ${gem_name})
+                endif()
+            endif()
         endif()
     endforeach()
 endfunction()

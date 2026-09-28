@@ -27,7 +27,9 @@ environment.
    scripts\o3de.bat enable-gem -gn AIBackbone -pp C:\path\to\YourProject
    ```
 
-3. Launch the Editor and open **Tools → AI Model Builder**.
+3. Re-run the CMake configure for your project (no compile needed — this
+   registers the script-only gem as active), then launch the Editor and open
+   **Tools → AI Model Builder**.
 
 ## AI Model Builder (Editor tool)
 

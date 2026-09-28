@@ -460,7 +460,7 @@ class GemManagerDialog(QtWidgets.QDialog):
         self._status = QtWidgets.QLabel(
             "Toggle a checkbox to enable/disable a gem for the current project. "
             "Code gems need: re-run CMake configure -> rebuild Editor -> relaunch. "
-            "Asset/Tool gems only need an Editor restart.")
+            "Asset/Tool gems need: re-run CMake configure (no compile) -> Editor restart.")
         self._status.setWordWrap(True)
         layout.addWidget(self._status)
 
@@ -500,5 +500,6 @@ class GemManagerDialog(QtWidgets.QDialog):
             message += (" This is a CODE gem: re-run the CMake configure, rebuild the "
                         "Editor, then relaunch for the change to take effect.")
         else:
-            message += " Restart the Editor / Asset Processor to pick up the change."
+            message += (" Re-run the CMake configure (no compile needed) so the gem is "
+                        "registered as active, then restart the Editor / Asset Processor.")
         self._status.setText(message)
