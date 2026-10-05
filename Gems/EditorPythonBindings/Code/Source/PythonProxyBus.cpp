@@ -323,11 +323,14 @@ namespace EditorPythonBindings
                     // store the result 
                     if (result && pyResult.is_none() == false)
                     {
-                        // reset/prepare the stack allocator
+                        // reset/prepare the stack allocator (assignment does not rewind a
+                        // static_buffer_allocator's buffer, so repeated results would exhaust it)
                         m_stackVariableAllocator = {};
+                        m_stackVariableAllocator.reset();
 
                         // Reset the result parameter
                         m_resultParam = {};
+                        m_resultParam.m_tempData.reset();
 
                         const AZ::u32 traits = result->m_traits;
                         if (Convert::PythonToBehaviorValueParameter(*result, pyResult, m_resultParam, m_stackVariableAllocator))

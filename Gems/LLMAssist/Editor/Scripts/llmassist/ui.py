@@ -4,13 +4,6 @@ For complete copyright and license terms please see the LICENSE at the root of t
 
 SPDX-License-Identifier: Apache-2.0 OR MIT
 """
-
-"""
-Copyright (c) Contributors to the Open 3D Engine Project.
-For complete copyright and license terms please see the LICENSE at the root of this distribution.
-
-SPDX-License-Identifier: Apache-2.0 OR MIT
-"""
 # The in-Editor view panes:
 #  - AIAssistantDialog (Tools > AI Assistant): Chat tab (provider/model picker,
 #    docs-aware toggle, scene-aware toggle, apply-file-edit flow with user-save
@@ -19,9 +12,11 @@ SPDX-License-Identifier: Apache-2.0 OR MIT
 #  - GemManagerDialog (Tools > Gem Manager): list/search all engine gems,
 #    enable/disable with one click, rebuild guidance for code gems.
 
+import json
 import os
 import re
-import threading
+import shutil
+import sys
 
 from PySide6 import QtCore, QtWidgets
 
@@ -37,51 +32,123 @@ _FILE_BLOCK = re.compile(
     r"FILE:\s*(?P<path>[^\n]+)\n+```[a-zA-Z0-9_+-]*\n(?P<body>.*?)```", re.DOTALL)
 
 
-# Requests in flight. Workers are deliberately unparented: closing the pane while
-# a reply is pending must not destroy the request mid-flight (a QThread child of
-# the dialog would be deleted while running and abort the Editor). The daemon
-# thread also never blocks Editor shutdown.
-_IN_FLIGHT_WORKERS = set()
+_SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-class _ChatWorker(QtCore.QObject):
-    """Runs the network call on a daemon thread and reports back on the UI thread."""
-    finished_ok = QtCore.Signal(str)
+def _worker_python():
+    """Interpreter for llmassist.worker_cli: the binary of the Editor's embedded Python
+    home (same stdlib as the running modules), else sys.executable when it is a real
+    python (in the Editor it can point at whatever python3 is on PATH), else any python3."""
+    candidates = []
+    for home in dict.fromkeys((sys.base_prefix, sys.prefix)):
+        if os.name == "nt":
+            candidates.append(os.path.join(home, "python.exe"))
+        else:
+            candidates.append(os.path.join(home, "bin", "python3"))
+            candidates.append(os.path.join(home, "bin", "python"))
+    if os.path.basename(sys.executable).lower().startswith("python"):
+        candidates.append(sys.executable)
+    for candidate in candidates:
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return shutil.which("python3") or shutil.which("python")
+
+
+# Requests in flight, kept alive independently of the pane: closing the pane while
+# a reply is pending must neither block nor crash the Editor.
+_IN_FLIGHT_REQUESTS = set()
+_QUIT_HOOK_INSTALLED = False
+
+
+def _cancel_all_requests():
+    for request in list(_IN_FLIGHT_REQUESTS):
+        request.cancel()
+
+
+def _install_quit_hook():
+    """Kill worker processes when the Editor quits instead of letting QProcess
+    destructors run during interpreter teardown."""
+    global _QUIT_HOOK_INSTALLED
+    app = QtCore.QCoreApplication.instance()
+    if _QUIT_HOOK_INSTALLED or app is None:
+        return
+    app.aboutToQuit.connect(_cancel_all_requests)
+    _QUIT_HOOK_INSTALLED = True
+
+
+class _BackgroundRequest(QtCore.QObject):
+    """One provider call, executed by llmassist.worker_cli in a child interpreter
+    driven by QProcess so the Editor's event loop (and GIL) stay free."""
+    finished_ok = QtCore.Signal(object)
     finished_err = QtCore.Signal(str)
-    _done = QtCore.Signal()
 
-    def __init__(self, provider, messages, model):
+    def __init__(self, request):
         super().__init__()
-        self._provider = provider
-        self._messages = messages
-        self._model = model
-        self._thread = threading.Thread(
-            target=self._run, name="LLMAssist-chat", daemon=True)
-        self._done.connect(self._release)
+        self._request = request
+        self._cancelled = False
+        self._process = QtCore.QProcess(self)
+        self._process.setWorkingDirectory(_SCRIPTS_DIR)
+        env = QtCore.QProcessEnvironment.systemEnvironment()
+        env.insert("PYTHONNOUSERSITE", "1")
+        env.insert("PYTHONIOENCODING", "utf-8")
+        self._process.setProcessEnvironment(env)
+        self._process.finished.connect(self._on_finished)
+        self._process.errorOccurred.connect(self._on_process_error)
 
-    def start(self):
-        _IN_FLIGHT_WORKERS.add(self)
-        self._thread.start()
+    def start(self, owner):
+        """Run the request; `owner` is the widget whose destruction cancels it."""
+        _install_quit_hook()
+        _IN_FLIGHT_REQUESTS.add(self)
+        owner.destroyed.connect(self.cancel)
+        python = _worker_python()
+        if not python:
+            QtCore.QTimer.singleShot(0, lambda: self._fail(
+                "No Python interpreter found to run the request "
+                f"(sys.executable={sys.executable!r}, prefix={sys.base_prefix!r})."))
+            return
+        self._process.start(python, ["-B", "-m", "llmassist.worker_cli"])
+        self._process.write(json.dumps(self._request).encode("utf-8"))
+        self._process.closeWriteChannel()
 
-    def detach(self):
-        """Stop reporting to the UI (the pane went away); the request finishes quietly."""
-        for signal in (self.finished_ok, self.finished_err):
-            try:
-                signal.disconnect()
-            except RuntimeError:
-                pass  # nothing connected
+    def cancel(self):
+        """The pane went away: stop reporting and end the child process."""
+        self._cancelled = True
+        if self._process.state() != QtCore.QProcess.NotRunning:
+            self._process.kill()
+        else:
+            self._release()
 
-    def _run(self):
+    def _on_process_error(self, error):
+        if error == QtCore.QProcess.FailedToStart:
+            self._fail(f"Could not start the request worker: {self._process.errorString()}")
+
+    def _on_finished(self, exit_code, exit_status):
+        stdout = bytes(self._process.readAllStandardOutput()).decode("utf-8", errors="replace")
+        stderr = bytes(self._process.readAllStandardError()).decode("utf-8", errors="replace")
+        if exit_status != QtCore.QProcess.NormalExit:
+            self._fail(f"The request worker was terminated.\n{stderr.strip()}".strip())
+            return
         try:
-            reply = providers.chat(self._provider, self._messages, model=self._model)
-            self.finished_ok.emit(reply)
-        except Exception as e:  # surfaced to the user, never crashes the Editor
-            self.finished_err.emit(str(e))
-        finally:
-            self._done.emit()
+            response = json.loads(stdout)
+            ok = bool(response["ok"])
+            payload = response["result"] if ok else str(response["error"])
+        except (ValueError, KeyError, TypeError):
+            self._fail(
+                f"The request worker exited with code {exit_code} without a reply.\n"
+                f"{(stderr or stdout).strip()}".strip())
+            return
+        if not self._cancelled:
+            (self.finished_ok if ok else self.finished_err).emit(payload)
+        self._release()
+
+    def _fail(self, message):
+        if not self._cancelled:
+            self.finished_err.emit(message)
+        self._release()
 
     def _release(self):
-        _IN_FLIGHT_WORKERS.discard(self)
+        # Deferred so the object is never deleted inside one of its own signal handlers.
+        QtCore.QTimer.singleShot(0, lambda: _IN_FLIGHT_REQUESTS.discard(self))
 
 
 class AIAssistantDialog(QtWidgets.QDialog):
@@ -91,6 +158,8 @@ class AIAssistantDialog(QtWidgets.QDialog):
         self.resize(760, 640)
         self._history = []
         self._worker = None
+        self._models_request = None
+        self._models_provider = ""
         self._pending_question = ""
         self._last_reply = ""
         self._backend = None
@@ -125,6 +194,13 @@ class AIAssistantDialog(QtWidgets.QDialog):
                              "(kept in ~/.o3de/llmassist_models.json)")
         add_model.clicked.connect(self._on_add_model)
         top.addWidget(add_model)
+        self._refresh_models = QtWidgets.QPushButton("\u21bb")
+        self._refresh_models.setFixedWidth(28)
+        self._refresh_models.setToolTip(
+            "Fetch the models your API key can use from the provider and keep them in "
+            "the list (cached in ~/.o3de/llmassist_models_cache.json)")
+        self._refresh_models.clicked.connect(self._on_refresh_models)
+        top.addWidget(self._refresh_models)
         layout.addLayout(top)
 
         options = QtWidgets.QHBoxLayout()
@@ -186,6 +262,37 @@ class AIAssistantDialog(QtWidgets.QDialog):
             self._populate_models(provider)
             self._model.setCurrentText(model)
 
+    def _on_refresh_models(self):
+        if self._models_request is not None:
+            return
+        provider = self._provider.currentText()
+        self._refresh_models.setEnabled(False)
+        self._models_provider = provider
+        self._models_request = _BackgroundRequest({"op": "models", "provider": provider})
+        self._models_request.finished_ok.connect(self._on_models_fetched)
+        self._models_request.finished_err.connect(self._on_models_error)
+        self._models_request.start(self)
+
+    def _finish_models_request(self):
+        self._refresh_models.setEnabled(True)
+        self._models_request = None
+
+    def _on_models_fetched(self, models):
+        provider = self._models_provider
+        self._finish_models_request()
+        current = self._model.currentText().strip()
+        if provider == self._provider.currentText():
+            self._populate_models(provider)
+            if current in models:
+                self._model.setCurrentText(current)
+        self._append("system", f"{provider}: {len(models)} models available to your key "
+                               f"(newest first): {', '.join(models[:8])}"
+                               + (", ..." if len(models) > 8 else ""))
+
+    def _on_models_error(self, message):
+        self._finish_models_request()
+        self._append("error", f"Could not list models: {message}")
+
     def _append(self, who, text):
         self._transcript.appendPlainText(f"[{who}]\n{text}\n")
 
@@ -227,17 +334,22 @@ class AIAssistantDialog(QtWidgets.QDialog):
         self._send.setEnabled(False)
         self._send.setText("Waiting...")
         self._pending_question = question
-        self._worker = _ChatWorker(
-            self._provider.currentText(), messages,
-            self._model.currentText().strip() or None)
+        self._worker = _BackgroundRequest({
+            "op": "chat",
+            "provider": self._provider.currentText(),
+            "messages": messages,
+            "model": self._model.currentText().strip() or None,
+        })
         self._worker.finished_ok.connect(self._on_reply)
         self._worker.finished_err.connect(self._on_error)
-        self._worker.start()
+        self._worker.start(self)
 
     def closeEvent(self, event):
-        if self._worker is not None:
-            self._worker.detach()
-            self._worker = None
+        for request in (self._worker, self._models_request):
+            if request is not None:
+                request.cancel()
+        self._worker = None
+        self._models_request = None
         super().closeEvent(event)
 
     def _finish_request(self):
