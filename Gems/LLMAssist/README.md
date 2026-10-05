@@ -22,17 +22,27 @@ panes appear in **Tools** and the Editor console prints
 ## Tools > AI Assistant
 
 - **Chat tab** — pick a provider (openai / anthropic / kimi) and a model from
-  the dropdown (defaults: `gpt-5`, `claude-opus-4-6`, `kimi-k2-0905-preview`;
+  the dropdown (defaults: `gpt-6-sol`, `claude-opus-4-6`, `kimi-k2-0905-preview`;
   the full current lineup of each provider is listed). The box is editable —
   type any model id directly — and the **+** button saves it to your personal
   list in `~/.o3de/llmassist_models.json`, so newly released models can be
-  added without any engine update.
-- **Reasoning models** (`gpt-5*`, `o3`, `o4-mini`) are called with
-  `max_completion_tokens` (answer budget + thinking headroom) and
-  `reasoning_effort: low` so replies stay quick; set the environment variable
-  `LLMASSIST_REASONING_EFFORT=medium|high` before launching the Editor for
+  added without any engine update. The **↻** button asks the provider which
+  models *your key* can actually use (newest first) and caches the list in
+  `~/.o3de/llmassist_models_cache.json`; OpenAI ships exact ids such as
+  `gpt-6-sol` / `gpt-6-astra` / `gpt-6.1-sol` (there is no plain `gpt-6`), and
+  an id the key cannot use produces a readable error instead of a crash.
+- **OpenAI parameters adapt to the model**: `gpt-4*`/`gpt-3*` get the classic
+  `max_tokens` + `temperature`; everything newer (`gpt-5*`, `gpt-6*`, `o3`,
+  `o4-mini`, ...) is called with `max_completion_tokens` (answer budget +
+  thinking headroom) and `reasoning_effort: low` so replies stay quick, and if
+  the API rejects a parameter the call is retried once with the other family.
+  Set `LLMASSIST_REASONING_EFFORT=medium|high` before launching the Editor for
   harder problems. If a model still spends its whole budget thinking, the
   assistant reports it instead of showing an empty reply.
+- **Requests never block or crash the Editor**: each call runs in a child
+  Python process (`llmassist.worker_cli`, using the Editor's bundled Python),
+  so the UI stays responsive; closing the pane or quitting the Editor
+  mid-request simply ends the child process and drops the reply.
 - **Docs-aware**: with the checkbox on (default), the assistant is given the
   most relevant sections of the engine's documentation
   (`docs/aio3de/*.md`, gem READMEs) **and the recent engine updates** (git
