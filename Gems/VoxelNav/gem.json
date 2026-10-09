@@ -1,0 +1,22 @@
+{
+    "gem_name": "VoxelNav",
+    "version": "0.1.0",
+    "display_name": "Voxel Navigation (3D)",
+    "license": "Apache-2.0 Or MIT",
+    "license_url": "https://github.com/o3de/o3de/blob/development/LICENSE.txt",
+    "origin": "aio3de",
+    "origin_url": "https://github.com/ignaciosgithub/aio3de",
+    "type": "Code",
+    "summary": "Voxelized 3D pathfinding: bakes the level's physics colliders into a voxel grid and finds smoothed 3D A* paths for walking or flying agents (Lua, Script Canvas and C# API).",
+    "canonical_tags": [
+        "Gem"
+    ],
+    "user_tags": [
+        "AI",
+        "Navigation",
+        "Pathfinding"
+    ],
+    "requirements": "",
+    "documentation_url": "",
+    "dependencies": []
+}

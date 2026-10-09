@@ -35,6 +35,7 @@
 #include <AzFramework/Input/Channels/InputChannel.h>
 #include <AzFramework/Input/Devices/Mouse/InputDeviceMouse.h>
 #include <AzFramework/Physics/Common/PhysicsSceneQueries.h>
+#include <VoxelNav/VoxelNavBus.h>
 #include <AzFramework/Physics/PhysicsScene.h>
 #include <AzFramework/Physics/RigidBodyBus.h>
 #include <AzFramework/Spawnable/Spawnable.h>
@@ -585,6 +586,59 @@ namespace CSharpScripting
             return 1;
         }
 
+        int ApiNavFindPath(
+            float startX, float startY, float startZ, float goalX, float goalY, float goalZ, int raw, float* points, int maxPoints)
+        {
+            AZStd::vector<AZ::Vector3> path;
+            const AZ::Vector3 start(startX, startY, startZ);
+            const AZ::Vector3 goal(goalX, goalY, goalZ);
+            if (raw != 0)
+            {
+                VoxelNav::VoxelNavRequestBus::BroadcastResult(path, &VoxelNav::VoxelNavRequestBus::Events::FindRawPath, start, goal);
+            }
+            else
+            {
+                VoxelNav::VoxelNavRequestBus::BroadcastResult(path, &VoxelNav::VoxelNavRequestBus::Events::FindPath, start, goal);
+            }
+            const int count = static_cast<int>(path.size());
+            const int written = points ? AZStd::min(count, AZStd::max(maxPoints, 0)) : 0;
+            for (int i = 0; i < written; ++i)
+            {
+                points[i * 3 + 0] = path[i].GetX();
+                points[i * 3 + 1] = path[i].GetY();
+                points[i * 3 + 2] = path[i].GetZ();
+            }
+            return count;
+        }
+
+        int ApiNavIsNavigable(float x, float y, float z)
+        {
+            bool navigable = false;
+            VoxelNav::VoxelNavRequestBus::BroadcastResult(navigable, &VoxelNav::VoxelNavRequestBus::Events::IsNavigable, AZ::Vector3(x, y, z));
+            return navigable ? 1 : 0;
+        }
+
+        int ApiNavGetNearestNavigable(float x, float y, float z, float maxDistance, float* xyz)
+        {
+            const AZ::Vector3 position(x, y, z);
+            AZ::Vector3 nearest = position;
+            VoxelNav::VoxelNavRequestBus::BroadcastResult(
+                nearest, &VoxelNav::VoxelNavRequestBus::Events::GetNearestNavigable, position, maxDistance);
+            xyz[0] = nearest.GetX();
+            xyz[1] = nearest.GetY();
+            xyz[2] = nearest.GetZ();
+            bool navigable = false;
+            VoxelNav::VoxelNavRequestBus::BroadcastResult(navigable, &VoxelNav::VoxelNavRequestBus::Events::IsNavigable, nearest);
+            return navigable ? 1 : 0;
+        }
+
+        int ApiNavIsReady()
+        {
+            bool ready = false;
+            VoxelNav::VoxelNavRequestBus::BroadcastResult(ready, &VoxelNav::VoxelNavRequestBus::Events::IsReady);
+            return ready ? 1 : 0;
+        }
+
         int ApiSetComponentProperty(
             AZ::u64 entityId, const char* typeName, const char* propertyPath, const char* value, int reactivate)
         {
@@ -807,6 +861,10 @@ namespace CSharpScripting
             &ApiGetComponentProperties,
             &ApiGetComponentProperty,
             &ApiSetComponentProperty,
+            &ApiNavFindPath,
+            &ApiNavIsNavigable,
+            &ApiNavGetNearestNavigable,
+            &ApiNavIsReady,
         };
         if (m_managedInitialize(&api) == 0)
         {

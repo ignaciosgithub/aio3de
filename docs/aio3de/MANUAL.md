@@ -873,6 +873,27 @@ committed); environment variables like `OPENAI_API_KEY` also work. Details:
 
 ---
 
+### 14.1 3D voxel pathfinding (VoxelNav gem)
+
+`VoxelNav` is a fully 3D alternative to Recast navmeshes: it bakes the level's PhysX colliders into a voxel
+grid and runs a 3D A* search, for **Walk** agents (grounded, radius/height clearance, step-up and drop
+limits — bridges, overhangs and multi-storey layouts included) or **Fly** agents (free 26-neighbour movement
+with sphere clearance). Paths are string-pulled with voxel line-of-sight so they only bend where needed.
+
+1. Enable the `VoxelNav` gem (already pulled in by `CSharpScripting`) and rebuild.
+2. Add a **Voxel Nav Volume** (category *AI*) to an entity; `Size` is centred on the entity (cyan box).
+3. Choose `Voxel size`, the agent `Mode`, radius, height and step limits; optionally `Draw voxels` /
+   `Draw paths` for debugging and `Bake budget` to spread the bake over frames.
+4. Enter game mode — the volume bakes from the colliders in the scene and logs a summary. Call `Rebuild`
+   after geometry changes.
+
+Query from Lua / Script Canvas via `VoxelNavRequestBus.Broadcast.FindPath(start, goal)` (also
+`FindRawPath`, `IsNavigable`, `GetNearestNavigable`, `IsReady`, `Rebuild`, `FindVolumeAt`; per-volume
+`VoxelNavVolumeRequestBus.Event...`), or from C# via `Pathfinding.FindPath(start, goal)`,
+`Pathfinding.IsNavigable`, `Pathfinding.TryGetNearestNavigable`, `Pathfinding.IsReady`. Walk-mode points are
+feet positions. Ready-made followers: `Gems/VoxelNav/Examples/PathFollower.lua` and
+`Gems/CSharpScripting/Examples/PathFollower.cs`. Details: `Gems/VoxelNav/README.md`.
+
 ## 15. The example game: Arena Shooter
 
 The fork ships a complete example game in three gems, built in layers so each
