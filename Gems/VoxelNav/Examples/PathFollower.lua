@@ -1,3 +1,11 @@
+----------------------------------------------------------------------------------------------------
+--
+-- Copyright (c) Contributors to the Open 3D Engine Project.
+-- For complete copyright and license terms please see the LICENSE at the root of this distribution.
+--
+-- SPDX-License-Identifier: Apache-2.0 OR MIT
+--
+
 -- PathFollower.lua: moves this entity along a VoxelNav path to a target entity.
 --
 -- Setup: add a Lua Script component with this script, set the Target property to the entity to walk to,
