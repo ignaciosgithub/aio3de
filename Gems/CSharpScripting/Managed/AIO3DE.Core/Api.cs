@@ -213,6 +213,66 @@ namespace AIO3DE
     }
 
     /// <summary>
+    /// 3D voxel pathfinding (VoxelNav gem). Requires a Voxel Nav Volume component in the level; queries are
+    /// routed to the volume containing the start position. Walk-mode points are feet positions.
+    /// </summary>
+    public static class Pathfinding
+    {
+        /// <summary>True once every Voxel Nav Volume in the level has baked its grid.</summary>
+        public static unsafe bool IsReady => Native.Api.NavIsReady() != 0;
+
+        /// <summary>Smoothed path from start to goal (empty array when there is none or the volume is not baked).</summary>
+        public static Vector3[] FindPath(Vector3 start, Vector3 goal) => Query(start, goal, raw: false);
+
+        /// <summary>Every voxel the agent passes through, without smoothing.</summary>
+        public static Vector3[] FindRawPath(Vector3 start, Vector3 goal) => Query(start, goal, raw: true);
+
+        /// <summary>True when the agent can occupy the voxel containing the position.</summary>
+        public static unsafe bool IsNavigable(Vector3 position) =>
+            Native.Api.NavIsNavigable(position.X, position.Y, position.Z) != 0;
+
+        /// <summary>Nearest navigable position within maxDistance; returns false (and the input) when none exists.</summary>
+        public static unsafe bool TryGetNearestNavigable(Vector3 position, float maxDistance, out Vector3 nearest)
+        {
+            float* xyz = stackalloc float[3];
+            int found = Native.Api.NavGetNearestNavigable(position.X, position.Y, position.Z, maxDistance, xyz);
+            nearest = found != 0 ? new Vector3(xyz[0], xyz[1], xyz[2]) : position;
+            return found != 0;
+        }
+
+        private static unsafe Vector3[] Query(Vector3 start, Vector3 goal, bool raw)
+        {
+            const int StackPoints = 128;
+            float* buffer = stackalloc float[StackPoints * 3];
+            int count = Native.Api.NavFindPath(start.X, start.Y, start.Z, goal.X, goal.Y, goal.Z, raw ? 1 : 0, buffer, StackPoints);
+            if (count <= 0)
+            {
+                return System.Array.Empty<Vector3>();
+            }
+            if (count > StackPoints)
+            {
+                float[] heap = new float[count * 3];
+                fixed (float* p = heap)
+                {
+                    count = Native.Api.NavFindPath(start.X, start.Y, start.Z, goal.X, goal.Y, goal.Z, raw ? 1 : 0, p, count);
+                    return ToVectors(p, System.Math.Min(count, heap.Length / 3));
+                }
+            }
+            return ToVectors(buffer, count);
+        }
+
+        private static unsafe Vector3[] ToVectors(float* points, int count)
+        {
+            var result = new Vector3[count];
+            for (int i = 0; i < count; ++i)
+            {
+                result[i] = new Vector3(points[i * 3], points[i * 3 + 1], points[i * 3 + 2]);
+            }
+            return result;
+        }
+    }
+
+    /// <summary>
     /// Reflection-backed handle to any component on an entity. Properties are addressed by their
     /// serialized field name (spaces/underscores/case ignored), either alone ("Mass", matched at any
     /// depth) or as a '/' path ("RigidBodyConfiguration/Mass"). Use <see cref="Properties"/> to list them.

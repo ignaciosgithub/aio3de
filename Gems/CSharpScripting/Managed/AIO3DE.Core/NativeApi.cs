@@ -84,6 +84,11 @@ namespace AIO3DE.Interop
         public delegate* unmanaged<ulong, byte*, byte*, int, void> GetComponentProperties;
         public delegate* unmanaged<ulong, byte*, byte*, byte*, int, byte*, int, int> GetComponentProperty;
         public delegate* unmanaged<ulong, byte*, byte*, byte*, int, int> SetComponentProperty;
+        // Voxel navigation
+        public delegate* unmanaged<float, float, float, float, float, float, int, float*, int, int> NavFindPath;
+        public delegate* unmanaged<float, float, float, int> NavIsNavigable;
+        public delegate* unmanaged<float, float, float, float, float*, int> NavGetNearestNavigable;
+        public delegate* unmanaged<int> NavIsReady;
     }
 
     internal static unsafe class Native

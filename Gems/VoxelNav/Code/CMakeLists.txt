@@ -6,32 +6,43 @@
 #
 #
 
+# Public interface: the request buses other gems (e.g. CSharpScripting) use to query paths.
+ly_add_target(
+    NAME ${gem_name}.API INTERFACE
+    NAMESPACE Gem
+    FILES_CMAKE
+        voxelnav_api_files.cmake
+    INCLUDE_DIRECTORIES
+        INTERFACE
+            Include
+    BUILD_DEPENDENCIES
+        INTERFACE
+            AZ::AzCore
+)
+
 ly_add_target(
     NAME ${gem_name}.Static STATIC
     NAMESPACE Gem
     FILES_CMAKE
-        csharpscripting_files.cmake
+        voxelnav_files.cmake
     INCLUDE_DIRECTORIES
         PRIVATE
             Source
+        PUBLIC
+            Include
     BUILD_DEPENDENCIES
         PUBLIC
             AZ::AzCore
             AZ::AzFramework
-            Gem::LmbrCentral.API
-            Gem::VoxelNav.API
+            Gem::${gem_name}.API
 )
-
-if(NOT WIN32)
-    target_link_libraries(${gem_name}.Static PRIVATE ${CMAKE_DL_LIBS})
-endif()
 
 ly_add_target(
     NAME ${gem_name} ${PAL_TRAIT_MONOLITHIC_DRIVEN_MODULE_TYPE}
     NAMESPACE Gem
     OUTPUT_NAME ${gem_name}.Gem
     FILES_CMAKE
-        csharpscripting_shared_files.cmake
+        voxelnav_shared_files.cmake
     INCLUDE_DIRECTORIES
         PRIVATE
             Source
@@ -42,7 +53,6 @@ ly_add_target(
             Gem::${gem_name}.Static
 )
 
-# Inject the gem name into the Module source file
 ly_add_source_properties(
     SOURCES
         Source/Module.cpp
@@ -62,13 +72,13 @@ if(PAL_TRAIT_BUILD_HOST_TOOLS)
         NAME ${gem_name}.Editor.Static STATIC
         NAMESPACE Gem
         FILES_CMAKE
-            csharpscripting_editor_files.cmake
+            voxelnav_editor_files.cmake
         INCLUDE_DIRECTORIES
             PRIVATE
                 Source
         COMPILE_DEFINITIONS
             PRIVATE
-                CSHARPSCRIPTING_EDITOR
+                VOXELNAV_EDITOR
         BUILD_DEPENDENCIES
             PUBLIC
                 Gem::${gem_name}.Static
@@ -80,13 +90,13 @@ if(PAL_TRAIT_BUILD_HOST_TOOLS)
         NAMESPACE Gem
         OUTPUT_NAME ${gem_name}.Editor.Gem
         FILES_CMAKE
-            csharpscripting_editor_shared_files.cmake
+            voxelnav_editor_shared_files.cmake
         INCLUDE_DIRECTORIES
             PRIVATE
                 Source
         COMPILE_DEFINITIONS
             PRIVATE
-                CSHARPSCRIPTING_EDITOR
+                VOXELNAV_EDITOR
         BUILD_DEPENDENCIES
             PRIVATE
                 Gem::${gem_name}.Editor.Static
@@ -111,7 +121,7 @@ if(PAL_TRAIT_BUILD_TESTS_SUPPORTED)
         NAME ${gem_name}.Tests ${PAL_TRAIT_TEST_TARGET_TYPE}
         NAMESPACE Gem
         FILES_CMAKE
-            csharpscripting_tests_files.cmake
+            voxelnav_tests_files.cmake
         INCLUDE_DIRECTORIES
             PRIVATE
                 Tests

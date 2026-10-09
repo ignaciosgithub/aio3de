@@ -96,6 +96,14 @@ namespace CSharpScripting
         // Returns 1 on success. reactivate != 0 queues a deactivate/activate cycle so the component applies the new value.
         int (*m_setComponentProperty)(
             AZ::u64 entityId, const char* typeName, const char* propertyPath, const char* value, int reactivate);
+        // Voxel navigation (VoxelNav gem). Path points are written as xyz triples; returns the total point
+        // count (may exceed maxPoints, in which case only the first maxPoints are written) or 0 when no path.
+        int (*m_navFindPath)(
+            float startX, float startY, float startZ, float goalX, float goalY, float goalZ, int raw, float* points, int maxPoints);
+        int (*m_navIsNavigable)(float x, float y, float z);
+        // Writes the nearest navigable position to xyz; returns 1 when one was found within maxDistance.
+        int (*m_navGetNearestNavigable)(float x, float y, float z, float maxDistance, float* xyz);
+        int (*m_navIsReady)();
     };
 
     //! Owns the .NET runtime, compiles the managed core + project scripts with the dotnet CLI,
