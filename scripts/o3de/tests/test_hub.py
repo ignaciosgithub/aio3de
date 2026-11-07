@@ -246,6 +246,14 @@ def _check(name, severity, detail=''):
     return hub.CheckResult(name, severity, detail)
 
 
+def _apt_packages(step):
+    """Packages of an apt FixStep, which runs 'apt-get update && ... apt-get install -y <pkgs>'."""
+    assert step.command[:2] == ['sh', '-c']
+    script = step.command[2]
+    assert script.startswith('apt-get update && ')
+    return script.split('apt-get install -y ', 1)[1].split()
+
+
 def test_build_fix_plan_empty_when_all_ok():
     checks = [_check('CMake', hub.OK), _check('Git LFS', hub.OK)]
     assert hub.build_fix_plan(checks, pathlib.Path('/engine')) == []
@@ -262,16 +270,23 @@ def test_build_fix_plan_linux_packages_and_user_steps():
         _check('Runtime lib: xcb-cursor (Qt/XCB)', hub.WARN),
     ]
     with patch.object(sys, 'platform', 'linux'), \
+         patch.object(hub.platform, 'machine', return_value='x86_64'), \
          patch.object(hub, 'detect_linux_package_manager', return_value='apt-get'), \
          patch.object(hub, 'get_third_party_path', return_value=pathlib.Path('/tp')):
         steps = hub.build_fix_plan(checks, pathlib.Path('/engine'))
     descriptions = [s.description for s in steps]
     package_step = steps[0]
     assert package_step.elevated
-    assert package_step.command[:3] == ['apt-get', 'install', '-y']
-    for package in ('cmake', 'ninja-build', 'git-lfs', 'libxcb-cursor0'):
-        assert package in package_step.command
+    packages = _apt_packages(package_step)
+    for package in ('ninja-build', 'git-lfs', 'libxcb-cursor0'):
+        assert package in packages
+    # CMake comes from Kitware's binary (distro CMake is often below the engine floor)
+    assert 'cmake' not in packages
+    cmake_step = next(s for s in steps if 'Install CMake' in s.description)
+    assert cmake_step.func is not None and not cmake_step.elevated
     assert any('Git LFS' in d for d in descriptions)
+    # /engine is not a git checkout, so no "git lfs pull"
+    assert not any('Fetch LFS' in d for d in descriptions)
     assert any('3rd party' in d for d in descriptions)
     assert any('repair the engine Python' in d for d in descriptions)
     assert any('Register' in d for d in descriptions)
@@ -291,6 +306,134 @@ def test_build_fix_plan_windows_uses_winget():
     installed_ids = [s.command[s.command.index('--id') + 1] for s in winget_steps]
     assert 'Kitware.CMake' in installed_ids
     assert 'GitHub.GitLFS' in installed_ids
+
+
+def test_build_fix_plan_windows_installs_build_tools_with_cpp_workload():
+    checks = [_check('C++ compiler', hub.FAIL), _check('Git', hub.FAIL)]
+    with patch.object(sys, 'platform', 'win32'):
+        steps = hub.build_fix_plan(checks, pathlib.Path('C:/engine'))
+    build_tools = next(s for s in steps if 'Microsoft.VisualStudio.2022.BuildTools' in s.command)
+    override = build_tools.command[build_tools.command.index('--override') + 1]
+    assert '--wait' in override
+    assert 'Microsoft.VisualStudio.Workload.VCTools' in override
+    assert all(s.refresh_path for s in steps if s.command and s.command[0] == 'winget')
+    assert all(0x8A150061 in s.ok_exit_codes for s in steps if s.command and s.command[0] == 'winget')
+
+
+def test_build_fix_plan_lfs_pull_only_in_git_checkouts(tmp_path):
+    checks = [_check('LFS content', hub.WARN, '3 LFS file(s) are undownloaded pointers')]
+    with patch.object(sys, 'platform', 'linux'), \
+         patch.object(hub, 'detect_linux_package_manager', return_value='apt-get'):
+        assert hub.build_fix_plan(checks, tmp_path) == []
+        (tmp_path / '.git').mkdir()
+        steps = hub.build_fix_plan(checks, tmp_path)
+    assert [s.command for s in steps] == [['git', 'lfs', 'pull']]
+    assert steps[0].cwd == str(tmp_path)
+
+
+def test_build_fix_plan_linux_cmake_falls_back_to_package_manager_on_unknown_cpu():
+    with patch.object(sys, 'platform', 'linux'), \
+         patch.object(hub.platform, 'machine', return_value='riscv64'), \
+         patch.object(hub, 'detect_linux_package_manager', return_value='dnf'):
+        steps = hub.build_fix_plan([_check('CMake', hub.FAIL)], pathlib.Path('/engine'))
+    assert steps[0].command == ['dnf', 'install', '-y', 'cmake']
+
+
+def test_run_fix_plan_accepts_ok_exit_codes_and_refreshes_path():
+    # 0x8A150061 (already installed) as a signed 32-bit value, like winget reports on Windows
+    signed_code = 0x8A150061 - (1 << 32)
+    step = hub.FixStep('already there', [sys.executable, '-c', 'import sys; sys.exit(3)'],
+                       ok_exit_codes=(3,), refresh_path=True)
+    lines = []
+    with patch.object(hub, 'refresh_windows_path') as refresh:
+        assert hub.run_fix_plan([step], log=lines.append) == 0
+    refresh.assert_called_once()
+    assert any('already installed' in line for line in lines)
+    assert (signed_code & 0xFFFFFFFF) in hub.WINGET_OK_EXIT_CODES
+
+
+def test_run_fix_plan_runs_func_steps_and_stops_on_their_failure():
+    calls = []
+    steps = [
+        hub.FixStep('ok func', func=lambda log: calls.append('ok') or 0),
+        hub.FixStep('bad func', func=lambda log: 5),
+        hub.FixStep('never', func=lambda log: calls.append('never') or 0),
+    ]
+    assert hub.run_fix_plan(steps, log=lambda line: None) == 5
+    assert calls == ['ok']
+
+
+def test_run_fix_plan_skips_winget_when_missing():
+    step = hub.FixStep('Install Kitware.CMake (winget)', ['winget', 'install', '--id', 'Kitware.CMake'])
+    lines = []
+    with patch.object(hub.shutil, 'which', return_value=None):
+        assert hub.run_fix_plan([step], log=lines.append) == 0
+    assert any('winget not found' in line for line in lines)
+
+
+def test_check_windows_winget():
+    with patch.object(sys, 'platform', 'linux'):
+        assert hub.check_windows_winget() is None
+    with patch.object(sys, 'platform', 'win32'), patch.object(hub.shutil, 'which', return_value=None):
+        assert hub.check_windows_winget().severity == hub.WARN
+    with patch.object(sys, 'platform', 'win32'), patch.object(hub.shutil, 'which', return_value='winget.exe'):
+        assert hub.check_windows_winget().severity == hub.OK
+
+
+def _fake_kitware_release(tmp_path, version, corrupt=False):
+    """A local stand-in for the Kitware release page: tarball + SHA-256 list, served via file://."""
+    import hashlib
+    import tarfile
+    release = tmp_path / 'release'
+    release.mkdir()
+    name = f'cmake-{version}-linux-x86_64'
+    payload = tmp_path / name / 'bin'
+    payload.mkdir(parents=True)
+    for tool in ('cmake', 'ctest', 'cpack'):
+        (payload / tool).write_text('#!/bin/sh\necho "cmake version ' + version + '"\n')
+        (payload / tool).chmod(0o755)
+    archive = release / f'{name}.tar.gz'
+    with tarfile.open(archive, 'w:gz') as tar:
+        tar.add(tmp_path / name, arcname=name)
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    if corrupt:
+        digest = '0' * 64
+    (release / f'cmake-{version}-SHA-256.txt').write_text(f'{digest}  {name}.tar.gz\n')
+    return release.as_uri() + '/'
+
+
+def test_install_kitware_cmake_verifies_and_links(tmp_path, monkeypatch):
+    if sys.platform.startswith('win'):
+        pytest.skip('Linux-only installer')
+    home = tmp_path / 'home'
+    home.mkdir()
+    monkeypatch.delenv('USERPROFILE', raising=False)
+    monkeypatch.setenv('HOME', str(home))
+    monkeypatch.setenv('PATH', '/usr/bin')
+    base_url = _fake_kitware_release(tmp_path, '9.9.9')
+    lines = []
+    with patch.object(hub.platform, 'machine', return_value='x86_64'):
+        assert hub.install_kitware_cmake(lines.append, version='9.9.9', base_url=base_url) == 0
+    cmake_bin = home / '.o3de' / 'tools' / 'cmake' / 'bin'
+    assert (cmake_bin / 'cmake').is_file()
+    assert hub.os.environ['PATH'].split(hub.os.pathsep)[0] == str(cmake_bin)
+    assert (home / '.local' / 'bin' / 'cmake').resolve() == (cmake_bin / 'cmake').resolve()
+    assert not list((home / '.o3de' / 'tools').glob('*.part'))
+
+
+def test_install_kitware_cmake_rejects_bad_checksum(tmp_path, monkeypatch):
+    if sys.platform.startswith('win'):
+        pytest.skip('Linux-only installer')
+    home = tmp_path / 'home'
+    home.mkdir()
+    monkeypatch.delenv('USERPROFILE', raising=False)
+    monkeypatch.setenv('HOME', str(home))
+    base_url = _fake_kitware_release(tmp_path, '9.9.9', corrupt=True)
+    lines = []
+    with patch.object(hub.platform, 'machine', return_value='x86_64'):
+        assert hub.install_kitware_cmake(lines.append, version='9.9.9', base_url=base_url) == 1
+    assert any('checksum mismatch' in line for line in lines)
+    assert not (home / '.o3de' / 'tools' / 'cmake').exists()
 
 
 def test_run_fix_plan_skips_elevated_without_wrapper():
@@ -406,7 +549,7 @@ def test_build_fix_plan_installs_linux_build_libraries():
     package_step = steps[0]
     assert package_step.elevated
     for package in ('pkg-config', 'libunwind-dev', 'libzstd-dev', 'libegl1-mesa-dev'):
-        assert package in package_step.command
+        assert package in _apt_packages(package_step)
 
 
 def test_check_hardware_reports_cpu_ram_gpu():

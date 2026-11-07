@@ -15,19 +15,40 @@ SETLOCAL
 
 SET "SCRIPT_DIR=%~dp0"
 SET "PYTHON_BIN="
+SET "PYTHON_ARGS="
+SET "PY_CHECK=import sys, tkinter; sys.exit(0 if sys.version_info >= (3, 10) else 1)"
+SET "USER_PYTHON=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
 
-where python >NUL 2>NUL
-IF %ERRORLEVEL% EQU 0 (
+REM "where python" also matches the Microsoft Store alias stub (WindowsApps\python.exe), which only
+REM opens the Store, so actually run each candidate and require Python 3.10+ with Tkinter.
+python -c "%PY_CHECK%" >NUL 2>NUL
+IF NOT ERRORLEVEL 1 (
     SET "PYTHON_BIN=python"
-) ELSE (
-    where py >NUL 2>NUL
-    IF %ERRORLEVEL% EQU 0 SET "PYTHON_BIN=py"
+    GOTO :launch
 )
-
-IF "%PYTHON_BIN%"=="" (
-    ECHO No system Python found on PATH. Install Python 3.10+ from python.org to use the GUI hub.
-    EXIT /b 1
+py -3 -c "%PY_CHECK%" >NUL 2>NUL
+IF NOT ERRORLEVEL 1 (
+    SET "PYTHON_BIN=py"
+    SET "PYTHON_ARGS=-3"
+    GOTO :launch
 )
+IF EXIST "%USER_PYTHON%" GOTO :use_user_python
 
-"%PYTHON_BIN%" "%SCRIPT_DIR%o3de_hub_gui.py" %*
+where winget >NUL 2>NUL
+IF ERRORLEVEL 1 GOTO :no_python
+ECHO No usable Python 3.10+ found. Installing Python 3.12 for this user with winget...
+winget install --id Python.Python.3.12 -e --scope user --accept-source-agreements --accept-package-agreements
+IF EXIST "%USER_PYTHON%" GOTO :use_user_python
+GOTO :no_python
+
+:use_user_python
+SET "PYTHON_BIN=%USER_PYTHON%"
+GOTO :launch
+
+:no_python
+ECHO No system Python 3.10+ found. Install Python 3.10+ from python.org to use the GUI hub.
+EXIT /b 1
+
+:launch
+"%PYTHON_BIN%" %PYTHON_ARGS% "%SCRIPT_DIR%o3de_hub_gui.py" %*
 EXIT /b %ERRORLEVEL%

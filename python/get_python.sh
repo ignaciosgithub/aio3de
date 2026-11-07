@@ -97,6 +97,27 @@ else
     fi
 fi
 
+if [[ "$PAL" == "Linux" ]]; then
+    # get_python.cmake needs a newer CMake than some distros ship (Ubuntu 22.04 has 3.22). Prefer the
+    # per-user CMake that "o3de hub install" puts in ~/.o3de/tools/cmake, and install it now (with the
+    # system python3, no root needed) when the CMake on PATH is missing or too old.
+    REQUIRED_CMAKE_VERSION=$(sed -n 's/^cmake_minimum_required(VERSION \([0-9.]*\).*/\1/p' "$DIR/get_python.cmake" | head -n 1)
+    HUB_CMAKE_BIN="$HOME/.o3de/tools/cmake/bin"
+    cmake_is_recent_enough () {
+        local found
+        found=$(cmake --version 2>/dev/null | head -n 1 | sed -n 's/^cmake version \([0-9.]*\).*/\1/p')
+        [ -n "$found" ] && [ "$(printf '%s\n%s\n' "$REQUIRED_CMAKE_VERSION" "$found" | sort -V | head -n 1)" == "$REQUIRED_CMAKE_VERSION" ]
+    }
+    if [ -z "${LY_CMAKE_PATH}" ] && [ -n "$REQUIRED_CMAKE_VERSION" ]; then
+        [ -x "$HUB_CMAKE_BIN/cmake" ] && export PATH="$HUB_CMAKE_BIN:$PATH"
+        if ! cmake_is_recent_enough && [ -x "$(command -v python3)" ]; then
+            echo "CMake >= $REQUIRED_CMAKE_VERSION not found; installing the official Kitware CMake for this user..."
+            python3 -c "import sys; sys.path.insert(0, sys.argv[1]); from o3de import hub; sys.exit(hub.install_kitware_cmake())" "$DIR/../scripts/o3de"
+            [ -x "$HUB_CMAKE_BIN/cmake" ] && export PATH="$HUB_CMAKE_BIN:$PATH"
+        fi
+    fi
+fi
+
 if ! [ -x "$(command -v cmake)" ]; then
     if [ -z ${LY_CMAKE_PATH} ]; then
         # Check for the bundled cmake that ships with the installer at <engineRoot>/cmake/runtime/bin

@@ -121,14 +121,33 @@ scripts\o3de.bat hub install
 scripts/o3de.sh hub install
 ```
 
-`hub install` installs the missing system packages (CMake, Ninja, Git, Git LFS,
-compiler, Editor runtime libraries), runs `git lfs install` + `git lfs pull`,
-creates the 3rdParty folder, bootstraps the engine's Python environment and
-registers the engine — then re-runs the checks. Add `--dry-run` to only see the
+`hub install` installs the missing system packages (Ninja, Git, Git LFS,
+compiler, Editor runtime libraries; on apt distros it runs `apt-get update`
+first), runs `git lfs install` + `git lfs pull` (in git checkouts), creates the
+3rdParty folder, bootstraps the engine's Python environment and registers the
+engine — then re-runs the checks. Add `--dry-run` to only see the
 plan. The GUI hub (`scripts/o3de_hub.sh` / `.bat`) has the same thing as an
 **Install missing** button on the Preflight tab, plus a **Build & Run** tab
 that configures and builds a project's Editor and launches the Asset
 Processor/Editor with one click each.
+
+- **CMake** on Linux comes from Kitware's official release (verified against
+  its published SHA-256) into `~/.o3de/tools/cmake`, linked into
+  `~/.local/bin` — no root needed, and it works on distros whose packaged
+  CMake is older than the engine requires (e.g. Ubuntu 22.04). The `o3de`
+  scripts put it first on `PATH` automatically, and the first-run Python
+  setup (`python/get_python.sh`) installs it itself when needed, so even
+  `scripts/o3de.sh hub install` works on a machine with no usable CMake.
+- **Compiler** on Windows: when no MSVC toolset is found, it installs Visual
+  Studio 2022 Build Tools with the C++ workload + Windows SDK (several GB).
+  Packages that are already installed are skipped, and tools installed earlier
+  in the run are usable by the later steps without opening a new terminal. If
+  `winget` itself is missing, the doctor says so (install "App Installer" from
+  the Microsoft Store).
+- **The GUI hub launchers** find a real Python 3.10+ with Tkinter (skipping the
+  Windows Store `python.exe` stub) and install one if needed: Python 3.12 for
+  the current user via winget on Windows, `python3` + Tkinter via
+  apt/dnf/pacman on Linux.
 
 > Avoid engine paths containing spaces or non-ASCII characters (e.g.
 > `~/Área de trabalho/...`) — the doctor warns about them because assorted
