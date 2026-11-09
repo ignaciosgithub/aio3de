@@ -269,6 +269,14 @@ namespace AZ
                 return Vector3(direction[0], direction[1], direction[2]);
             }
 
+            //! Returns the angular radius (radians) of the first directional light's disk, from its
+            //! Angular diameter setting, or 0 if there is no directional light.
+            float GetFirstLightAngularRadius() const
+            {
+                const auto& lights = m_lightData.GetDataVector();
+                return lights.empty() ? 0.0f : lights.front().m_angularRadius;
+            }
+
         private:
 
             // This is currently fixed, but could be exposed to allow for user configuration

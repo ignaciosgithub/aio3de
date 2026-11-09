@@ -28,9 +28,10 @@ namespace AZ
         //! Fullscreen hardware-agnostic hard ray-traced shadows.
         //!
         //! For every pixel of the lighting target, reconstructs the world position from the depth
-        //! buffer, casts a single occlusion ray toward the directional light against a software BVH
+        //! buffer, casts occlusion rays toward the directional light against a software BVH
         //! (AZ::RayTracingBvh built on the CPU over the scene's mesh triangles), and darkens the
-        //! pixel multiplicatively if occluded. Uses only a standard pixel shader + structured
+        //! pixel multiplicatively by the occluded fraction. One ray gives a hard shadow; several
+        //! rays spread over the light's disk give a soft shadow (AZ::ComputeSoftShadowVisibility). Uses only a standard pixel shader + structured
         //! buffers, with NO dependency on DXR / VK_KHR_ray_tracing or RT cores, so it runs on every
         //! RHI backend and any GPU.
         //!
@@ -63,6 +64,14 @@ namespace AZ
             //! Sets the multiplier applied to shadowed pixels (0 = black, 1 = invisible).
             void SetShadowFactor(float factor) { m_shadowFactor = factor; }
 
+            //! Sets the soft-shadow settings (light disk angular radius, rays per pixel, adaptive
+            //! probes). m_rotation is ignored: the shader rotates the pattern per pixel.
+            void SetSoftShadowParams(const AZ::SoftShadowParams& soft) { m_softParams = soft; }
+
+            //! When true the per-pixel pattern rotation changes every frame, so TAA averages more
+            //! rays over time; when false the pattern is static (no shimmer without TAA).
+            void SetAnimateNoise(bool animate) { m_animateNoise = animate; }
+
         protected:
             RayTracedShadowsFullscreenPass(const RPI::PassDescriptor& descriptor);
 
@@ -90,6 +99,9 @@ namespace AZ
             AZStd::vector<AZ::Vector4> m_triangleVertices; // 3 per ordered triangle, xyz used.
             AZ::ShadowRayParams m_params;
             float m_shadowFactor = 0.25f;
+            AZ::SoftShadowParams m_softParams;
+            bool m_animateNoise = false;
+            uint32_t m_noiseFrame = 0;
 
             Data::Instance<RPI::Buffer> m_nodesBuffer;
             Data::Instance<RPI::Buffer> m_triangleVerticesBuffer;
@@ -102,6 +114,11 @@ namespace AZ
             AZ::RHI::ShaderInputNameIndex m_rayBiasIndex = "m_rayBias";
             AZ::RHI::ShaderInputNameIndex m_shadowFactorIndex = "m_shadowFactor";
             AZ::RHI::ShaderInputNameIndex m_nodeCountIndex = "m_nodeCount";
+            AZ::RHI::ShaderInputNameIndex m_tanAngularRadiusIndex = "m_tanAngularRadius";
+            AZ::RHI::ShaderInputNameIndex m_sampleCountIndex = "m_sampleCount";
+            AZ::RHI::ShaderInputNameIndex m_probeCountIndex = "m_probeCount";
+            AZ::RHI::ShaderInputNameIndex m_adaptiveIndex = "m_adaptive";
+            AZ::RHI::ShaderInputNameIndex m_noiseFrameIndex = "m_noiseFrame";
 
             // SRG buffer binding indices (bound directly, not as pass attachments, since
             // read-only common-pool buffers have no attachment id).

@@ -136,6 +136,34 @@ namespace Benchmark
         state.SetItemsProcessed(state.iterations() * RayCount);
     }
     BENCHMARK_REGISTER_F(BM_RayTracingBvh, DirectionalShadowBatch)->Arg(1 << 10)->Arg(1 << 14)->Arg(1 << 17);
+
+    // Soft (area-light) shadows, 8 rays per sample over a 1 degree sun; range(1) toggles the
+    // adaptive probe early-out (0 = always 8 rays, 1 = 2 probes first).
+    BENCHMARK_DEFINE_F(BM_RayTracingBvh, SoftShadowBatch)(benchmark::State& state)
+    {
+        const Vector3 normal(0.0f, 0.0f, 1.0f);
+        AZ::ShadowRayParams params;
+        params.m_toLight = Vector3(0.3f, 0.2f, 1.0f).GetNormalizedSafe();
+        params.m_maxDistance = 4.0f * SceneExtent;
+
+        AZ::SoftShadowParams soft;
+        soft.m_angularRadius = 0.5f * AZ::Constants::Pi / 180.0f;
+        soft.m_sampleCount = 8;
+        soft.m_adaptive = state.range(1) != 0;
+
+        for ([[maybe_unused]] auto _ : state)
+        {
+            float sum = 0.0f;
+            for (size_t i = 0; i < RayCount; ++i)
+            {
+                soft.m_rotation = static_cast<float>(i) * 0.618034f;
+                sum += AZ::ComputeSoftShadowVisibility(m_bvh, { m_origins[i], normal }, params, soft);
+            }
+            benchmark::DoNotOptimize(sum);
+        }
+        state.SetItemsProcessed(state.iterations() * RayCount);
+    }
+    BENCHMARK_REGISTER_F(BM_RayTracingBvh, SoftShadowBatch)->Args({ 1 << 14, 0 })->Args({ 1 << 14, 1 })->Args({ 1 << 17, 0 })->Args({ 1 << 17, 1 });
 }
 
 #endif

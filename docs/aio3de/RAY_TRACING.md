@@ -183,3 +183,64 @@ Same as increment 1: GPU frame-time is profiled on real hardware; here the CPU r
 tested and the shader is `azslc`-verified. Only hard (single-ray) shadows are implemented — soft
 shadows / penumbra (multiple rays or cone sampling) and the silhouette-edge occluder optimization are
 future increments.
+
+---
+
+# Increment 3: soft ray-traced shadows (penumbra + contact hardening)
+
+The live fullscreen pass (`RayTracedShadowsFullscreenPass`, toggled with `r_rayTracedShadows`) now
+casts **several rays per pixel spread over the light's disk** instead of one ray at its center. The
+visibility is the fraction of rays that reach the light, so shadows get a penumbra whose width grows
+with the distance between occluder and receiver: sharp where an object touches the ground, softer
+further away (contact hardening). A filtered shadow map blurs by a constant amount; this does not.
+Still hardware-agnostic: plain pixel shader + structured buffers, no DXR / `VK_KHR_ray_tracing`.
+
+## How it works
+
+- **Disk size** comes from the Directional Light component's existing **Angular diameter** (0.5° by
+  default, about the sun's), or `r_rayTracedShadowsSoftness <degrees>` to override it (`0` = hard).
+- **Sample pattern**: a Vogel (golden-angle) disk of `r_rayTracedShadowsSamples` points (default 4)
+  mapped onto the light's cone around the light direction. Each pixel rotates the pattern by an
+  interleaved-gradient-noise angle, turning banding into fine noise. With
+  `r_rayTracedShadowsAnimateNoise true` the rotation also changes every frame so TAA averages more
+  rays over time.
+- **Adaptive early-out** (`r_rayTracedShadowsAdaptive`, default on): first cast
+  `max(2, samples / 4)` probe rays: the outermost samples of the Vogel disk, which sit on its rim
+  at well-spread angles. If they all hit or all miss, the pixel is
+  in full shadow / full light and the rest are skipped; only pixels whose probes disagree (the
+  penumbra) cast every ray. Most of the screen therefore pays 2 rays per pixel.
+- **Composite**: the output factor is `lerp(r_rayTracedShadowsFactor, 1, visibility)`, multiplied
+  onto the lighting target as before.
+- `r_rayTracedShadowsSamples 1` (or softness 0) is exactly the previous hard-shadow path.
+
+| Layer | File | Role |
+| --- | --- | --- |
+| CPU core (reference) | `Code/Framework/AzCore/AzCore/Math/RayTracedShadows.{h,cpp}` | `SoftShadowParams`, `GetSoftShadowProbeCount`, `ComputeSoftShadowRayDirection`, `ComputeSoftShadowVisibility`. |
+| CPU tests | `Code/Framework/AzCore/Tests/Math/RayTracedShadowsTests.cpp` | 6 new tests (below). |
+| CPU benchmark | `Code/Framework/AzCore/Tests/Math/RayTracingPerformanceTests.cpp` | `BM_RayTracingBvh/SoftShadowBatch/<tris>/<adaptive>`. |
+| GPU shader | `Gems/Atom/Feature/Common/Assets/Shaders/RayTracing/RayTracedShadowsFullscreen.azsl` | Mirrors the CPU core: same basis, Vogel disk, probe order and early-out. |
+| Pass / feature processor | `.../RayTracing/RayTracedShadowsFullscreenPass.{h,cpp}`, `RayTracedShadowsFeatureProcessor.cpp` | New SRG constants; reads the light's angular radius and the new cvars. |
+
+## Verification
+
+- New `MATH_RayTracedShadows` tests: probe count; every ray direction is normalized and inside the
+  light cone (including a light pointing down -Z); 1 sample or 0 radius equals the hard shadow;
+  across a straight shadow edge the penumbra is fractional and monotonic; the penumbra widens with
+  occluder height (contact hardening); adaptive sampling equals full sampling everywhere outside the
+  penumbra and differs on at most 2% of samples overall.
+- CPU benchmark (`BM_RayTracingBvh/SoftShadowBatch`, 8 rays/sample, Linux VM): the adaptive
+  early-out is 2.2x faster on 16K triangles and 1.5x on 131K triangles than always casting every
+  ray. The GPU ratio depends on how much of the screen is penumbra.
+- Shader: `azslc --semantic` clean, and the emitted HLSL compiles with DXC to DXIL (`ps_6_2`) and
+  SPIR-V.
+- Not measurable in the headless sandbox: GPU frame time and the visual result. Compare
+  `r_rayTracedShadowsSamples 1` vs `4` vs `8`, and `r_rayTracedShadowsAdaptive` on/off, with the
+  Editor profiler on real hardware.
+
+## Known limits / next increments
+
+- Only the first directional light. Point/spot lights would need per-pixel light vectors.
+- No spatial/temporal denoiser yet: at low sample counts the penumbra shows the noise pattern
+  (smoothed by TAA when `r_rayTracedShadowsAnimateNoise` is on).
+- The adaptive early-out can miss an occluder thinner than the probe spacing inside the cone; set
+  `r_rayTracedShadowsAdaptive false` if thin geometry (wires, fences) loses its penumbra.

@@ -24,8 +24,9 @@ namespace AZ::Render
     //!   (r_rayTracedShadowsPrewarm) so the first enable is instant, and automatically rebuilds it
     //!   when meshes are added/removed (r_rayTracedShadowsAutoRebuild), both via the pass's async
     //!   background build.
-    //! - Feeds the first directional light's direction plus the max-distance/bias/factor cvars to
-    //!   the pass every frame.
+    //! - Feeds the first directional light's direction and disk size (Angular diameter) plus the
+    //!   max-distance/bias/factor and soft-shadow (samples/softness/adaptive) cvars to the pass
+    //!   every frame.
     class RayTracedShadowsFeatureProcessor final
         : public AZ::RPI::FeatureProcessor
     {
