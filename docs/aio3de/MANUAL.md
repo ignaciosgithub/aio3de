@@ -339,6 +339,8 @@ Runtime control (Editor console or `.cfg` files):
 | `r_rayTracedShadowsSoftness` | float | sun disk angular diameter in degrees; -1 (default) = the Directional Light's *Angular diameter*, 0 = hard |
 | `r_rayTracedShadowsAdaptive` | bool | probe rays first, full sampling only in the penumbra (default on) |
 | `r_rayTracedShadowsAnimateNoise` | bool | rotate the sample pattern every frame (pair with TAA) |
+| `r_rayTracedShadowsLocalLights` | uint | point / spot / disk lights that cast RT shadows, brightest near the camera (default 4, max 16); 0 = sun only |
+| `r_rayTracedShadowsLightClearance` | float | local-light rays stop this many meters before the light so its fixture does not shadow it (default 0.1) |
 
 Design notes:
 
@@ -1550,6 +1552,7 @@ render fastest when the displaying GPU is the rendering GPU).
 | `r_rayTracedShadowsPrewarm` | build BVH at level load |
 | `r_rayTracedShadowsBias` / `...Factor` / `...MaxDistance` / `...MaxTriangles` | quality/budget |
 | `r_rayTracedShadowsSamples` / `...Softness` / `...Adaptive` / `...AnimateNoise` | soft shadows (penumbra) |
+| `r_rayTracedShadowsLocalLights` / `...LightClearance` | point / spot / disk light shadows |
 | `r_useBatchedSphereCulling` / `r_batchedSphereCullingMinEntries` | SIMD CPU culling |
 | `r_useEntryWorkListsForCulling` / `r_numEntriesPerCullingJob` / `r_numNodesPerCullingJob` | culling job granularity |
 | `r_debugTerrainLodLevels` / `r_debugTerrainAabbs` | terrain LOD debug views |

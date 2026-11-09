@@ -28,9 +28,10 @@ namespace AZ
         //! Fullscreen hardware-agnostic hard ray-traced shadows.
         //!
         //! For every pixel of the lighting target, reconstructs the world position from the depth
-        //! buffer, casts occlusion rays toward the directional light against a software BVH
+        //! buffer, casts occlusion rays toward the directional light and up to MaxLocalLights point / spot / disk lights against a software BVH
         //! (AZ::RayTracingBvh built on the CPU over the scene's mesh triangles), and darkens the
-        //! pixel multiplicatively by the occluded fraction. One ray gives a hard shadow; several
+        //! pixel multiplicatively by the occluded fraction of its incoming light (each light weighted by
+        //! the illuminance it delivers, AZ::CombineShadowVisibility). One ray gives a hard shadow; several
         //! rays spread over the light's disk give a soft shadow (AZ::ComputeSoftShadowVisibility). Uses only a standard pixel shader + structured
         //! buffers, with NO dependency on DXR / VK_KHR_ray_tracing or RT cores, so it runs on every
         //! RHI backend and any GPU.
@@ -72,6 +73,15 @@ namespace AZ
             //! rays over time; when false the pattern is static (no shimmer without TAA).
             void SetAnimateNoise(bool animate) { m_animateNoise = animate; }
 
+            //! Most local (point / spot / disk) lights the pass shades per frame.
+            static constexpr uint32_t MaxLocalLights = 16;
+
+            //! Sets the local lights that cast shadows (the first MaxLocalLights are used) and how
+            //! the directional light's shadow is weighted against them: \p directionalWeight is its
+            //! illuminance (0 = no directional shadow). Local-light rays stop \p clearance meters
+            //! before the light.
+            void SetLocalLights(const AZStd::vector<AZ::LocalShadowLight>& lights, float directionalWeight, float clearance);
+
         protected:
             RayTracedShadowsFullscreenPass(const RPI::PassDescriptor& descriptor);
 
@@ -80,6 +90,22 @@ namespace AZ
 
         private:
             void CreateBuffers();
+            void UploadLocalLights();
+
+            //! GPU layout of AZ::LocalShadowLight; mirrors the shader's LocalShadowLight.
+            struct LocalShadowLightPacked
+            {
+                float m_position[3];
+                float m_radius;
+                float m_diskNormal[3];
+                float m_intensity;
+                float m_spotDirection[3];
+                float m_invAttenuationRadiusSquared;
+                float m_cosInnerConeAngle;
+                float m_cosOuterConeAngle;
+                float m_padding[2];
+            };
+            static_assert(sizeof(LocalShadowLightPacked) == 64, "Must match LocalShadowLight in RayTracedShadowsFullscreen.azsl");
 
             //! Result of a background BVH build, shared between the pass and the job so the
             //! job stays safe even if the pass is destroyed before it finishes.
@@ -102,9 +128,14 @@ namespace AZ
             AZ::SoftShadowParams m_softParams;
             bool m_animateNoise = false;
             uint32_t m_noiseFrame = 0;
+            AZStd::vector<LocalShadowLightPacked> m_localLights;
+            bool m_localLightsDirty = true;
+            float m_directionalWeight = 1.0f;
+            float m_lightClearance = 0.1f;
 
             Data::Instance<RPI::Buffer> m_nodesBuffer;
             Data::Instance<RPI::Buffer> m_triangleVerticesBuffer;
+            Data::Instance<RPI::Buffer> m_localLightsBuffer;
 
             bool m_buffersDirty = false;
 
@@ -119,11 +150,15 @@ namespace AZ
             AZ::RHI::ShaderInputNameIndex m_probeCountIndex = "m_probeCount";
             AZ::RHI::ShaderInputNameIndex m_adaptiveIndex = "m_adaptive";
             AZ::RHI::ShaderInputNameIndex m_noiseFrameIndex = "m_noiseFrame";
+            AZ::RHI::ShaderInputNameIndex m_localLightCountIndex = "m_localLightCount";
+            AZ::RHI::ShaderInputNameIndex m_directionalWeightIndex = "m_directionalWeight";
+            AZ::RHI::ShaderInputNameIndex m_lightClearanceIndex = "m_lightClearance";
 
             // SRG buffer binding indices (bound directly, not as pass attachments, since
             // read-only common-pool buffers have no attachment id).
             AZ::RHI::ShaderInputNameIndex m_nodesBufferIndex = "m_nodes";
             AZ::RHI::ShaderInputNameIndex m_triangleVerticesBufferIndex = "m_triangleVertices";
+            AZ::RHI::ShaderInputNameIndex m_localLightsBufferIndex = "m_localLights";
         };
     } // namespace Render
 } // namespace AZ

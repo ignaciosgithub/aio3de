@@ -9,7 +9,9 @@
 #pragma once
 
 #include <Atom/RPI.Public/FeatureProcessor.h>
+#include <AzCore/Math/RayTracedShadows.h>
 #include <AzCore/Math/Vector3.h>
+#include <AzCore/std/containers/vector.h>
 
 namespace AZ::Render
 {
@@ -49,6 +51,8 @@ namespace AZ::Render
         RayTracedShadowsFullscreenPass* FindPass() const;
         void UpdateOccluderGeometry(RayTracedShadowsFullscreenPass* pass);
         void UpdateShadowParams(RayTracedShadowsFullscreenPass* pass);
+        //! Collects every point, simple point, disk and simple spot light in the scene.
+        void GatherLocalLights(AZStd::vector<AZ::LocalShadowLight>& lights) const;
 
         bool m_passEnabled = false;
         bool m_geometryUploaded = false;
@@ -58,5 +62,8 @@ namespace AZ::Render
         uint32_t m_framesUntilFarPoll = 0;
         uint32_t m_framesSinceLastRebuild = 0;
         AZ::Vector3 m_cameraPosition = AZ::Vector3::CreateZero();
+
+        // Scratch list of the local lights that cast shadows this frame.
+        AZStd::vector<AZ::LocalShadowLight> m_localLights;
     };
 } // namespace AZ::Render

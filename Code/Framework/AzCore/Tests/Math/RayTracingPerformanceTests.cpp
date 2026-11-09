@@ -164,6 +164,34 @@ namespace Benchmark
         state.SetItemsProcessed(state.iterations() * RayCount);
     }
     BENCHMARK_REGISTER_F(BM_RayTracingBvh, SoftShadowBatch)->Args({ 1 << 14, 0 })->Args({ 1 << 14, 1 })->Args({ 1 << 17, 0 })->Args({ 1 << 17, 1 });
+
+    // Soft shadows from a point light with a 0.5 m bulb above the scene, 8 rays per sample;
+    // range(1) toggles the adaptive probe early-out.
+    BENCHMARK_DEFINE_F(BM_RayTracingBvh, LocalLightShadowBatch)(benchmark::State& state)
+    {
+        const Vector3 normal(0.0f, 0.0f, 1.0f);
+        AZ::LocalShadowLight light;
+        light.m_position = Vector3(0.0f, 0.0f, 2.0f * SceneExtent);
+        light.m_radius = 0.5f;
+        light.m_intensity = 1000.0f;
+
+        AZ::SoftShadowParams soft;
+        soft.m_sampleCount = 8;
+        soft.m_adaptive = state.range(1) != 0;
+
+        for ([[maybe_unused]] auto _ : state)
+        {
+            float sum = 0.0f;
+            for (size_t i = 0; i < RayCount; ++i)
+            {
+                soft.m_rotation = static_cast<float>(i) * 0.618034f;
+                sum += AZ::ComputeLocalLightShadowVisibility(m_bvh, { m_origins[i], normal }, light, 1.0e-3f, 0.1f, soft);
+            }
+            benchmark::DoNotOptimize(sum);
+        }
+        state.SetItemsProcessed(state.iterations() * RayCount);
+    }
+    BENCHMARK_REGISTER_F(BM_RayTracingBvh, LocalLightShadowBatch)->Args({ 1 << 14, 0 })->Args({ 1 << 14, 1 })->Args({ 1 << 17, 0 })->Args({ 1 << 17, 1 });
 }
 
 #endif

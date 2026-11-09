@@ -12,7 +12,7 @@ It covers:
 | SoA + SIMD batched frustum culling (`AZ::FrustumClassifySpheres`) | #4 | correctness vs scalar reference + scalar/SIMD/parallel throughput |
 | `AZ::ParallelFor` TaskGraph primitive | #2 | correctness (each index once, empty/single ranges) + serial vs parallel throughput |
 | Portable ray-tracing BVH core | #8 | build/closest-hit/any-hit correctness + build & traversal throughput |
-| Ray-traced hard + soft shadows (CPU reference) | #14 | occlusion/max-distance/normal-bias correctness, batch-vs-brute-force, soft-shadow cone/penumbra/contact-hardening/adaptive-vs-full + shadow-batch and soft-shadow throughput |
+| Ray-traced hard + soft + local-light shadows (CPU reference) | #14 | occlusion/max-distance/normal-bias correctness, batch-vs-brute-force, soft-shadow cone/penumbra/contact-hardening/adaptive-vs-full, point/spot illuminance, light-distance + clearance, local penumbra width, weighted combine, light selection + shadow-batch, soft and local-light shadow throughput |
 
 These are all **CPU** checks and micro-benchmarks — they run headless, need no
 GPU/display, and finish in a couple of minutes. The GPU-driven variants of these
@@ -142,6 +142,8 @@ Cvars (all live; type in the Editor console `~` while in game mode `Ctrl+G`):
 | `r_rayTracedShadowsSoftness` | `-1` | Light disk angular diameter in degrees; negative = use the directional light's *Angular diameter*, `0` = hard |
 | `r_rayTracedShadowsAdaptive` | `true` | Cast probe rays first, skip the rest outside the penumbra |
 | `r_rayTracedShadowsAnimateNoise` | `false` | Rotate the soft-shadow pattern each frame (use with TAA) |
+| `r_rayTracedShadowsLocalLights` | `4` | Point / spot / disk lights that cast ray-traced shadows (max 16); `0` = directional light only |
+| `r_rayTracedShadowsLightClearance` | `0.1` | Local-light shadow rays stop this far (meters) before the light so its own fixture does not shadow it |
 | `r_rayTracedShadowsRebuild` | `false` | Set `true` once to force a BVH rebuild (e.g. after only *moving* meshes) |
 | `r_rayTracedShadowsPrewarm` | `true` | Build the BVH in the background at level load so the first enable is instant |
 | `r_rayTracedShadowsAutoRebuild` | `true` | Auto-rebuild the BVH (async) when meshes are added/removed |

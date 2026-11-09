@@ -70,6 +70,13 @@ namespace AZ
             const Data::Instance<RPI::Buffer> GetLightBuffer() const override;
             uint32_t GetLightCount() const override;
 
+            //! Packed data of every light (in no particular order), for consumers such as the
+            //! ray-traced shadow pass that need light positions on the CPU.
+            const AZStd::vector<DiskLightData>& GetLightData() const
+            {
+                return m_lightData.GetDataVector<0>();
+            }
+
         private:
 
             static constexpr const char* FeatureProcessorName = "DiskLightFeatureProcessor";

@@ -277,6 +277,14 @@ namespace AZ
                 return lights.empty() ? 0.0f : lights.front().m_angularRadius;
             }
 
+            //! Returns the first directional light's linear (ACEScg) RGB intensity in lux, or zero if
+            //! there is no directional light.
+            Vector3 GetFirstLightRgbIntensity() const
+            {
+                const auto& lights = m_lightData.GetDataVector();
+                return lights.empty() ? Vector3::CreateZero() : Vector3::CreateFromFloat3(lights.front().m_rgbIntensity.data());
+            }
+
         private:
 
             // This is currently fixed, but could be exposed to allow for user configuration

@@ -14,6 +14,7 @@
 #include <AzCore/Jobs/JobFunction.h>
 
 #include <cmath>
+#include <cstring>
 
 namespace AZ
 {
@@ -76,6 +77,58 @@ namespace AZ
             m_params = params;
         }
 
+        void RayTracedShadowsFullscreenPass::SetLocalLights(
+            const AZStd::vector<AZ::LocalShadowLight>& lights, float directionalWeight, float clearance)
+        {
+            AZStd::vector<LocalShadowLightPacked> packed;
+            packed.reserve(AZStd::min<size_t>(lights.size(), MaxLocalLights));
+            for (const AZ::LocalShadowLight& light : lights)
+            {
+                if (packed.size() == MaxLocalLights)
+                {
+                    break;
+                }
+                LocalShadowLightPacked& out = packed.emplace_back();
+                light.m_position.StoreToFloat3(out.m_position);
+                out.m_radius = light.m_radius;
+                light.m_diskNormal.StoreToFloat3(out.m_diskNormal);
+                out.m_intensity = light.m_intensity;
+                light.m_spotDirection.StoreToFloat3(out.m_spotDirection);
+                out.m_invAttenuationRadiusSquared = light.m_invAttenuationRadiusSquared;
+                out.m_cosInnerConeAngle = light.m_cosInnerConeAngle;
+                out.m_cosOuterConeAngle = light.m_cosOuterConeAngle;
+                out.m_padding[0] = out.m_padding[1] = 0.0f;
+            }
+            if (packed.size() != m_localLights.size() ||
+                (!packed.empty() && std::memcmp(packed.data(), m_localLights.data(), packed.size() * sizeof(LocalShadowLightPacked)) != 0))
+            {
+                m_localLights = AZStd::move(packed);
+                m_localLightsDirty = true;
+            }
+            m_directionalWeight = directionalWeight;
+            m_lightClearance = clearance;
+        }
+
+        void RayTracedShadowsFullscreenPass::UploadLocalLights()
+        {
+            // Fixed capacity so moving lights only re-uploads data and never re-creates the buffer.
+            if (!m_localLightsBuffer)
+            {
+                RPI::CommonBufferDescriptor desc;
+                desc.m_poolType = RPI::CommonBufferPoolType::ReadOnly;
+                desc.m_bufferName = "RayTracedShadowsFullscreen.LocalLights";
+                desc.m_elementSize = sizeof(LocalShadowLightPacked);
+                desc.m_byteCount = static_cast<uint64_t>(desc.m_elementSize) * MaxLocalLights;
+                m_localLightsBuffer = RPI::BufferSystemInterface::Get()->CreateBufferFromCommonPool(desc);
+                m_localLightsDirty = true;
+            }
+            if (m_localLightsBuffer && m_localLightsDirty && !m_localLights.empty())
+            {
+                m_localLightsBuffer->UpdateData(m_localLights.data(), m_localLights.size() * sizeof(LocalShadowLightPacked), 0);
+            }
+            m_localLightsDirty = false;
+        }
+
         void RayTracedShadowsFullscreenPass::CreateBuffers()
         {
             const auto& nodes = m_bvh.GetNodes();
@@ -124,9 +177,15 @@ namespace AZ
                 CreateBuffers();
             }
 
+            UploadLocalLights();
+
             auto* srg = m_shaderResourceGroup.get();
-            if (srg && m_nodesBuffer && m_triangleVerticesBuffer)
+            if (srg && m_nodesBuffer && m_triangleVerticesBuffer && m_localLightsBuffer)
             {
+                srg->SetBufferView(m_localLightsBufferIndex, m_localLightsBuffer->GetBufferView());
+                srg->SetConstant(m_localLightCountIndex, static_cast<uint32_t>(m_localLights.size()));
+                srg->SetConstant(m_directionalWeightIndex, m_directionalWeight);
+                srg->SetConstant(m_lightClearanceIndex, m_lightClearance);
                 srg->SetBufferView(m_nodesBufferIndex, m_nodesBuffer->GetBufferView());
                 srg->SetBufferView(m_triangleVerticesBufferIndex, m_triangleVerticesBuffer->GetBufferView());
                 srg->SetConstant(m_toLightIndex, m_params.m_toLight.GetNormalizedSafe());

@@ -357,4 +357,190 @@ namespace UnitTest
         EXPECT_GT(penumbra, 0u);
         EXPECT_LE(mismatches, sampleCount / 50) << mismatches << " of " << penumbra << " penumbra samples";
     }
+
+    using AZ::LocalShadowLight;
+    using AZ::WeightedShadowVisibility;
+
+    static LocalShadowLight MakePointLight(const Vector3& position, float radius, float intensity = 100.0f)
+    {
+        LocalShadowLight light;
+        light.m_position = position;
+        light.m_radius = radius;
+        light.m_intensity = intensity;
+        return light;
+    }
+
+    TEST(MATH_RayTracedShadows, LocalLightIlluminanceFollowsInverseSquareAndRange)
+    {
+        LocalShadowLight light = MakePointLight(Vector3(0.0f, 0.0f, 0.0f), 0.0f, 100.0f);
+        // Infinite range: plain inverse square.
+        EXPECT_NEAR(AZ::ComputeLocalLightIlluminance(light, Vector3(0.0f, 0.0f, 2.0f)), 25.0f, 1e-3f);
+
+        light.m_invAttenuationRadiusSquared = 1.0f / (10.0f * 10.0f);
+        EXPECT_GT(AZ::ComputeLocalLightIlluminance(light, Vector3(0.0f, 0.0f, 2.0f)), 0.0f);
+        EXPECT_LT(AZ::ComputeLocalLightIlluminance(light, Vector3(0.0f, 0.0f, 2.0f)), 25.0f);
+        EXPECT_EQ(AZ::ComputeLocalLightIlluminance(light, Vector3(0.0f, 0.0f, 10.5f)), 0.0f);
+    }
+
+    TEST(MATH_RayTracedShadows, SpotLightIlluminanceIsZeroOutsideCone)
+    {
+        LocalShadowLight light = MakePointLight(Vector3(0.0f, 0.0f, 5.0f), 0.0f, 100.0f);
+        light.m_spotDirection = Vector3(0.0f, 0.0f, -1.0f); // pointing down
+        light.m_cosInnerConeAngle = std::cos(AZ::DegToRad(20.0f));
+        light.m_cosOuterConeAngle = std::cos(AZ::DegToRad(30.0f));
+
+        const float center = AZ::ComputeLocalLightIlluminance(light, Vector3(0.0f, 0.0f, 0.0f));
+        EXPECT_NEAR(center, 4.0f, 1e-3f);
+        // 5 * tan(25 deg) ~= 2.33: in the penumbra between the inner and outer cone.
+        const float penumbra = AZ::ComputeLocalLightIlluminance(light, Vector3(2.33f, 0.0f, 0.0f));
+        EXPECT_GT(penumbra, 0.0f);
+        EXPECT_LT(penumbra, 4.0f / (1.0f + 2.33f * 2.33f / 25.0f));
+        // 5 * tan(40 deg) ~= 4.2: outside the outer cone.
+        EXPECT_EQ(AZ::ComputeLocalLightIlluminance(light, Vector3(4.2f, 0.0f, 0.0f)), 0.0f);
+        // Behind the light.
+        EXPECT_EQ(AZ::ComputeLocalLightIlluminance(light, Vector3(0.0f, 0.0f, 8.0f)), 0.0f);
+    }
+
+    TEST(MATH_RayTracedShadows, PointLightShadowStopsAtTheLight)
+    {
+        AZStd::vector<BvhTriangle> tris;
+        AppendQuad(tris, -1.0f, -1.0f, 1.0f, 1.0f, 3.0f); // between receiver and light
+        AppendQuad(tris, 9.0f, -1.0f, 11.0f, 1.0f, 8.0f);  // above a second light, behind it
+        RayTracingBvh bvh;
+        bvh.Build(tris);
+
+        SoftShadowParams soft;
+        const ShadowSample sample{ Vector3(0.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 1.0f) };
+        const ShadowSample sample2{ Vector3(10.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 1.0f) };
+        EXPECT_EQ(AZ::ComputeLocalLightShadowVisibility(bvh, sample, MakePointLight(Vector3(0.0f, 0.0f, 5.0f), 0.0f), 1e-3f, 0.0f, soft), 0.0f);
+        EXPECT_EQ(AZ::ComputeLocalLightShadowVisibility(bvh, sample2, MakePointLight(Vector3(10.0f, 0.0f, 5.0f), 0.0f), 1e-3f, 0.0f, soft), 1.0f);
+    }
+
+    TEST(MATH_RayTracedShadows, LightClearanceIgnoresTheLightsOwnFixture)
+    {
+        // A lamp-shade-like quad 5 cm under the light.
+        AZStd::vector<BvhTriangle> tris;
+        AppendQuad(tris, -0.2f, -0.2f, 0.2f, 0.2f, 4.95f);
+        RayTracingBvh bvh;
+        bvh.Build(tris);
+
+        SoftShadowParams soft;
+        const ShadowSample sample{ Vector3(0.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 1.0f) };
+        const LocalShadowLight light = MakePointLight(Vector3(0.0f, 0.0f, 5.0f), 0.0f);
+        EXPECT_EQ(AZ::ComputeLocalLightShadowVisibility(bvh, sample, light, 1e-3f, 0.0f, soft), 0.0f);
+        EXPECT_EQ(AZ::ComputeLocalLightShadowVisibility(bvh, sample, light, 1e-3f, 0.1f, soft), 1.0f);
+    }
+
+    TEST(MATH_RayTracedShadows, LocalLightSamplePointsLieOnTheLightDisk)
+    {
+        const Vector3 receiver(0.0f, 0.0f, 0.0f);
+        LocalShadowLight sphere = MakePointLight(Vector3(1.0f, 2.0f, 5.0f), 0.5f);
+        const Vector3 toReceiver = (receiver - sphere.m_position).GetNormalized();
+        LocalShadowLight disk = sphere;
+        disk.m_diskNormal = Vector3(0.0f, 0.0f, -1.0f);
+        for (uint32_t i = 0; i < 16; ++i)
+        {
+            const Vector3 p = AZ::ComputeLocalLightSamplePoint(sphere, receiver, i, 16, 0.3f);
+            EXPECT_LE(p.GetDistance(sphere.m_position), 0.5f + 1e-4f);
+            EXPECT_NEAR((p - sphere.m_position).Dot(toReceiver), 0.0f, 1e-4f); // disk faces the receiver
+
+            const Vector3 q = AZ::ComputeLocalLightSamplePoint(disk, receiver, i, 16, 0.3f);
+            EXPECT_LE(q.GetDistance(disk.m_position), 0.5f + 1e-4f);
+            EXPECT_NEAR(q.GetZ(), 5.0f, 1e-4f); // in the disk's plane
+        }
+        // Zero radius or one sample aims at the center.
+        EXPECT_TRUE(AZ::ComputeLocalLightSamplePoint(sphere, receiver, 0, 1, 0.3f).IsClose(sphere.m_position));
+        sphere.m_radius = 0.0f;
+        EXPECT_TRUE(AZ::ComputeLocalLightSamplePoint(sphere, receiver, 5, 16, 0.3f).IsClose(sphere.m_position));
+    }
+
+    // Fraction of receivers along x in [-3, 3] that are partially (0 < v < 1) shadowed by a half-plane
+    // occluder edge at x = 0, z = 2.5, from a point light at z = 5.
+    static float LocalPenumbraFraction(float lightRadius)
+    {
+        AZStd::vector<BvhTriangle> tris;
+        AppendQuad(tris, -100.0f, -100.0f, 0.0f, 100.0f, 2.5f);
+        RayTracingBvh bvh;
+        bvh.Build(tris);
+
+        SoftShadowParams soft;
+        soft.m_sampleCount = 32;
+        soft.m_adaptive = false;
+        const LocalShadowLight light = MakePointLight(Vector3(0.0f, 0.0f, 5.0f), lightRadius);
+        int partial = 0;
+        constexpr int Steps = 600;
+        float previous = -1.0f;
+        for (int i = 0; i <= Steps; ++i)
+        {
+            const float x = -3.0f + 6.0f * static_cast<float>(i) / Steps;
+            const float v = AZ::ComputeLocalLightShadowVisibility(
+                bvh, { Vector3(x, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 1.0f) }, light, 1e-3f, 0.0f, soft);
+            EXPECT_GE(v + 1e-6f, previous); // visibility never decreases moving out of the shadow
+            previous = v;
+            partial += (v > 0.0f && v < 1.0f) ? 1 : 0;
+        }
+        return static_cast<float>(partial) / Steps;
+    }
+
+    TEST(MATH_RayTracedShadows, LocalLightPenumbraWidensWithLightRadius)
+    {
+        EXPECT_EQ(LocalPenumbraFraction(0.0f), 0.0f);
+        const float small = LocalPenumbraFraction(0.25f);
+        const float large = LocalPenumbraFraction(1.0f);
+        EXPECT_GT(small, 0.0f);
+        // Penumbra width = 2 * radius * (occluder-to-receiver / light-to-occluder) = 2 * radius.
+        EXPECT_NEAR(large, 2.0f / 6.0f, 0.03f);
+        EXPECT_GT(large, 3.0f * small);
+    }
+
+    TEST(MATH_RayTracedShadows, LocalLightAdaptiveMatchesFullSampling)
+    {
+        AZStd::vector<BvhTriangle> tris;
+        AppendQuad(tris, -100.0f, -100.0f, 0.0f, 100.0f, 2.5f);
+        RayTracingBvh bvh;
+        bvh.Build(tris);
+
+        SoftShadowParams full;
+        full.m_sampleCount = 16;
+        full.m_adaptive = false;
+        SoftShadowParams adaptive = full;
+        adaptive.m_adaptive = true;
+        const LocalShadowLight light = MakePointLight(Vector3(0.0f, 0.0f, 5.0f), 0.5f);
+        int mismatches = 0;
+        for (int i = 0; i <= 400; ++i)
+        {
+            const ShadowSample sample{ Vector3(-2.0f + 4.0f * i / 400.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 1.0f) };
+            const float a = AZ::ComputeLocalLightShadowVisibility(bvh, sample, light, 1e-3f, 0.0f, adaptive);
+            const float b = AZ::ComputeLocalLightShadowVisibility(bvh, sample, light, 1e-3f, 0.0f, full);
+            mismatches += std::fabs(a - b) > 1e-6f ? 1 : 0;
+        }
+        EXPECT_LE(mismatches, 8);
+    }
+
+    TEST(MATH_RayTracedShadows, CombineShadowVisibilityWeightsByIlluminance)
+    {
+        EXPECT_EQ(AZ::CombineShadowVisibility({}), 1.0f);
+        EXPECT_EQ(AZ::CombineShadowVisibility({ { 0.0f, 0.0f } }), 1.0f);
+        EXPECT_NEAR(AZ::CombineShadowVisibility({ { 5.0f, 0.3f } }), 0.3f, 1e-6f);
+        // A bright sun fully lit plus a dim lamp fully shadowed: barely darker.
+        EXPECT_NEAR(AZ::CombineShadowVisibility({ { 1000.0f, 1.0f }, { 10.0f, 0.0f } }), 1000.0f / 1010.0f, 1e-6f);
+        EXPECT_NEAR(AZ::CombineShadowVisibility({ { 1.0f, 1.0f }, { 1.0f, 0.0f } }), 0.5f, 1e-6f);
+    }
+
+    TEST(MATH_RayTracedShadows, SelectShadowLightsKeepsBrightestNearCamera)
+    {
+        AZStd::vector<LocalShadowLight> lights;
+        lights.push_back(MakePointLight(Vector3(1.0f, 0.0f, 0.0f), 0.0f, 10.0f));    // score 10
+        lights.push_back(MakePointLight(Vector3(10.0f, 0.0f, 0.0f), 0.0f, 400.0f));  // score 4
+        lights.push_back(MakePointLight(Vector3(2.0f, 0.0f, 0.0f), 0.0f, 80.0f));    // score 20
+        lights.push_back(MakePointLight(Vector3(0.0f, 0.0f, 0.0f), 0.0f, 0.0f));     // off
+        LocalShadowLight far = MakePointLight(Vector3(500.0f, 0.0f, 0.0f), 0.0f, 1.0e9f);
+        far.m_invAttenuationRadiusSquared = 1.0f / (20.0f * 20.0f); // range ends 480 m from the camera
+        lights.push_back(far);
+
+        AZ::SelectShadowLights(lights, Vector3::CreateZero(), 100.0f, 2);
+        ASSERT_EQ(lights.size(), 2u);
+        EXPECT_EQ(lights[0].m_intensity, 80.0f);
+        EXPECT_EQ(lights[1].m_intensity, 10.0f);
+    }
 } // namespace UnitTest
