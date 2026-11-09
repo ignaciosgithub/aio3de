@@ -8,9 +8,11 @@
 
 // Fullscreen hardware-agnostic hard ray-traced shadows.
 //
-// For every pixel: reconstruct the world position from the depth buffer, cast a single occlusion
-// ray toward the directional light against the software BVH (built on the CPU by
-// AZ::RayTracingBvh), and darken the pixel if occluded. The output is multiplicatively blended
+// For every pixel: reconstruct the world position from the depth buffer, cast occlusion rays
+// toward the directional light against the software BVH (built on the CPU by AZ::RayTracingBvh),
+// and darken the pixel by the occluded fraction. With m_sampleCount > 1 the rays are spread over
+// the light's disk (soft shadows with contact hardening, mirroring
+// AZ::ComputeSoftShadowVisibility); with 1 sample it is a hard shadow. The output is multiplicatively blended
 // onto the lighting target (Zero/ColorSource), so a lit pixel is untouched and a shadowed pixel is
 // scaled by the shadow factor. Uses only a standard pixel shader + structured buffers, with NO
 // dependency on DXR / VK_KHR_ray_tracing or RT cores, so it runs on every RHI backend.
@@ -45,6 +47,45 @@ ShaderResourceGroup PassSrg : SRG_PerPass
     float m_shadowFactor;
     // Number of BVH nodes; 0 disables traversal.
     uint m_nodeCount;
+
+    // Soft shadows: tan(angular radius of the light's disk); 0 = hard shadow.
+    float m_tanAngularRadius;
+    // Rays per pixel over the light's disk; <= 1 = hard shadow.
+    uint m_sampleCount;
+    // Probe rays cast first (AZ::GetSoftShadowProbeCount); if they all agree, the rest are skipped.
+    uint m_probeCount;
+    // 1 = adaptive probe early-out on, 0 = always cast m_sampleCount rays.
+    uint m_adaptive;
+    // Per-frame offset of the per-pixel pattern rotation (0 = static pattern).
+    uint m_noiseFrame;
+}
+
+// Golden angle, pi * (3 - sqrt(5)).
+#define SOFT_SHADOW_GOLDEN_ANGLE 2.39996323f
+
+// Mirrors AZ::ComputeSoftShadowRayDirection: Vogel disk point of radius tanAngularRadius around n.
+float3 SoftShadowRayDirection(float3 n, float tanAngularRadius, uint sampleIndex, uint sampleCount, float rotation)
+{
+    // Branchless orthonormal basis around n (Duff et al. 2017).
+    const float sign = n.z >= 0.0f ? 1.0f : -1.0f;
+    const float a = -1.0f / (sign + n.z);
+    const float b = n.x * n.y * a;
+    const float3 tangent = float3(1.0f + sign * n.x * n.x * a, sign * b, -sign * n.x);
+    const float3 bitangent = float3(b, sign + n.y * n.y * a, -n.y);
+
+    const float radius = sqrt((float(sampleIndex) + 0.5f) / float(max(1u, sampleCount)));
+    const float theta = float(sampleIndex) * SOFT_SHADOW_GOLDEN_ANGLE + rotation;
+    const float2 disk = radius * float2(cos(theta), sin(theta)) * tanAngularRadius;
+
+    return normalize(n + tangent * disk.x + bitangent * disk.y);
+}
+
+// Interleaved gradient noise (Jimenez 2014): cheap per-pixel value in [0, 1) that turns the fixed
+// sample pattern into fine noise (and is smoothed out by TAA when the pattern is animated).
+float InterleavedGradientNoise(float2 pixel, uint frame)
+{
+    pixel += 5.588238f * float(frame & 63u);
+    return frac(52.9829189f * frac(dot(pixel, float2(0.06711056f, 0.00583715f))));
 }
 
 // Any-hit BVH walk: returns true if any occluder triangle is hit in (0, tMax]. Mirrors
@@ -116,14 +157,51 @@ PSOutput MainPS(VSOutput IN)
     float4 worldPos = mul(ViewSrg::m_viewProjectionInverseMatrix, float4(ndc, depth, 1.0f));
     worldPos /= worldPos.w;
 
-    const float3 direction = normalize(PassSrg::m_toLight);
-    const float3 origin = worldPos.xyz + direction * PassSrg::m_rayBias;
+    const float3 toLight = normalize(PassSrg::m_toLight);
+    const float3 position = worldPos.xyz;
+    const float tMax = PassSrg::m_maxDistance;
+    const float bias = PassSrg::m_rayBias;
 
-    if (TraverseAnyHit(origin, direction, PassSrg::m_maxDistance))
+    float visibility;
+    const uint sampleCount = PassSrg::m_sampleCount;
+    if (sampleCount <= 1u || PassSrg::m_tanAngularRadius <= 0.0f)
     {
-        const float factor = PassSrg::m_shadowFactor;
-        OUT.m_color.rgb = float3(factor, factor, factor);
+        visibility = TraverseAnyHit(position + toLight * bias, toLight, tMax) ? 0.0f : 1.0f;
     }
+    else
+    {
+        // Mirrors AZ::ComputeSoftShadowVisibility: the last probeCount samples (outer ring of the
+        // disk) first, then the rest only if they disagree, i.e. the pixel is in the penumbra.
+        const float rotation = InterleavedGradientNoise(float2(pixel), PassSrg::m_noiseFrame) * 6.28318531f;
+        const float tanRadius = PassSrg::m_tanAngularRadius;
+        const uint probeCount = clamp(PassSrg::m_probeCount, 1u, sampleCount);
+        const uint firstProbe = sampleCount - probeCount;
+
+        uint hits = 0;
+        for (uint probe = firstProbe; probe < sampleCount; ++probe)
+        {
+            const float3 direction = SoftShadowRayDirection(toLight, tanRadius, probe, sampleCount, rotation);
+            hits += TraverseAnyHit(position + direction * bias, direction, tMax) ? 1u : 0u;
+        }
+
+        if (PassSrg::m_adaptive != 0u && (hits == 0u || hits == probeCount))
+        {
+            visibility = hits == 0u ? 1.0f : 0.0f;
+        }
+        else
+        {
+            for (uint index = 0; index < firstProbe; ++index)
+            {
+                const float3 direction = SoftShadowRayDirection(toLight, tanRadius, index, sampleCount, rotation);
+                hits += TraverseAnyHit(position + direction * bias, direction, tMax) ? 1u : 0u;
+            }
+            visibility = 1.0f - float(hits) / float(sampleCount);
+        }
+    }
+
+    // Lit = 1 (untouched), umbra = m_shadowFactor, penumbra in between.
+    const float factor = lerp(PassSrg::m_shadowFactor, 1.0f, visibility);
+    OUT.m_color.rgb = float3(factor, factor, factor);
 
     return OUT;
 }

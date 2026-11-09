@@ -12,7 +12,7 @@ It covers:
 | SoA + SIMD batched frustum culling (`AZ::FrustumClassifySpheres`) | #4 | correctness vs scalar reference + scalar/SIMD/parallel throughput |
 | `AZ::ParallelFor` TaskGraph primitive | #2 | correctness (each index once, empty/single ranges) + serial vs parallel throughput |
 | Portable ray-tracing BVH core | #8 | build/closest-hit/any-hit correctness + build & traversal throughput |
-| Ray-traced hard shadows (CPU reference) | #14 | occlusion/max-distance/normal-bias correctness, batch-vs-brute-force + shadow-batch throughput |
+| Ray-traced hard + soft shadows (CPU reference) | #14 | occlusion/max-distance/normal-bias correctness, batch-vs-brute-force, soft-shadow cone/penumbra/contact-hardening/adaptive-vs-full + shadow-batch and soft-shadow throughput |
 
 These are all **CPU** checks and micro-benchmarks — they run headless, need no
 GPU/display, and finish in a couple of minutes. The GPU-driven variants of these
@@ -70,6 +70,8 @@ so you can gate a script on it.
     → ParallelFor scaling.
   - `BM_RayTracingBvh/IntersectAny/*` vs `IntersectClosest/*` → the any-hit
     early-out saving that shadow rays rely on.
+  - `BM_RayTracingBvh/SoftShadowBatch/<tris>/0` vs `.../<tris>/1` → soft shadows
+    (8 rays/sample) without vs with the adaptive probe early-out.
 
   To track a change across engine pulls, keep the report files — they're
   timestamped — and diff the same benchmark row before/after.
@@ -136,6 +138,10 @@ Cvars (all live; type in the Editor console `~` while in game mode `Ctrl+G`):
 | `r_rayTracedShadowsMaxDistance` | `10000` | Max occlusion-ray distance (meters) |
 | `r_rayTracedShadowsBias` | `0.02` | Ray-origin offset to avoid self-shadow acne (meters) |
 | `r_rayTracedShadowsMaxTriangles` | `1000000` | Cap on scene triangles gathered into the occluder BVH |
+| `r_rayTracedShadowsSamples` | `4` | Rays per pixel over the light's disk (soft shadows); `1` = hard shadows |
+| `r_rayTracedShadowsSoftness` | `-1` | Light disk angular diameter in degrees; negative = use the directional light's *Angular diameter*, `0` = hard |
+| `r_rayTracedShadowsAdaptive` | `true` | Cast probe rays first, skip the rest outside the penumbra |
+| `r_rayTracedShadowsAnimateNoise` | `false` | Rotate the soft-shadow pattern each frame (use with TAA) |
 | `r_rayTracedShadowsRebuild` | `false` | Set `true` once to force a BVH rebuild (e.g. after only *moving* meshes) |
 | `r_rayTracedShadowsPrewarm` | `true` | Build the BVH in the background at level load so the first enable is instant |
 | `r_rayTracedShadowsAutoRebuild` | `true` | Auto-rebuild the BVH (async) when meshes are added/removed |

@@ -13,6 +13,8 @@
 
 #include <AzCore/Jobs/JobFunction.h>
 
+#include <cmath>
+
 namespace AZ
 {
     namespace Render
@@ -132,6 +134,18 @@ namespace AZ
                 srg->SetConstant(m_rayBiasIndex, m_params.m_normalBias);
                 srg->SetConstant(m_shadowFactorIndex, m_shadowFactor);
                 srg->SetConstant(m_nodeCountIndex, m_bvh.GetNodeCount());
+
+                const uint32_t sampleCount = AZStd::max(1u, m_softParams.m_sampleCount);
+                const float angularRadius = AZStd::clamp(m_softParams.m_angularRadius, 0.0f, 1.0f);
+                srg->SetConstant(m_tanAngularRadiusIndex, std::tan(angularRadius));
+                srg->SetConstant(m_sampleCountIndex, sampleCount);
+                srg->SetConstant(m_probeCountIndex, AZ::GetSoftShadowProbeCount(sampleCount));
+                srg->SetConstant(m_adaptiveIndex, m_softParams.m_adaptive ? 1u : 0u);
+                if (m_animateNoise)
+                {
+                    ++m_noiseFrame;
+                }
+                srg->SetConstant(m_noiseFrameIndex, m_animateNoise ? m_noiseFrame : 0u);
             }
 
             FullscreenTrianglePass::FrameBeginInternal(params);

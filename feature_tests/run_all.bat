@@ -70,7 +70,7 @@ set "FAILED=0"
 call :run_functional "SIMD frustum culling (#4)"   "MATH_FrustumCull.*:FrustumCullParallelFixture.*"
 call :run_functional "ParallelFor primitive (#2)"  "ParallelForTestFixture.*:ParallelForEachChunk*"
 call :run_functional "Ray-tracing BVH core (#8)"   "MATH_RayTracingBvh.*"
-call :run_functional "Ray-traced hard shadows (#14)" "MATH_RayTracedShadows.*"
+call :run_functional "Ray-traced hard + soft shadows (#14)" "MATH_RayTracedShadows.*"
 call :run_functional "XPBD soft body physics" "SoftBodyTests.*"
 
 :: --- performance benchmarks -------------------------------------------------

@@ -18,6 +18,7 @@
 #include <Atom/RPI.Public/View.h>
 
 #include <AzCore/Console/IConsole.h>
+#include <AzCore/Math/MathUtils.h>
 #include <AzCore/Math/RayTracedShadows.h>
 #include <AzCore/Serialization/SerializeContext.h>
 
@@ -139,6 +140,43 @@ namespace AZ::Render
         "the ray-traced shadows occluder BVH. Off by default: they change every frame and would "
         "force continuous BVH rebuilds, causing large FPS drops.");
 
+    AZ_CVAR(
+        uint32_t,
+        r_rayTracedShadowsSamples,
+        4,
+        nullptr,
+        AZ::ConsoleFunctorFlags::Null,
+        "Shadow rays per pixel spread over the directional light's disk (soft shadows with contact "
+        "hardening). 1 = hard shadows (one ray per pixel). Clamped to 64.");
+
+    AZ_CVAR(
+        float,
+        r_rayTracedShadowsSoftness,
+        -1.0f,
+        nullptr,
+        AZ::ConsoleFunctorFlags::Null,
+        "Angular diameter of the light's disk in degrees, which sets the ray-traced shadow penumbra "
+        "width. Negative = use the directional light's Angular diameter (0.5 by default, like the "
+        "sun); 0 = hard shadows.");
+
+    AZ_CVAR(
+        bool,
+        r_rayTracedShadowsAdaptive,
+        true,
+        nullptr,
+        AZ::ConsoleFunctorFlags::Null,
+        "Soft ray-traced shadows: cast a few probe rays first (a quarter of r_rayTracedShadowsSamples, "
+        "at least 2) and skip the rest when they agree, so only penumbra pixels pay for every ray.");
+
+    AZ_CVAR(
+        bool,
+        r_rayTracedShadowsAnimateNoise,
+        false,
+        nullptr,
+        AZ::ConsoleFunctorFlags::Null,
+        "Rotate the soft-shadow sample pattern every frame. With TAA on this averages more rays over "
+        "time (smoother penumbra); without TAA leave it off to avoid shimmer.");
+
     void RayTracedShadowsFeatureProcessor::Reflect(AZ::ReflectContext* context)
     {
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
@@ -200,10 +238,16 @@ namespace AZ::Render
 
     void RayTracedShadowsFeatureProcessor::UpdateShadowParams(RayTracedShadowsFullscreenPass* pass)
     {
-        // Default sun direction (high noon-ish) used when the scene has no directional light.
+        // Default sun direction (high noon-ish) and disk size used when the scene has no directional light.
         Vector3 toLight(0.2f, 0.3f, 0.9f);
+        float lightAngularRadius = AZ::DegToRad(0.25f);
         if (auto* lightFeatureProcessor = GetParentScene()->GetFeatureProcessor<DirectionalLightFeatureProcessor>())
         {
+            if (lightFeatureProcessor->GetLightCount() > 0)
+            {
+                lightAngularRadius = lightFeatureProcessor->GetFirstLightAngularRadius();
+            }
+
             // m_direction points from the light toward the scene; the shadow ray goes the other way.
             const Vector3 lightDirection = lightFeatureProcessor->GetFirstLightDirection();
             if (!lightDirection.IsZero())
@@ -218,6 +262,14 @@ namespace AZ::Render
         params.m_normalBias = r_rayTracedShadowsBias;
         pass->SetShadowParams(params);
         pass->SetShadowFactor(r_rayTracedShadowsFactor);
+
+        const float softness = r_rayTracedShadowsSoftness;
+        AZ::SoftShadowParams soft;
+        soft.m_angularRadius = softness < 0.0f ? lightAngularRadius : AZ::DegToRad(0.5f * softness);
+        soft.m_sampleCount = AZStd::clamp<uint32_t>(r_rayTracedShadowsSamples, 1, 64);
+        soft.m_adaptive = r_rayTracedShadowsAdaptive;
+        pass->SetSoftShadowParams(soft);
+        pass->SetAnimateNoise(r_rayTracedShadowsAnimateNoise);
     }
 
     void RayTracedShadowsFeatureProcessor::Simulate([[maybe_unused]] const SimulatePacket& packet)
