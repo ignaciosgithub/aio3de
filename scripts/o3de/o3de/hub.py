@@ -22,7 +22,9 @@ import json
 import logging
 import os
 import pathlib
+import platform
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -50,6 +52,34 @@ MIN_PYTHON_VERSION = (3, 10)
 # A full source build of the engine + a project pulls large 3rd party packages and intermediate
 # artifacts; warn when the engine drive has noticeably less than this free.
 RECOMMENDED_FREE_GB = 60
+
+# CMake release the hub installs per-user on Linux when the distro's CMake is missing or older than
+# the engine's floor (Ubuntu 22.04 ships 3.22). Pinned to 3.x: CMake 4 drops compatibility with
+# cmake_minimum_required < 3.5, which some fetched 3rd-party projects still declare.
+HUB_CMAKE_VERSION = '3.31.8'
+
+
+def hub_tools_dir() -> pathlib.Path:
+    """Per-user folder for tools the hub installs without admin rights."""
+    return pathlib.Path(os.environ.get('USERPROFILE') or pathlib.Path.home()) / '.o3de' / 'tools'
+
+
+def hub_cmake_bin_dir() -> pathlib.Path:
+    return hub_tools_dir() / 'cmake' / 'bin'
+
+
+def ensure_hub_tools_on_path() -> None:
+    """Puts hub-installed tools first on this process' PATH, so the doctor, the GUI hub and every
+    o3de command (configure/build/run) use them without the user editing their shell profile."""
+    bin_dir = hub_cmake_bin_dir()
+    if not bin_dir.is_dir():
+        return
+    entries = os.environ.get('PATH', '').split(os.pathsep)
+    if str(bin_dir) not in entries:
+        os.environ['PATH'] = os.pathsep.join([str(bin_dir)] + [e for e in entries if e])
+
+
+ensure_hub_tools_on_path()
 
 
 def engine_git_revision(engine_path: pathlib.Path) -> str:
@@ -585,6 +615,18 @@ def check_windows_vcredist() -> CheckResult or None:
                        f'The bundled Python needs the MSVC runtime. Install the x64 redistributable: {VC_REDIST_URL}')
 
 
+def check_windows_winget() -> CheckResult or None:
+    """Windows-only: "Install missing" installs CMake, Git, Visual Studio Build Tools, etc. through
+    winget (the Windows Package Manager, part of "App Installer")."""
+    if not sys.platform.startswith('win'):
+        return None
+    if shutil.which('winget'):
+        return CheckResult('winget', OK, 'available (used by "Install missing")')
+    return CheckResult('winget', WARN, 'not found - "Install missing" cannot install packages',
+                       'Install or update "App Installer" from the Microsoft Store '
+                       '(https://apps.microsoft.com/detail/9NBLGGH4NNS1), then re-run the checks.')
+
+
 def check_windows_code_integrity() -> CheckResult or None:
     """Windows-only: detect an enforced user-mode code-integrity policy (Smart App Control / WDAC /
     Device Guard). When enforced it blocks the *unsigned* bundled python.exe (and the engine binaries
@@ -700,7 +742,7 @@ def run_doctor(engine_path: pathlib.Path) -> list:
     if build_deps_check is not None:
         checks.append(build_deps_check)
     checks.extend(check_linux_runtime_libraries())
-    for windows_check in (check_windows_vcredist(), check_windows_code_integrity()):
+    for windows_check in (check_windows_vcredist(), check_windows_winget(), check_windows_code_integrity()):
         if windows_check is not None:
             checks.append(windows_check)
     return checks
@@ -752,7 +794,24 @@ _WINGET_IDS = {
     'Git': ['Git.Git'],
     'Git LFS': ['GitHub.GitLFS'],
     'VC++ redistributable': ['Microsoft.VCRedist.2015+.x64'],
+    'C++ compiler': ['Microsoft.VisualStudio.2022.BuildTools'],
 }
+
+# Installer arguments for packages that need more than winget's defaults. The Build Tools
+# installer otherwise installs no workload at all; "--wait" keeps winget attached until it is done.
+_WINGET_OVERRIDES = {
+    'Microsoft.VisualStudio.2022.BuildTools':
+        '--wait --passive --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended',
+}
+_WINGET_NOTES = {
+    'Microsoft.VisualStudio.2022.BuildTools':
+        ' - C++ workload + Windows SDK, several GB, can take 20+ minutes',
+}
+
+# winget exit codes that mean "nothing to do" or "done, reboot later" rather than failure:
+# APPINSTALLER_CLI_ERROR_UPDATE_NOT_APPLICABLE, ..._PACKAGE_ALREADY_INSTALLED,
+# ..._INSTALL_REBOOT_REQUIRED_TO_FINISH, plus the MSI/VS installer "reboot required" code.
+WINGET_OK_EXIT_CODES = (0x8A15002B, 0x8A150061, 0x8A150109, 3010)
 
 
 def detect_linux_package_manager() -> str or None:
@@ -764,7 +823,10 @@ def detect_linux_package_manager() -> str or None:
 
 def _package_install_command(manager: str, packages: list) -> list:
     if manager == 'apt-get':
-        return ['apt-get', 'install', '-y'] + packages
+        # Refresh the package lists first (a fresh install's lists are often stale or empty) in the
+        # same elevated invocation, so the user only gets one password prompt.
+        return ['sh', '-c', 'apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y '
+                + ' '.join(shlex.quote(p) for p in packages)]
     if manager == 'dnf':
         return ['dnf', 'install', '-y'] + packages
     if manager == 'pacman':
@@ -773,12 +835,121 @@ def _package_install_command(manager: str, packages: list) -> list:
 
 
 class FixStep:
-    """One command to run to remediate the machine. 'elevated' steps need root/admin."""
-    def __init__(self, description: str, command: list, elevated: bool = False, cwd: str = None):
+    """One action to remediate the machine: either a command to run or an in-process 'func'
+    (called with the log callback, returns an exit code). 'elevated' steps need root/admin;
+    'ok_exit_codes' are non-zero exit codes that still count as success; 'refresh_path' re-reads
+    PATH afterwards so tools installed by this step are usable by the following ones."""
+    def __init__(self, description: str, command: list = None, elevated: bool = False, cwd: str = None,
+                 func=None, ok_exit_codes: tuple = (), refresh_path: bool = False):
         self.description = description
-        self.command = command
+        self.command = command or []
         self.elevated = elevated
         self.cwd = cwd
+        self.func = func
+        self.ok_exit_codes = tuple(ok_exit_codes)
+        self.refresh_path = refresh_path
+
+
+def _kitware_cmake_archive(version: str, machine: str = None) -> str or None:
+    """Name of the official Linux CMake tarball for this CPU, or None when Kitware ships none."""
+    machine = (machine or platform.machine() or '').lower()
+    arch = {'x86_64': 'x86_64', 'amd64': 'x86_64', 'aarch64': 'aarch64', 'arm64': 'aarch64'}.get(machine)
+    return f'cmake-{version}-linux-{arch}.tar.gz' if arch else None
+
+
+def _link_user_bin(tools: list, source_dir: pathlib.Path, log) -> None:
+    """Symlinks tools into ~/.local/bin (on the default PATH of most distros) without clobbering
+    anything the user put there themselves."""
+    local_bin = pathlib.Path.home() / '.local' / 'bin'
+    try:
+        local_bin.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return
+    for tool in tools:
+        link = local_bin / tool
+        if link.exists() and not link.is_symlink():
+            log(f'    keeping your existing {link}')
+            continue
+        try:
+            if link.is_symlink():
+                link.unlink()
+            link.symlink_to(source_dir / tool)
+        except OSError as exc:
+            log(f'    could not link {link}: {exc}')
+
+
+def install_kitware_cmake(log=print, version: str = HUB_CMAKE_VERSION, base_url: str = None) -> int:
+    """Linux: installs the official Kitware CMake into ~/.o3de/tools/cmake (no root needed),
+    verifying the download against Kitware's published SHA-256, then puts it on PATH."""
+    import hashlib
+    import tarfile
+    import urllib.request
+
+    archive = _kitware_cmake_archive(version)
+    if archive is None:
+        log(f'    no official CMake build for CPU "{platform.machine()}"; install CMake >= '
+            f'{DEFAULT_MIN_CMAKE_VERSION} with your package manager')
+        return 1
+    base_url = base_url or f'https://github.com/Kitware/CMake/releases/download/v{version}/'
+    tools = hub_tools_dir()
+    tools.mkdir(parents=True, exist_ok=True)
+    try:
+        with urllib.request.urlopen(base_url + f'cmake-{version}-SHA-256.txt', timeout=60) as response:
+            sums = response.read().decode('utf-8', errors='replace')
+        expected = next(line.split()[0] for line in sums.splitlines() if line.split()[-1:] == [archive])
+    except (OSError, ValueError, StopIteration) as exc:
+        log(f'    ERROR: could not fetch the CMake checksum list: {exc}')
+        return 1
+
+    download = tools / (archive + '.part')
+    digest = hashlib.sha256()
+    try:
+        with urllib.request.urlopen(base_url + archive, timeout=60) as response, open(download, 'wb') as out:
+            total = int(response.headers.get('Content-Length') or 0)
+            done, next_report = 0, 10
+            while True:
+                chunk = response.read(1 << 20)
+                if not chunk:
+                    break
+                out.write(chunk)
+                digest.update(chunk)
+                done += len(chunk)
+                if total and done * 100 // total >= next_report:
+                    log(f'    downloaded {done * 100 // total}% of {archive}')
+                    next_report += 10
+    except OSError as exc:
+        download.unlink(missing_ok=True)
+        log(f'    ERROR: download failed: {exc}')
+        return 1
+    if digest.hexdigest() != expected:
+        download.unlink(missing_ok=True)
+        log(f'    ERROR: checksum mismatch for {archive}; download discarded')
+        return 1
+
+    extracted_name = archive[:-len('.tar.gz')]
+    try:
+        with tarfile.open(download, 'r:gz') as tar:
+            if hasattr(tarfile, 'data_filter'):
+                tar.extractall(tools, filter='data')
+            else:
+                tar.extractall(tools)
+    except (OSError, tarfile.TarError) as exc:
+        log(f'    ERROR: could not unpack {archive}: {exc}')
+        return 1
+    finally:
+        download.unlink(missing_ok=True)
+
+    current = tools / 'cmake'
+    if current.is_symlink() or current.is_file():
+        current.unlink()
+    elif current.is_dir():
+        shutil.rmtree(current)
+    current.symlink_to(extracted_name)
+    ensure_hub_tools_on_path()
+    _link_user_bin(['cmake', 'ctest', 'cpack'], hub_cmake_bin_dir(), log)
+    log(f'    CMake {version} installed to {current} (also linked into ~/.local/bin; open a new '
+        f'terminal if "cmake --version" still shows the old one)')
+    return 0
 
 
 def build_fix_plan(checks: list, engine_path: pathlib.Path) -> list:
@@ -796,25 +967,38 @@ def build_fix_plan(checks: list, engine_path: pathlib.Path) -> list:
         winget_ids = []
         for name, ids in _WINGET_IDS.items():
             if needs_fix(name):
-                winget_ids.extend(ids)
+                winget_ids.extend(i for i in ids if i not in winget_ids)
         for winget_id in winget_ids:
             # winget triggers its own UAC elevation prompt per package; no wrapper needed.
-            steps.append(FixStep(f'Install {winget_id} (winget)',
-                                 ['winget', 'install', '--id', winget_id, '-e',
-                                  '--accept-source-agreements', '--accept-package-agreements'],
-                                 elevated=False))
+            command = ['winget', 'install', '--id', winget_id, '-e',
+                       '--accept-source-agreements', '--accept-package-agreements']
+            if winget_id in _WINGET_OVERRIDES:
+                command += ['--override', _WINGET_OVERRIDES[winget_id]]
+            steps.append(FixStep(f'Install {winget_id} (winget){_WINGET_NOTES.get(winget_id, "")}',
+                                 command, elevated=False, ok_exit_codes=WINGET_OK_EXIT_CODES,
+                                 refresh_path=True))
     else:
         manager = detect_linux_package_manager()
+        # Distro CMake is frequently older than the engine floor, so prefer Kitware's official
+        # binary (per-user, no root) wherever Kitware ships one for this CPU.
+        kitware_cmake = (needs_fix('CMake') and sys.platform.startswith('linux')
+                         and _kitware_cmake_archive(HUB_CMAKE_VERSION) is not None)
         packages = []
         for name, per_manager in _LINUX_PACKAGE_NAMES.items():
+            if name == 'CMake' and kitware_cmake:
+                continue
             if needs_fix(name) and manager in per_manager:
-                packages.extend(per_manager[manager])
+                packages.extend(p for p in per_manager[manager] if p not in packages)
         if packages and manager:
             steps.append(FixStep(f'Install system packages: {" ".join(packages)}',
                                  _package_install_command(manager, packages), elevated=True))
+        if kitware_cmake:
+            steps.append(FixStep(f'Install CMake {HUB_CMAKE_VERSION} for this user (~/.o3de/tools/cmake)',
+                                 func=lambda log: install_kitware_cmake(log)))
 
     if needs_fix('Git LFS'):
         steps.append(FixStep('Enable Git LFS for this user', ['git', 'lfs', 'install']))
+    if (needs_fix('Git LFS') or needs_fix('LFS content')) and (engine_path / '.git').exists():
         steps.append(FixStep('Fetch LFS content for this checkout', ['git', 'lfs', 'pull'],
                              cwd=str(engine_path)))
 
@@ -859,12 +1043,47 @@ def elevation_wrapper(gui: bool) -> list or None:
     return None
 
 
+def refresh_windows_path() -> None:
+    """Windows: merges the machine + user PATH from the registry into this process, so tools that
+    winget just installed (git, cmake, ...) can be used by the next steps without a new terminal."""
+    if not sys.platform.startswith('win'):
+        return
+    import winreg
+    registry_entries = []
+    for root, key in ((winreg.HKEY_LOCAL_MACHINE, r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment'),
+                      (winreg.HKEY_CURRENT_USER, 'Environment')):
+        try:
+            with winreg.OpenKey(root, key) as handle:
+                value, _ = winreg.QueryValueEx(handle, 'Path')
+        except OSError:
+            continue
+        registry_entries.extend(os.path.expandvars(entry) for entry in value.split(';') if entry)
+    current = [entry for entry in os.environ.get('PATH', '').split(os.pathsep) if entry]
+    known = {entry.lower().rstrip('\\') for entry in current}
+    for entry in registry_entries:
+        if entry.lower().rstrip('\\') not in known:
+            current.append(entry)
+            known.add(entry.lower().rstrip('\\'))
+    os.environ['PATH'] = os.pathsep.join(current)
+
+
 def run_fix_plan(steps: list, gui: bool = False, log=print) -> int:
     """Executes the FixSteps in order, streaming output through 'log'. Stops at the first
     hard failure and returns its exit code; 0 when everything succeeded."""
     wrapper = elevation_wrapper(gui)
     for step in steps:
+        if step.func is not None:
+            log(f'==> {step.description}')
+            result = step.func(log)
+            if result:
+                log(f'    FAILED (exit code {result})')
+                return result
+            continue
         command = list(step.command)
+        if command and command[0] == 'winget' and not shutil.which('winget'):
+            log(f'SKIP (winget not found): {step.description}')
+            log('  install "App Installer" from the Microsoft Store, then run "Install missing" again')
+            continue
         if step.elevated:
             if wrapper is None:
                 log(f'SKIP (needs root, no sudo/pkexec found): {step.description}')
@@ -883,8 +1102,14 @@ def run_fix_plan(steps: list, gui: bool = False, log=print) -> int:
             log('    ' + line.rstrip('\n'))
         process.wait()
         if process.returncode != 0:
-            log(f'    FAILED (exit code {process.returncode})')
-            return process.returncode
+            # Windows reports HRESULT-style exit codes as either signed or unsigned 32-bit values.
+            if (process.returncode & 0xFFFFFFFF) in step.ok_exit_codes:
+                log(f'    already installed / up to date (exit code {process.returncode})')
+            else:
+                log(f'    FAILED (exit code {process.returncode})')
+                return process.returncode
+        if step.refresh_path:
+            refresh_windows_path()
     return 0
 
 
