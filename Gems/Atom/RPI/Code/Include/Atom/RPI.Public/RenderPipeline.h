@@ -195,6 +195,10 @@ namespace AZ
             PipelineRenderSettings& GetRenderSettings();
             const PipelineRenderSettings& GetRenderSettings() const;
 
+            //! Sets the scale applied to opted-in render-resolution attachments
+            void SetRenderResolutionScale(float scale);
+            float GetRenderResolutionScale() const;
+
             //! Undoes runtime changes made to active render settings by reverting to original settings from the descriptor
             void RevertRenderSettings();
 
@@ -357,6 +361,7 @@ namespace AZ
 
             // Render settings that can be queried by passes to setup things like render target resolution
             PipelineRenderSettings m_activeRenderSettings;
+            float m_renderResolutionScale = 1.0f;
 
             // Tags to filter draw items submitted by passes of this render pipeline.
             // These tags are allocated when the pipeline is added to a scene. They are set to invalid when removed from the scene.

@@ -1,0 +1,95 @@
+/*
+ * FSR 1 RCAS port, Copyright (c) 2021 Advanced Micro Devices, Inc.
+ * SPDX-License-Identifier: MIT
+ */
+
+#include <scenesrg_all.srgi>
+
+ShaderResourceGroup PassSrg : SRG_PerPass
+{
+    Texture2D<float4> m_inputColor;
+    RWTexture2D<float4> m_outputColor;
+
+    Sampler LinearClampSampler
+    {
+        MinFilter = Linear;
+        MagFilter = Linear;
+        MipFilter = Point;
+        AddressU = Clamp;
+        AddressV = Clamp;
+        AddressW = Clamp;
+    };
+
+    uint4 m_con;
+}
+
+float3 FsrRcasInputF(float3 color)
+{
+    return color;
+}
+
+float3 FsrRcasLoadF(int2 pixel, uint2 size)
+{
+    float2 uv = (float2(pixel) + 0.5) / float2(size);
+    return PassSrg::m_inputColor.SampleLevel(PassSrg::LinearClampSampler, uv, 0).rgb;
+}
+
+float3 FsrRcasF(uint2 ip, uint2 size)
+{
+    int2 sp = int2(ip);
+    float3 b = FsrRcasLoadF(sp + int2(0, -1), size);
+    float3 d = FsrRcasLoadF(sp + int2(-1, 0), size);
+    float4 center = PassSrg::m_inputColor.SampleLevel(
+        PassSrg::LinearClampSampler, (float2(ip) + 0.5) / float2(size), 0);
+    float3 e = center.rgb;
+    float3 f = FsrRcasLoadF(sp + int2(1, 0), size);
+    float3 h = FsrRcasLoadF(sp + int2(0, 1), size);
+
+    b = FsrRcasInputF(b);
+    d = FsrRcasInputF(d);
+    e = FsrRcasInputF(e);
+    f = FsrRcasInputF(f);
+    h = FsrRcasInputF(h);
+
+    float bL = b.b * 0.5 + (b.r * 0.5 + b.g);
+    float dL = d.b * 0.5 + (d.r * 0.5 + d.g);
+    float eL = e.b * 0.5 + (e.r * 0.5 + e.g);
+    float fL = f.b * 0.5 + (f.r * 0.5 + f.g);
+    float hL = h.b * 0.5 + (h.r * 0.5 + h.g);
+
+    float mn4R = min(min(b.r, d.r), min(f.r, h.r));
+    float mn4G = min(min(b.g, d.g), min(f.g, h.g));
+    float mn4B = min(min(b.b, d.b), min(f.b, h.b));
+    float mx4R = max(max(b.r, d.r), max(f.r, h.r));
+    float mx4G = max(max(b.g, d.g), max(f.g, h.g));
+    float mx4B = max(max(b.b, d.b), max(f.b, h.b));
+
+    float hitMinR = min(mn4R, e.r) * rcp(4.0 * mx4R);
+    float hitMinG = min(mn4G, e.g) * rcp(4.0 * mx4G);
+    float hitMinB = min(mn4B, e.b) * rcp(4.0 * mx4B);
+    float hitMaxR = (1.0 - max(mx4R, e.r)) * rcp(4.0 * mn4R - 4.0);
+    float hitMaxG = (1.0 - max(mx4G, e.g)) * rcp(4.0 * mn4G - 4.0);
+    float hitMaxB = (1.0 - max(mx4B, e.b)) * rcp(4.0 * mn4B - 4.0);
+    float lobeR = max(-hitMinR, hitMaxR);
+    float lobeG = max(-hitMinG, hitMaxG);
+    float lobeB = max(-hitMinB, hitMaxB);
+    float lobe = max(-0.1875, min(max(max(lobeR, lobeG), lobeB), 0.0)) * asfloat(PassSrg::m_con.x);
+    float rcpL = rcp(4.0 * lobe + 1.0);
+    return (lobe * (b + d + h + f) + e) * rcpL;
+}
+
+[numthreads(8, 8, 1)]
+void MainCS(uint3 dispatchThreadID : SV_DispatchThreadID)
+{
+    uint width, height;
+    PassSrg::m_outputColor.GetDimensions(width, height);
+    if (dispatchThreadID.x >= width || dispatchThreadID.y >= height)
+    {
+        return;
+    }
+    uint2 size = uint2(width, height);
+    float3 rgb = FsrRcasF(dispatchThreadID.xy, size);
+    float4 center = PassSrg::m_inputColor.SampleLevel(
+        PassSrg::LinearClampSampler, (float2(dispatchThreadID.xy) + 0.5) / float2(size), 0);
+    PassSrg::m_outputColor[dispatchThreadID.xy] = float4(rgb, center.a);
+}

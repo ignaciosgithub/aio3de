@@ -22,6 +22,7 @@
 
 #include <Atom/RPI.Reflect/System/AnyAsset.h>
 
+#include <cmath>
 
 namespace AZ
 {
@@ -837,6 +838,19 @@ namespace AZ
         const PipelineRenderSettings& RenderPipeline::GetRenderSettings() const
         {
             return m_activeRenderSettings;
+        }
+
+        void RenderPipeline::SetRenderResolutionScale(float scale)
+        {
+            if (std::isfinite(scale) && scale > 0.0f)
+            {
+                m_renderResolutionScale = scale;
+            }
+        }
+
+        float RenderPipeline::GetRenderResolutionScale() const
+        {
+            return m_renderResolutionScale;
         }
 
         void RenderPipeline::RevertRenderSettings()
