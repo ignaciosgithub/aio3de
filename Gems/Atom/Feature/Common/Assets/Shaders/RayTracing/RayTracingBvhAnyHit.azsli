@@ -1,0 +1,46 @@
+#pragma once
+
+// Mirrors AZ::RayTracingBvh::IntersectAny and the former TraverseAnyHit in
+// RayTracedShadowsFullscreen.azsl. PassSrg must expose m_nodes, m_triangleVertices, and m_nodeCount.
+bool TraverseAnyHit(float3 origin, float3 direction, float tMax)
+{
+    if (PassSrg::m_nodeCount == 0)
+    {
+        return false;
+    }
+
+    const float3 invDir = 1.0f / direction;
+    int stack[BVH_STACK_SIZE];
+    int stackPtr = 0;
+    stack[stackPtr++] = 0;
+    while (stackPtr > 0)
+    {
+        const BvhNode node = PassSrg::m_nodes[stack[--stackPtr]];
+        if (!IntersectRayAabb(origin, invDir, node.aabbMin, node.aabbMax, tMax))
+        {
+            continue;
+        }
+
+        if (node.triangleCount > 0)
+        {
+            for (uint i = 0; i < node.triangleCount; ++i)
+            {
+                const uint slot = node.leftFirst + i;
+                const float3 v0 = PassSrg::m_triangleVertices[3u * slot + 0u].xyz;
+                const float3 v1 = PassSrg::m_triangleVertices[3u * slot + 1u].xyz;
+                const float3 v2 = PassSrg::m_triangleVertices[3u * slot + 2u].xyz;
+                float t, u, v;
+                if (IntersectRayTriangle(origin, direction, v0, v1, v2, tMax, t, u, v))
+                {
+                    return true;
+                }
+            }
+        }
+        else if (stackPtr + 2 <= BVH_STACK_SIZE)
+        {
+            stack[stackPtr++] = int(node.leftFirst);
+            stack[stackPtr++] = int(node.leftFirst) + 1;
+        }
+    }
+    return false;
+}

@@ -1,0 +1,182 @@
+/*
+ * Copyright (c) Contributors to the Open 3D Engine Project.
+ * For complete copyright and license terms please see the LICENSE at the root of this distribution.
+ *
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
+ *
+ */
+
+// One compute thread handles one probe and traces its rays serially. This keeps SH accumulation
+// deterministic while exposing thousands of independent probes to the GPU.
+
+#include <scenesrg_all.srgi>
+#include "RayTracingBvh.azsli"
+
+ShaderResourceGroup PassSrg : SRG_PerPass
+{
+    StructuredBuffer<BvhNode> m_nodes;
+    StructuredBuffer<float4> m_triangleVertices;
+    StructuredBuffer<uint> m_primitiveIndices;
+    StructuredBuffer<uint> m_triangleAlbedo;
+    StructuredBuffer<float4> m_probeRead;
+    RWStructuredBuffer<float4> m_probeWrite;
+
+    uint m_nodeCount;
+    uint m_gridCount;
+    uint m_probesPerFrame;
+    uint m_raysPerProbe;
+    uint m_frameIndex;
+    float m_probeSpacing;
+    float m_hysteresis;
+    float3 m_gridOrigin;
+    float3 m_gridDims;
+    float3 m_sunDirection;
+    float3 m_sunIlluminanceOverPi;
+}
+
+#define PROBE_GI_BUFFER PassSrg::m_probeRead
+#include "RayTracingBvhAnyHit.azsli"
+#include "RayTracingBvhClosestHit.azsli"
+#include "../DiffuseGlobalIllumination/ProbeGi.azsli"
+#include <Atom/Features/PBR/LightingUtils.azsli>
+
+uint HashProbeSeed(uint value)
+{
+    value ^= value >> 16;
+    value *= 0x7feb352du;
+    value ^= value >> 15;
+    value *= 0x846ca68bu;
+    value ^= value >> 16;
+    return value;
+}
+
+float RandomProbeValue(uint seed)
+{
+    return float(HashProbeSeed(seed) & 0x00ffffffu) * (1.0f / 16777216.0f);
+}
+
+float3 RotateProbeDirection(float3 direction, uint seed)
+{
+    const float u1 = RandomProbeValue(seed);
+    const float u2 = RandomProbeValue(seed + 1u);
+    const float u3 = RandomProbeValue(seed + 2u);
+    const float angle2 = 6.283185307179586f * u2;
+    const float angle3 = 6.283185307179586f * u3;
+    const float3 q = float3(sqrt(1.0f - u1) * sin(angle2), sqrt(1.0f - u1) * cos(angle2), sqrt(u1) * sin(angle3));
+    const float qw = sqrt(u1) * cos(angle3);
+    return direction + 2.0f * cross(q, cross(q, direction) + qw * direction);
+}
+
+float3 DecodeTriangleAlbedo(uint packed)
+{
+    return float3(
+        float(packed & 0xffu),
+        float((packed >> 8u) & 0xffu),
+        float((packed >> 16u) & 0xffu)) * (1.0f / 255.0f);
+}
+
+void StoreProbe(uint slot, ShL1Rgb sh, int3 worldCell)
+{
+    PassSrg::m_probeWrite[slot * 4u + 0u] = float4(sh.m_c0.x, sh.m_c1.x, sh.m_c2.x, sh.m_c3.x);
+    PassSrg::m_probeWrite[slot * 4u + 1u] = float4(sh.m_c0.y, sh.m_c1.y, sh.m_c2.y, sh.m_c3.y);
+    PassSrg::m_probeWrite[slot * 4u + 2u] = float4(sh.m_c0.z, sh.m_c1.z, sh.m_c2.z, sh.m_c3.z);
+    PassSrg::m_probeWrite[slot * 4u + 3u] = float4(float3(worldCell), 1.0f);
+}
+
+void UpdateProbe(uint slot, uint3 localCell, int3 worldCell, uint logicalIndex)
+{
+    const float3 probePosition = PassSrg::m_gridOrigin + float3(localCell) * PassSrg::m_probeSpacing;
+    const float4 oldMetadata = PassSrg::m_probeRead[slot * 4u + 3u];
+    const bool reset = !ProbeCellMatches(oldMetadata, worldCell);
+    ShL1Rgb previous = LoadProbeSh(slot);
+    ShL1Rgb accumulated;
+    const uint rayCount = max(1u, PassSrg::m_raysPerProbe);
+    const uint seed = PassSrg::m_frameIndex * 1664525u + logicalIndex * 1013904223u;
+
+    for (uint rayIndex = 0; rayIndex < rayCount; ++rayIndex)
+    {
+        const float3 direction = normalize(RotateProbeDirection(SphericalFibonacciDirection(rayIndex, rayCount), seed));
+        float3 radiance = float3(0.0f, 0.0f, 0.0f);
+        const BvhTriangleHit hit = TraverseClosestHit(probePosition, direction, 1000000.0f);
+        if (hit.hit != 0u)
+        {
+            const float3 v0 = PassSrg::m_triangleVertices[3u * hit.triangleSlot + 0u].xyz;
+            const float3 v1 = PassSrg::m_triangleVertices[3u * hit.triangleSlot + 1u].xyz;
+            const float3 v2 = PassSrg::m_triangleVertices[3u * hit.triangleSlot + 2u].xyz;
+            const float3 crossNormal = cross(v1 - v0, v2 - v0);
+            const float3 hitNormal = dot(crossNormal, crossNormal) > 1.0e-20f ? normalize(crossNormal) : float3(0.0f, 0.0f, 0.0f);
+            const float3 hitPosition = probePosition + direction * hit.t;
+            const float3 toLight = -PassSrg::m_sunDirection;
+            const bool hasSun = dot(PassSrg::m_sunIlluminanceOverPi, PassSrg::m_sunIlluminanceOverPi) > 0.0f;
+            const bool sunVisible = !hasSun || !TraverseAnyHit(
+                hitPosition + hitNormal * (0.01f * PassSrg::m_probeSpacing), toLight, 1000000.0f);
+            const float4 bounceSample = SampleProbeGrid(
+            PassSrg::m_gridOrigin, PassSrg::m_probeSpacing, uint3(PassSrg::m_gridDims), hitPosition, hitNormal);
+            const float3 bounce = bounceSample.rgb * bounceSample.a;
+            radiance = ShadeProbeRayHit(
+                DecodeTriangleAlbedo(PassSrg::m_triangleAlbedo[hit.primitiveId]),
+                hitNormal,
+                direction,
+                PassSrg::m_sunDirection,
+                PassSrg::m_sunIlluminanceOverPi,
+                sunVisible,
+                bounce);
+        }
+        else
+        {
+            const float3 skyDirection = MultiplyVectorQuaternion(direction, SceneSrg::m_iblOrientation);
+            radiance = SceneSrg::m_diffuseEnvMap.SampleLevel(
+                SceneSrg::m_samplerEnv, GetCubemapCoords(skyDirection), 0.0f).rgb *
+                pow(2.0f, SceneSrg::m_iblExposure);
+        }
+        ShAccumulate(accumulated, ShProjectRadiance(direction, radiance));
+    }
+    ShScale(accumulated, 4.0f * ProbeGiPi / float(rayCount));
+
+    // Mirrors AZ::UpdateProbe: an invalid/recentered slot resets immediately; otherwise blend by hysteresis.
+    if (!reset)
+    {
+        const float blend = 1.0f - saturate(PassSrg::m_hysteresis);
+        ShScale(previous, 1.0f - blend);
+        ShScale(accumulated, blend);
+        ShAccumulate(previous, accumulated);
+        accumulated = previous;
+    }
+    StoreProbe(slot, accumulated, worldCell);
+}
+
+[numthreads(64, 1, 1)]
+void MainCS(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    const uint slot = dispatchThreadId.x;
+    if (slot >= PassSrg::m_gridCount)
+    {
+        return;
+    }
+
+    const uint3 gridDims = uint3(PassSrg::m_gridDims);
+    const uint3 slotCell = uint3(
+        slot % gridDims.x,
+        (slot / gridDims.x) % gridDims.y,
+        slot / (gridDims.x * gridDims.y));
+    const int3 originCell = int3(floor(PassSrg::m_gridOrigin / PassSrg::m_probeSpacing));
+    const int3 dims = int3(gridDims);
+    const int3 originSlot = ((originCell % dims) + dims) % dims;
+    const int3 localSigned = ((int3(slotCell) - originSlot) % dims + dims) % dims;
+    const uint3 localCell = uint3(localSigned);
+    const int3 worldCell = originCell + localSigned;
+    const uint logicalIndex = localCell.x + gridDims.x * (localCell.y + gridDims.y * localCell.z);
+    const uint updateStart = (PassSrg::m_frameIndex * PassSrg::m_probesPerFrame) % PassSrg::m_gridCount;
+    const uint scheduledIndex = (logicalIndex + PassSrg::m_gridCount - updateStart) % PassSrg::m_gridCount;
+    if (scheduledIndex < PassSrg::m_probesPerFrame)
+    {
+        UpdateProbe(slot, localCell, worldCell, logicalIndex);
+    }
+    else
+    {
+        PassSrg::m_probeWrite[slot * 4u + 0u] = PassSrg::m_probeRead[slot * 4u + 0u];
+        PassSrg::m_probeWrite[slot * 4u + 1u] = PassSrg::m_probeRead[slot * 4u + 1u];
+        PassSrg::m_probeWrite[slot * 4u + 2u] = PassSrg::m_probeRead[slot * 4u + 2u];
+        PassSrg::m_probeWrite[slot * 4u + 3u] = PassSrg::m_probeRead[slot * 4u + 3u];
+    }
+}

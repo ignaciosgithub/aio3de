@@ -68,6 +68,10 @@ set(FILES
     Source/SoftBody/SoftBodyGpuSolverSystem.h
     Source/RayTracing/RayTracingBvhPass.cpp
     Source/RayTracing/RayTracingBvhPass.h
+    Source/RayTracing/PortableGiUpdatePass.cpp
+    Source/RayTracing/PortableGiUpdatePass.h
+    Source/DiffuseGlobalIllumination/DiffuseGlobalFullscreenPass.cpp
+    Source/DiffuseGlobalIllumination/DiffuseGlobalFullscreenPass.h
     Source/RayTracing/RayTracedShadowsPass.cpp
     Source/RayTracing/RayTracedShadowsPass.h
     Source/RayTracing/RayTracedShadowsFullscreenPass.cpp

@@ -20,8 +20,10 @@
 #include <Atom/RPI.Public/Culling.h>
 #include <Atom/RPI.Public/Model/ModelLodUtils.h>
 #include <Atom/RPI.Public/Model/ModelTagSystemComponent.h>
+#include <Atom/RPI.Public/Material/Material.h>
 #include <Atom/RPI.Public/RPIUtils.h>
 #include <Atom/RPI.Public/Scene.h>
+#include <AzCore/Math/Color.h>
 #include <Mesh/MeshFeatureProcessor.h>
 #include <Mesh/StreamBufferViewsBuilder.h>
 
@@ -1709,7 +1711,11 @@ namespace AZ
             }
         }
 
-        void MeshFeatureProcessor::GetWorldTriangles(AZStd::vector<AZ::BvhTriangle>& outTriangles, uint32_t maxTriangles, bool includeDynamic)
+        void MeshFeatureProcessor::GetWorldTriangles(
+            AZStd::vector<AZ::BvhTriangle>& outTriangles,
+            uint32_t maxTriangles,
+            bool includeDynamic,
+            AZStd::vector<uint32_t>* outAlbedo)
         {
             for (auto& meshInstance : m_modelData)
             {
@@ -1731,9 +1737,41 @@ namespace AZ
 
                 const AZ::Transform transform = m_transformService->GetTransformForId(meshInstance.GetObjectId());
                 const AZ::Vector3 nonUniformScale = m_transformService->GetNonUniformScaleForId(meshInstance.GetObjectId());
-
-                for (const RPI::ModelLodAsset::Mesh& mesh : lodAsset->GetMeshes())
+                const auto modelLods = model->GetLods();
+                if (modelLods.empty())
                 {
+                    continue;
+                }
+                const auto runtimeMeshes = modelLods.front()->GetMeshes();
+
+                const auto assetMeshes = lodAsset->GetMeshes();
+                for (size_t meshIndex = 0; meshIndex < assetMeshes.size(); ++meshIndex)
+                {
+                    const RPI::ModelLodAsset::Mesh& mesh = assetMeshes[meshIndex];
+                    const RPI::ModelLod::Mesh& runtimeMesh = runtimeMeshes[meshIndex];
+                    uint32_t packedAlbedo = 0;
+                    if (outAlbedo)
+                    {
+                        AZ::Color baseColor(0.5f, 0.5f, 0.5f, 1.0f);
+                        const CustomMaterialInfo customMaterialInfo = meshInstance.GetCustomMaterialWithFallback(
+                            CustomMaterialId(0, runtimeMesh.m_materialSlotStableId));
+                        const Data::Instance<RPI::Material>& material =
+                            customMaterialInfo.m_material ? customMaterialInfo.m_material : runtimeMesh.m_material;
+                        if (material)
+                        {
+                            const auto colorIndex = material->FindPropertyIndex(AZ::Name("baseColor.color"));
+                            if (colorIndex.IsValid())
+                            {
+                                baseColor = material->GetPropertyValue<AZ::Color>(colorIndex);
+                            }
+                            const auto factorIndex = material->FindPropertyIndex(AZ::Name("baseColor.factor"));
+                            if (factorIndex.IsValid())
+                            {
+                                baseColor *= material->GetPropertyValue<float>(factorIndex);
+                            }
+                        }
+                        packedAlbedo = baseColor.ToU32();
+                    }
                     const AZStd::span<const float> positions =
                         mesh.GetSemanticBufferTyped<float>(AZ::Name("POSITION"));
                     if (positions.empty())
@@ -1766,8 +1804,11 @@ namespace AZ
                             {
                                 continue;
                             }
-                            outTriangles.push_back(
-                                AZ::BvhTriangle{ readWorldVertex(i0), readWorldVertex(i1), readWorldVertex(i2) });
+                            outTriangles.push_back(AZ::BvhTriangle{ readWorldVertex(i0), readWorldVertex(i1), readWorldVertex(i2) });
+                            if (outAlbedo)
+                            {
+                                outAlbedo->push_back(packedAlbedo);
+                            }
                         }
                     };
 

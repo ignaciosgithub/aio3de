@@ -301,7 +301,11 @@ namespace AZ
             //! RayTracedShadowsFeatureProcessor to build the occluder BVH for ray-traced shadows.
             //! When \p includeDynamic is false, meshes flagged always-dynamic (particles, skinned
             //! characters, constantly-moving props) are skipped so they never force occluder rebuilds.
-            void GetWorldTriangles(AZStd::vector<AZ::BvhTriangle>& outTriangles, uint32_t maxTriangles = 0, bool includeDynamic = true);
+            void GetWorldTriangles(
+                AZStd::vector<AZ::BvhTriangle>& outTriangles,
+                uint32_t maxTriangles = 0,
+                bool includeDynamic = true,
+                AZStd::vector<uint32_t>* outAlbedo = nullptr);
 
             //! Number of mesh instances whose model (LOD 0) is loaded and ready, i.e. the ones
             //! GetWorldTriangles would gather from. Cheap; usable as a change signal to detect

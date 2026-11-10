@@ -20,7 +20,16 @@ ShaderResourceGroup PassSrg : SRG_PerPass
     Texture2DMS<float4> m_albedo;       // RGB8 = Albedo with pre-multiplied factors, A = Unused here
     Texture2DMS<float4> m_normal;       // RGB10 = Normal (Encoded), A2 = Flags
     Texture2DMS<float>  m_depth;
+    StructuredBuffer<float4> m_probeBuffer;
+    float3 m_probeGridOrigin;
+    float m_probeSpacing;
+    float3 m_probeGridDims;
+    uint m_portableGiEnabled;
+    float m_portableGiIntensity;
 }
+
+#define PROBE_GI_BUFFER PassSrg::m_probeBuffer
+#include "ProbeGi.azsli"
 
 // Vertex Shader
 VSOutput MainVS(VSInput input)
@@ -35,7 +44,7 @@ VSOutput MainVS(VSInput input)
 }
 
 // retrieve irradiance from the global IBL diffuse cubemap
-float3 SampleGlobalIBL(uint sampleIndex, uint2 screenCoords, float depth, float3 normal)
+float3 SampleGlobalIBL(uint sampleIndex, uint2 screenCoords, float depth, float3 normal, out float3 worldPosition)
 {
     uint2 dimensions;
     uint samples;
@@ -49,7 +58,8 @@ float3 SampleGlobalIBL(uint sampleIndex, uint2 screenCoords, float depth, float3
     float4 projectedPos = float4(x, y, depth, 1.0f);
     float4 positionVS = mul(ViewSrg::m_projectionMatrixInverse, projectedPos);
     positionVS /= positionVS.w;
-    float3 positionWS = mul(ViewSrg::m_viewMatrixInverse, positionVS).xyz;  
+    float3 positionWS = mul(ViewSrg::m_viewMatrixInverse, positionVS).xyz;
+    worldPosition = positionWS;
 
     // apply global IBL
     float3 dirToCamera = normalize(ViewSrg::m_worldPosition.xyz - positionWS);
@@ -71,12 +81,25 @@ PSOutput MainPS(VSOutput IN, in uint sampleIndex : SV_SampleIndex)
     float3 normal = DecodeNormalSignedOctahedron(encodedNormal.rgb);
     float4 albedo = PassSrg::m_albedo.Load(screenCoords, sampleIndex);
 
-    float3 irradiance = SampleGlobalIBL(sampleIndex, screenCoords, depth, normal);
-    float3 diffuse = albedo.rgb * irradiance;
-
-    // adjust IBL lighting by exposure.
+    float3 worldPosition;
+    float3 irradiance = SampleGlobalIBL(sampleIndex, screenCoords, depth, normal, worldPosition);
     float iblExposureFactor = pow(2.0, SceneSrg::m_iblExposure);
-    diffuse *= iblExposureFactor;
+    irradiance *= iblExposureFactor;
+
+    if (PassSrg::m_portableGiEnabled != 0u)
+    {
+        const float4 probeSample = SampleProbeGrid(
+            PassSrg::m_probeGridOrigin,
+            PassSrg::m_probeSpacing,
+            uint3(PassSrg::m_probeGridDims),
+            worldPosition,
+            normal);
+        if (probeSample.a > 0.0f)
+        {
+            irradiance = lerp(irradiance, probeSample.rgb * PassSrg::m_portableGiIntensity, probeSample.a);
+        }
+    }
+    const float3 diffuse = albedo.rgb * irradiance;
  
     PSOutput OUT;
     OUT.m_color = float4(diffuse, 1.0f);

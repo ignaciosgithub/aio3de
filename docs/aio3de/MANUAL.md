@@ -350,14 +350,38 @@ Design notes:
   attachment id) — relevant if you write your own consumer pass.
 - Details: `docs/aio3de/RAY_TRACING.md`.
 
-### 6.2 GPU-driven frustum culling
+### 6.2 Portable GI (any GPU)
+
+The MainPipeline can optionally update a camera-following grid of diffuse
+irradiance probes using the same software BVH as ray-traced shadows. Probe
+updates use spherical-Fibonacci rays, L1 spherical harmonics, the first
+directional light, and the diffuse environment map. Probe irradiance replaces
+the IBL contribution inside the grid and fades back to IBL at its outer edge.
+It is off by default; set `r_portableGi true` to enable it.
+
+| CVar | Default | Meaning |
+| --- | --- | --- |
+| `r_portableGi` | false | Enable portable software-BVH probe GI |
+| `r_portableGiProbeSpacing` | 2.0 | Distance between probes in meters |
+| `r_portableGiGridSize` | 24 | Grid is `size × size/2 × size` |
+| `r_portableGiRaysPerProbe` | 32 | Rays per updated probe (clamped to 8–256) |
+| `r_portableGiProbesPerFrame` | 1024 | Rotating subset updated each frame |
+| `r_portableGiHysteresis` | 0.97 | Previous-frame probe weight |
+| `r_portableGiIntensity` | 1.0 | Probe irradiance scale |
+
+Version 1 uses material base color only (no textured albedo), the first
+directional light and sky only, and can leak light through thin walls. Emissive
+materials and local lights are not included. This implementation has not been
+GPU-validated; profile and visually test on target hardware before shipping.
+
+### 6.3 GPU-driven frustum culling
 
 A compute pass classifies instance bounds against the frustum and compacts
 survivors into `DrawIndexedIndirect` argument buffers consumed by a dedicated
 draw pass — the CPU never touches per-instance visibility. See
 `docs/aio3de/GPU_CULLING.md` for the pass wiring and how to feed it.
 
-### 6.3 CPU batched sphere culling
+### 6.4 CPU batched sphere culling
 
 `AZ::FrustumClassifySpheres` classifies spheres against a frustum in
 SoA + SIMD batches, integrated (gated) into `RPI::Culling`:
@@ -369,14 +393,14 @@ SoA + SIMD batches, integrated (gated) into `RPI::Culling`:
 | `r_useEntryWorkListsForCulling` | work-list based job splitting |
 | `r_numEntriesPerCullingJob` / `r_numNodesPerCullingJob` | job granularity |
 
-### 6.4 PSO precaching
+### 6.5 PSO precaching
 
 The RHI pipeline-library disk cache is **on by default** in this fork:
 compiled pipeline states persist across runs, eliminating most first-frame
 shader-compile hitches. A console command saves the cache on demand, and an
 auto-save interval writes it periodically.
 
-### 6.5 CPU parallelism
+### 6.6 CPU parallelism
 
 `AZ::ParallelFor` (in `AzCore/Task/Algorithms.h`) is a TaskGraph-based
 parallel-for used across engine hot paths (culling, soft body sweeps, BVH
@@ -387,7 +411,7 @@ builds). Use it for your own data-parallel loops:
 AZ::ParallelFor(0, count, [&](size_t i) { /* work on element i */ });
 ```
 
-### 6.6 Camera render-to-texture (security cameras, mirrors, portals)
+### 6.7 Camera render-to-texture (security cameras, mirrors, portals)
 
 Any camera can render its view onto a texture that other materials sample —
 in the Editor *and* in game:
@@ -439,7 +463,7 @@ Configure:
 Picture-in-picture works in the Editor viewport and in game. Several PiP
 cameras can be active at once, each with its own resolution and update rate.
 
-### 6.7 Video textures (VideoTexture gem)
+### 6.8 Video textures (VideoTexture gem)
 
 The **VideoTexture** gem plays video files onto the same render target
 textures, so any mesh can be a video screen. Enable the `VideoTexture` gem,
