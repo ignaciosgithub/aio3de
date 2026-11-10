@@ -487,6 +487,19 @@ then:
    it from Lua/Script Canvas via `VideoTextureRequestBus`
    (`Play`, `Pause`, `Stop`, `SetLooping`, `SetPlaybackSpeed`).
 
+### 6.9 Upscaling (FSR 1)
+
+MainPipeline supports opt-in AMD FidelityFX Super Resolution 1 spatial
+upscaling. `r_upscaler` defaults to `0` (native resolution); set it to `1` to
+render the scene below output resolution and run EASU followed by RCAS. Values
+of `2` or more are reserved and treated as off. Quality is selected with
+`r_upscaleQuality` (default `1`; `0` Ultra Quality, `1` Quality, `2` Balanced,
+`3` Performance). `r_upscaleSharpness` (default `0.2`) controls RCAS sharpness
+in stops.
+
+UI remains at native output resolution and is drawn after upscaling. This
+feature has not been GPU-validated.
+
 ---
 
 ## 7. Terrain: auto LOD, streaming, occlusion

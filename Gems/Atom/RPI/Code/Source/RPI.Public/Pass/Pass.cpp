@@ -38,6 +38,8 @@
 #include <Atom/RPI.Reflect/Pass/PassName.h>
 #include <Atom/RPI.Reflect/Asset/AssetUtils.h>
 
+#include <type_traits>
+
 namespace AZ
 {
     namespace RPI
@@ -770,6 +772,15 @@ namespace AZ
             {
                 attachment->m_sizeSource = source;
                 attachment->m_sizeMultipliers = desc.m_sizeSource.m_multipliers;
+            }
+
+            if constexpr (std::is_same_v<AttachmentDescType, PassImageAttachmentDesc>)
+            {
+                attachment->m_scaleWithRenderResolution = desc.m_scaleWithRenderResolution;
+                if (desc.m_scaleWithRenderResolution)
+                {
+                    attachment->m_renderPipelineSource = m_pipeline;
+                }
             }
 
             if (desc.m_formatSource.m_pass == PipelineKeyword)                // if source is pipeline

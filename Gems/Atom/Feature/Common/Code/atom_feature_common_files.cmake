@@ -285,6 +285,8 @@ set(FILES
     Source/PostProcessing/SubsurfaceScatteringPass.h
     Source/PostProcessing/TaaPass.h
     Source/PostProcessing/TaaPass.cpp
+    Source/PostProcessing/FsrUpscalePasses.h
+    Source/PostProcessing/FsrUpscalePasses.cpp
     Source/PostProcessing/WhiteBalancePass.h
     Source/PostProcessing/WhiteBalancePass.cpp
     Source/RayTracing/RayTracingFeatureProcessor.h

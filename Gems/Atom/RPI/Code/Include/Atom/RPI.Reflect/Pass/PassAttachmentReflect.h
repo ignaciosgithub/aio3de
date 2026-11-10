@@ -259,6 +259,9 @@ namespace AZ
             //! so that we get a full mip chain with the smallest mip being 1x1 in size
             bool m_generateFullMipChain = false;
 
+            //! Whether the image dimensions scale with the owning render pipeline's render-resolution scale
+            bool m_scaleWithRenderResolution = false;
+
             //! List of formats to fallback to if the format specified in the image descriptor is not supported by the device
             AZStd::vector<RHI::Format> m_formatFallbacks;
         };

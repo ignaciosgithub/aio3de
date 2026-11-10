@@ -20,6 +20,10 @@
 #include <Atom/RPI.Reflect/Asset/AssetUtils.h>
 #include <Atom/RPI.Reflect/Pass/RasterPassData.h>
 
+#include <AzCore/std/algorithm.h>
+
+#include <cmath>
+
 namespace AZ
 {
     namespace RPI
@@ -142,6 +146,65 @@ namespace AZ
                 if (!m_overrideViewportState)
                 {
                     m_viewportState = params.m_viewportState;
+                }
+
+                if (m_viewportAndScissorTargetOutputIndex < 0 &&
+                    !m_overrideScissorSate &&
+                    !m_overrideViewportState &&
+                    m_pipeline &&
+                    m_pipeline->GetRenderResolutionScale() != 1.0f)
+                {
+                    PassAttachmentBinding* renderTarget = nullptr;
+                    const auto findRenderTarget = [&renderTarget](PassAttachmentBinding& binding)
+                    {
+                        if ((binding.m_scopeAttachmentUsage == RHI::ScopeAttachmentUsage::RenderTarget ||
+                             binding.m_scopeAttachmentUsage == RHI::ScopeAttachmentUsage::DepthStencil) &&
+                            binding.GetAttachment() &&
+                            binding.GetAttachment()->GetAttachmentType() == RHI::AttachmentType::Image)
+                        {
+                            renderTarget = &binding;
+                        }
+                    };
+
+                    for (uint32_t index = 0; index < GetOutputCount() && !renderTarget; ++index)
+                    {
+                        findRenderTarget(GetOutputBinding(index));
+                    }
+                    for (uint32_t index = 0; index < GetInputOutputCount() && !renderTarget; ++index)
+                    {
+                        findRenderTarget(GetInputOutputBinding(index));
+                    }
+
+                    if (renderTarget)
+                    {
+                        const auto targetAttachment = renderTarget->GetAttachment();
+                        const RHI::Size& targetSize = targetAttachment->m_descriptor.m_image.m_size;
+                        const RHI::Size& pipelineSize = m_pipeline->GetRenderSettings().m_size;
+                        const RHI::Size renderResolutionSize = m_pipeline->GetRenderResolutionSize();
+                        if (targetSize.m_width == renderResolutionSize.m_width &&
+                            targetSize.m_height == renderResolutionSize.m_height &&
+                            pipelineSize.m_width > 0 && pipelineSize.m_height > 0)
+                        {
+                            const float scaleX = static_cast<float>(targetSize.m_width) / pipelineSize.m_width;
+                            const float scaleY = static_cast<float>(targetSize.m_height) / pipelineSize.m_height;
+                            m_viewportState.m_minX *= scaleX;
+                            m_viewportState.m_maxX *= scaleX;
+                            m_viewportState.m_minY *= scaleY;
+                            m_viewportState.m_maxY *= scaleY;
+
+                            const int32_t targetWidth = static_cast<int32_t>(targetSize.m_width);
+                            const int32_t targetHeight = static_cast<int32_t>(targetSize.m_height);
+                            const auto clampCoordinate = [](long coordinate, int32_t limit)
+                            {
+                                return static_cast<int32_t>(AZStd::clamp<long>(coordinate, 0, limit));
+                            };
+                            const int32_t minX = clampCoordinate(std::lround(m_scissorState.m_minX * scaleX), targetWidth);
+                            const int32_t minY = clampCoordinate(std::lround(m_scissorState.m_minY * scaleY), targetHeight);
+                            const int32_t maxX = clampCoordinate(std::lround(m_scissorState.m_maxX * scaleX), targetWidth);
+                            const int32_t maxY = clampCoordinate(std::lround(m_scissorState.m_maxY * scaleY), targetHeight);
+                            m_scissorState = RHI::Scissor(minX, minY, AZStd::max(minX, maxX), AZStd::max(minY, maxY));
+                        }
+                    }
                 }
             }
             UpdateDrawList();

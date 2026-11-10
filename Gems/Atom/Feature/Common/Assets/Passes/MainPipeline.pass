@@ -10,6 +10,63 @@
                 {
                     "Name": "PipelineOutput",
                     "SlotType": "InputOutput"
+                },
+                {
+                    "Name": "RenderResolution",
+                    "SlotType": "Output"
+                },
+                {
+                    "Name": "UIDepthStencil",
+                    "SlotType": "Output"
+                }
+            ],
+            "ImageAttachments": [
+                {
+                    "Name": "RenderResolution",
+                    "SizeSource": {
+                        "Source": {
+                            "Pass": "Pipeline",
+                            "Attachment": "PipelineOutput"
+                        }
+                    },
+                    "FormatSource": {
+                        "Pass": "Pipeline",
+                        "Attachment": "PipelineOutput"
+                    },
+                    "ScaleWithRenderResolution": true,
+                    "ImageDescriptor": {
+                        "Format": "R8G8B8A8_UNORM",
+                        "BindFlags": "ShaderReadWrite"
+                    }
+                },
+                {
+                    "Name": "UIDepthStencil",
+                    "SizeSource": {
+                        "Source": {
+                            "Pass": "Pipeline",
+                            "Attachment": "PipelineOutput"
+                        }
+                    },
+                    "ImageDescriptor": {
+                        "Format": "D32_FLOAT_S8X24_UINT",
+                        "BindFlags": "DepthStencil"
+                    }
+                }
+            ],
+            "Connections": [
+                {
+                    "LocalSlot": "RenderResolution",
+                    "AttachmentRef": {
+                        "Pass": "This",
+                        "Attachment": "RenderResolution"
+                    }
+                },
+                {
+                    "LocalSlot": "UIDepthStencil",
+                    "AttachmentRef": {
+                        "Pass": "This",
+                        "Attachment": "UIDepthStencil"
+                    }
                 }
             ],
             "PassData": {
@@ -18,6 +75,14 @@
                     {
                         "GlobalName": "PipelineOutput",
                         "Slot": "PipelineOutput"
+                    },
+                    {
+                        "GlobalName": "RenderResolution",
+                        "Slot": "RenderResolution"
+                    },
+                    {
+                        "GlobalName": "UIDepthStencil",
+                        "Slot": "UIDepthStencil"
                     }
                 ]
             },
@@ -64,7 +129,7 @@
                             "LocalSlot": "PipelineOutput",
                             "AttachmentRef": {
                                 "Pass": "PipelineGlobal",
-                                "Attachment": "PipelineOutput"
+                                "Attachment": "RenderResolution"
                             }
                         }
                     ]
@@ -91,7 +156,7 @@
                             "LocalSlot": "PipelineOutput",
                             "AttachmentRef": {
                                 "Pass": "PipelineGlobal",
-                                "Attachment": "PipelineOutput"
+                                "Attachment": "RenderResolution"
                             }
                         }
                     ]
@@ -118,7 +183,7 @@
                             "LocalSlot": "PipelineOutput",
                             "AttachmentRef": {
                                 "Pass": "PipelineGlobal",
-                                "Attachment": "PipelineOutput"
+                                "Attachment": "RenderResolution"
                             }
                         }
                     ]
@@ -138,7 +203,7 @@
                             "LocalSlot": "PipelineOutput",
                             "AttachmentRef": {
                                 "Pass": "PipelineGlobal",
-                                "Attachment": "PipelineOutput"
+                                "Attachment": "RenderResolution"
                             }
                         },
                         {
@@ -219,7 +284,7 @@
                             "LocalSlot": "PipelineOutput",
                             "AttachmentRef": {
                                 "Pass": "PipelineGlobal",
-                                "Attachment": "PipelineOutput"
+                                "Attachment": "RenderResolution"
                             }
                         }
                     ]
@@ -393,7 +458,7 @@
                             "LocalSlot": "PipelineOutput",
                             "AttachmentRef": {
                                 "Pass": "PipelineGlobal",
-                                "Attachment": "PipelineOutput"
+                                "Attachment": "RenderResolution"
                             }
                         }
                     ]
@@ -459,21 +524,41 @@
                     ]
                 },
                 {
-                    "Name": "UIPass",
-                    "TemplateName": "UIParentTemplate",
+                    "Name": "UpscalePass",
+                    "TemplateName": "UpscaleParentTemplate",
                     "Connections": [
                         {
-                            "LocalSlot": "InputOutput",
+                            "LocalSlot": "InputColor",
                             "AttachmentRef": {
                                 "Pass": "DebugOverlayPass",
                                 "Attachment": "InputOutput"
                             }
                         },
                         {
+                            "LocalSlot": "PipelineOutput",
+                            "AttachmentRef": {
+                                "Pass": "PipelineGlobal",
+                                "Attachment": "PipelineOutput"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "Name": "UIPass",
+                    "TemplateName": "UIParentTemplate",
+                    "Connections": [
+                        {
+                            "LocalSlot": "InputOutput",
+                            "AttachmentRef": {
+                                "Pass": "UpscalePass",
+                                "Attachment": "OutputColor"
+                            }
+                        },
+                        {
                             "LocalSlot": "DepthInputOutput",
                             "AttachmentRef": {
-                                "Pass": "DepthPrePass",
-                                "Attachment": "Depth"
+                                "Pass": "PipelineGlobal",
+                                "Attachment": "UIDepthStencil"
                             }
                         }
                     ]

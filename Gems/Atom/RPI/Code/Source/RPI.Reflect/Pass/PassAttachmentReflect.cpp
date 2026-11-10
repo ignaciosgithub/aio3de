@@ -178,10 +178,11 @@ namespace AZ
             if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
             {
                 serializeContext->Class<PassImageAttachmentDesc, PassAttachmentDesc>()
-                    ->Version(0)
+                    ->Version(1)
                     ->Field("ImageDescriptor", &PassImageAttachmentDesc::m_imageDescriptor)
                     ->Field("ImageViewDescriptor", &PassImageAttachmentDesc::m_imageViewDescriptor)
                     ->Field("GenerateFullMipChain", &PassImageAttachmentDesc::m_generateFullMipChain)
+                    ->Field("ScaleWithRenderResolution", &PassImageAttachmentDesc::m_scaleWithRenderResolution)
                     ->Field("FormatFallbacks", &PassImageAttachmentDesc::m_formatFallbacks)
                     ;
             }

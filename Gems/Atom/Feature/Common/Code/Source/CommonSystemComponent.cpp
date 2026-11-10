@@ -76,6 +76,7 @@
 #include <PostProcessing/SMAANeighborhoodBlendingPass.h>
 #include <PostProcessing/SsaoPasses.h>
 #include <PostProcessing/SubsurfaceScatteringPass.h>
+#include <PostProcessing/FsrUpscalePasses.h>
 #include <PostProcessing/TaaPass.h>
 #include <PostProcessing/VignettePass.h>
 #include <PostProcessing/WhiteBalancePass.h>
@@ -281,6 +282,9 @@ namespace AZ
             // Add Taa Pass
             passSystem->AddPassCreator(Name("TaaPass"), &TaaPass::Create);
             passSystem->AddPassCreator(Name("DiffuseGlobalFullscreenPass"), &DiffuseGlobalFullscreenPass::Create);
+            passSystem->AddPassCreator(Name("FsrUpscaleParentPass"), &FsrUpscaleParentPass::Create);
+            passSystem->AddPassCreator(Name("FsrEasuPass"), &FsrEasuPass::Create);
+            passSystem->AddPassCreator(Name("FsrRcasPass"), &FsrRcasPass::Create);
 
             // Add DepthOfField pass
             passSystem->AddPassCreator(Name("DepthOfFieldCompositePass"), &DepthOfFieldCompositePass::Create);
