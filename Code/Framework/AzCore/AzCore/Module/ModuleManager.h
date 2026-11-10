@@ -84,6 +84,7 @@ namespace AZ
         Module* GetModule() const override { return m_module; }
         Entity* GetEntity() const override { return m_moduleEntity.get(); }
         const char* GetDebugName() const override;
+        const char* GetOriginalModulePath() const override { return m_originalModulePath.c_str(); }
         ////////////////////////////////////////////////////////////////////////
 
         /// Deals with loading and unloading the AZ::Module's DLL.
@@ -98,6 +99,10 @@ namespace AZ
 
         //! The last step this module completed
         ModuleInitializationSteps m_lastCompletedStep = ModuleInitializationSteps::None;
+
+        //! Original module source and the loaded shadow copy, when one is in use.
+        AZStd::string m_originalModulePath;
+        AZStd::string m_shadowCopyPath;
     };
 
     /*!
@@ -137,9 +142,13 @@ namespace AZ
         // ModuleManagerRequestBus
         void EnumerateModules(EnumerateModulesCallback perModuleCallback) override;
         LoadModuleOutcome LoadDynamicModule(const char* modulePath, ModuleInitializationSteps lastStepToPerform, bool maintainReference) override;
+        ReloadModuleOutcome ReloadDynamicModule(const char* modulePath) override;
         LoadModulesResult LoadDynamicModules(const ModuleDescriptorList& modules, ModuleInitializationSteps lastStepToPerform, bool maintainReferences) override;
         LoadModulesResult LoadStaticModules(CreateStaticModulesCallback staticModulesCb, ModuleInitializationSteps lastStepToPerform) override;
         bool IsModuleLoaded(const char* modulePath) override;
+
+        LoadModuleOutcome LoadDynamicModuleInternal(
+            const char* modulePath, const char* loadPathOverride, ModuleInitializationSteps lastStepToPerform, bool maintainReference);
 
         //! Lookup module by name using the supplied modulePath parameter and return a ModuleData reference to it
         //! @param modulePath basename to a module to lookup within the executable directory
@@ -171,6 +180,8 @@ namespace AZ
 
         /// The modules we own
         AZStd::vector<AZStd::shared_ptr<ModuleDataImpl>> m_ownedModules;
+
+        AZ::u64 m_nextShadowCopyCounter = 0;
 
         using ModuleNameNameToModuleDataMap = AZStd::unordered_map<AZ::OSString, AZStd::weak_ptr<ModuleDataImpl>>;
         //! Map from modules names to loaded ModuleData

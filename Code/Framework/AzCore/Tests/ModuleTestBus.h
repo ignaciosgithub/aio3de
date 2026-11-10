@@ -21,3 +21,17 @@ public:
 };
 
 using ModuleTestRequestBus = AZ::EBus<ModuleTestRequests>;
+
+class ModuleTestSystemComponentRequests
+    : public AZ::EBusTraits
+{
+public:
+    static const AZ::EBusHandlerPolicy HandlerPolicy = AZ::EBusHandlerPolicy::Single;
+    static const AZ::EBusAddressPolicy AddressPolicy = AZ::EBusAddressPolicy::Single;
+
+    virtual ~ModuleTestSystemComponentRequests() = default;
+
+    virtual bool IsConnected() = 0;
+};
+
+using ModuleTestSystemComponentBus = AZ::EBus<ModuleTestSystemComponentRequests>;

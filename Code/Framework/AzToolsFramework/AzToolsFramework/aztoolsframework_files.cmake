@@ -247,6 +247,8 @@ set(FILES
     FocusMode/FocusModeNotificationBus.cpp
     FocusMode/FocusModeNotificationBus.h
     FocusMode/FocusModeSystemComponent.h
+    HotReload/GameCodeHotReloadSystemComponent.cpp
+    HotReload/GameCodeHotReloadSystemComponent.h
     FocusMode/FocusModeSystemComponent.cpp
     Logger/TraceLogger.cpp
     Logger/TraceLogger.h
@@ -1108,4 +1110,3 @@ set(SKIP_UNITY_BUILD_INCLUSION_FILES
     UI/PropertyEditor/PropertyCurveCtrl.hxx
     UI/PropertyEditor/PropertyCurveCtrl.cpp
 )
-

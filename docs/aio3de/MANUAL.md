@@ -313,6 +313,37 @@ lighting, physics props, player camera) is in
 
 ---
 
+### 5.3 C++ hot reload (game code)
+
+The Editor can reload configured game-gem DLLs while it is running. Create
+`<project>/Registry/hotreload.setreg` with the game module names to enable
+startup shadow copies and reload:
+
+```json
+{
+  "O3DE": {
+    "HotReload": {
+      "Enabled": true,
+      "Modules": [ "MyGame", "MyGame.Editor" ]
+    }
+  }
+}
+```
+
+Build the game gem while the Editor remains open, then run
+`ed_reloadGameCode`, choose **Tools > Reload Game Code**, or use
+**Ctrl+Alt+F11**. Set `ed_hotReloadWatch` to `true` to poll the configured
+module files once per second and reload a module after its timestamp has
+remained stable for two seconds. Reload saves the level to memory, clears the
+Editor context and undo history, reloads the configured modules, then restores
+the level. Keep the module names aligned with the built game gem targets.
+
+This is intended for game gems only. It does not rebuild engine gems, Script
+Canvas node registries, Python bindings, `AZ::Interface` singletons or asset
+handlers registered outside system components, or static state in other
+modules. Dependent header or ABI changes still require an Editor restart.
+Windows has not been tested.
+
 ## 6. Rendering features
 
 ### 6.1 Hardware-agnostic ray-traced shadows

@@ -10,9 +10,13 @@
 #include <AzCore/Module/Module.h>
 #include <AzCore/PlatformIncl.h>
 #include <AzCore/Module/ModuleManagerBus.h>
+#include <AzCore/Module/DynamicModuleHandle.h>
 #include <AzCore/Memory/AllocationRecords.h>
+#include <AzCore/IO/Path/Path.h>
+#include <AzCore/Utils/Utils.h>
 #include <AzCore/UnitTest/TestTypes.h>
 #include "ModuleTestBus.h"
+#include "FileIOBaseTestTypes.h"
 
 #if !AZ_UNIT_TEST_SKIP_DLL_TEST
 
@@ -28,6 +32,77 @@ using ::testing::Matcher;
 namespace UnitTest
 {
     static const AZ::Uuid AZCoreTestsDLLModuleId{ "{99C6BF95-847F-4EEE-BB60-9B26D02FF577}" };
+
+    class ModuleReloadTestFileIO : public TestFileIOBase
+    {
+    public:
+        AZ::IO::Result CreatePath(const char* filePath) override
+        {
+            char resolvedPath[AZ_MAX_PATH_LEN];
+            if (!ResolvePath(filePath, resolvedPath, AZ_MAX_PATH_LEN))
+            {
+                return AZ::IO::ResultCode::Error;
+            }
+            return AZ::IO::SystemFile::IsDirectory(resolvedPath) || AZ::IO::SystemFile::CreateDir(resolvedPath)
+                ? AZ::IO::ResultCode::Success
+                : AZ::IO::ResultCode::Error;
+        }
+
+        AZ::IO::Result Copy(const char* sourcePath, const char* destinationPath) override
+        {
+            char resolvedSourcePath[AZ_MAX_PATH_LEN];
+            char resolvedDestinationPath[AZ_MAX_PATH_LEN];
+            if (!ResolvePath(sourcePath, resolvedSourcePath, AZ_MAX_PATH_LEN) ||
+                !ResolvePath(destinationPath, resolvedDestinationPath, AZ_MAX_PATH_LEN))
+            {
+                return AZ::IO::ResultCode::Error;
+            }
+
+            const AZ::IO::SystemFile::SizeType fileSize = AZ::IO::SystemFile::Length(resolvedSourcePath);
+            if (fileSize == 0)
+            {
+                return AZ::IO::ResultCode::Error;
+            }
+            AZStd::vector<char> fileContents(fileSize);
+            if (AZ::IO::SystemFile::Read(resolvedSourcePath, fileContents.data(), fileSize) != fileSize)
+            {
+                return AZ::IO::ResultCode::Error;
+            }
+
+            AZ::IO::SystemFile destinationFile(
+                resolvedDestinationPath, AZ::IO::SystemFile::SF_OPEN_WRITE_ONLY | AZ::IO::SystemFile::SF_OPEN_CREATE |
+                    AZ::IO::SystemFile::SF_OPEN_TRUNCATE);
+            return destinationFile.IsOpen() && destinationFile.Write(fileContents.data(), fileSize) == fileSize
+                ? AZ::IO::ResultCode::Success
+                : AZ::IO::ResultCode::Error;
+        }
+    };
+
+    class ScopedDirectFileIO
+    {
+    public:
+        explicit ScopedDirectFileIO(AZ::IO::FileIOBase* fileIO)
+            : m_previousFileIO(AZ::IO::FileIOBase::GetDirectInstance())
+        {
+            if (m_previousFileIO)
+            {
+                AZ::IO::FileIOBase::SetDirectInstance(nullptr);
+            }
+            AZ::IO::FileIOBase::SetDirectInstance(fileIO);
+        }
+
+        ~ScopedDirectFileIO()
+        {
+            AZ::IO::FileIOBase::SetDirectInstance(nullptr);
+            if (m_previousFileIO)
+            {
+                AZ::IO::FileIOBase::SetDirectInstance(m_previousFileIO);
+            }
+        }
+
+    private:
+        AZ::IO::FileIOBase* m_previousFileIO = nullptr;
+    };
 
     class SystemComponentRequests
         : public AZ::EBusTraits
@@ -318,6 +393,107 @@ namespace UnitTest
             app.Destroy();
         }
     }
+
+#if AZ_TRAIT_TEST_SUPPORT_MODULE_LOADING
+    TEST_F(ModuleManager, DynamicModuleReload_CopiesSourceAndRestoresSystemComponents)
+    {
+        AZ::Test::ScopedAutoTempDirectory tempDirectory;
+        ModuleReloadTestFileIO fileIO;
+        ScopedDirectFileIO directFileIO(&fileIO);
+        {
+            ComponentApplication app;
+            ComponentApplication::Descriptor appDesc;
+            ComponentApplication::StartupParameters startupParams;
+            startupParams.m_loadSettingsRegistry = false;
+            Entity* systemEntity = app.Create(appDesc, startupParams);
+            ASSERT_NE(nullptr, systemEntity);
+            systemEntity->Init();
+            systemEntity->Activate();
+
+            AZStd::unique_ptr<DynamicModuleHandle> moduleName = DynamicModuleHandle::Create("AzCoreTestDLL");
+            ASSERT_NE(nullptr, moduleName);
+            AZ::IO::Path moduleSourcePath(AZ::Utils::GetExecutableDirectory().c_str());
+            moduleSourcePath /= AZ::IO::Path(moduleName->GetFilename()).Filename();
+            ASSERT_TRUE(AZ::IO::SystemFile::Exists(moduleSourcePath.c_str()));
+
+            AZ::IO::Path tempModulePath(tempDirectory.GetDirectoryAsFixedMaxPath().c_str());
+            tempModulePath /= moduleSourcePath.Filename();
+            ASSERT_TRUE(fileIO.Copy(moduleSourcePath.c_str(), tempModulePath.c_str()));
+
+            ModuleManagerRequests::LoadModuleOutcome loadOutcome = AZ::Failure(AZStd::string("Module load was not attempted."));
+            ModuleManagerRequestBus::BroadcastResult(
+                loadOutcome, &ModuleManagerRequestBus::Events::LoadDynamicModule,
+                tempModulePath.c_str(), ModuleInitializationSteps::ActivateEntity, true);
+            ASSERT_TRUE(loadOutcome.IsSuccess()) << loadOutcome.GetError().c_str();
+            EXPECT_STREQ(tempModulePath.c_str(), loadOutcome.GetValue()->GetOriginalModulePath());
+            loadOutcome.GetValue().reset();
+
+            auto verifyModuleIsActive = []
+            {
+                EBusAggregateResults<const char*> moduleNames;
+                ModuleTestRequestBus::BroadcastResult(moduleNames, &ModuleTestRequestBus::Events::GetModuleName);
+                EXPECT_THAT(moduleNames.values, testing::ElementsAre(StrEq("DllModule")));
+
+                bool isConnected = false;
+                ModuleTestSystemComponentBus::BroadcastResult(
+                    isConnected, &ModuleTestSystemComponentBus::Events::IsConnected);
+                EXPECT_TRUE(isConnected);
+            };
+            verifyModuleIsActive();
+
+            AZStd::string firstShadowPath;
+            ModuleManagerRequests::ReloadModuleOutcome reloadOutcome =
+                AZ::Failure(AZStd::string("Module reload was not attempted."));
+            ModuleManagerRequestBus::BroadcastResult(
+                reloadOutcome, &ModuleManagerRequestBus::Events::ReloadDynamicModule, tempModulePath.c_str());
+            ASSERT_TRUE(reloadOutcome.IsSuccess()) << reloadOutcome.GetError().c_str();
+            firstShadowPath = reloadOutcome.GetValue()->GetDynamicModuleHandle()->GetFilename();
+            EXPECT_NE(tempModulePath.Native(), AZ::IO::Path(firstShadowPath).Native());
+            reloadOutcome.GetValue().reset();
+            verifyModuleIsActive();
+
+            AZ::IO::Path copiedOriginalPath(tempDirectory.GetDirectoryAsFixedMaxPath().c_str());
+            AZStd::string copiedOriginalFileName = "copy-of-original";
+            copiedOriginalFileName += AZStd::string(moduleSourcePath.Extension().Native());
+            copiedOriginalPath /= copiedOriginalFileName;
+            EXPECT_TRUE(fileIO.Copy(tempModulePath.c_str(), copiedOriginalPath.c_str()));
+
+            ModuleManagerRequestBus::BroadcastResult(
+                reloadOutcome, &ModuleManagerRequestBus::Events::ReloadDynamicModule, tempModulePath.c_str());
+            ASSERT_TRUE(reloadOutcome.IsSuccess()) << reloadOutcome.GetError().c_str();
+            EXPECT_STRNE(firstShadowPath.c_str(), reloadOutcome.GetValue()->GetDynamicModuleHandle()->GetFilename());
+            reloadOutcome.GetValue().reset();
+            verifyModuleIsActive();
+
+            const char invalidModuleContents[] = "not a dynamic library";
+            {
+                AZ::IO::SystemFile invalidModuleFile(
+                    tempModulePath.c_str(), AZ::IO::SystemFile::SF_OPEN_WRITE_ONLY | AZ::IO::SystemFile::SF_OPEN_TRUNCATE);
+                ASSERT_TRUE(invalidModuleFile.IsOpen());
+                ASSERT_EQ(sizeof(invalidModuleContents) - 1, invalidModuleFile.Write(
+                    invalidModuleContents, sizeof(invalidModuleContents) - 1));
+            }
+            ModuleManagerRequestBus::BroadcastResult(
+                reloadOutcome, &ModuleManagerRequestBus::Events::ReloadDynamicModule, tempModulePath.c_str());
+            EXPECT_FALSE(reloadOutcome.IsSuccess());
+            verifyModuleIsActive();
+
+            ASSERT_TRUE(fileIO.Copy(copiedOriginalPath.c_str(), tempModulePath.c_str()));
+
+            ModuleManagerRequestBus::BroadcastResult(
+                reloadOutcome, &ModuleManagerRequestBus::Events::ReloadDynamicModule, "UnknownHotReloadModule");
+            EXPECT_FALSE(reloadOutcome.IsSuccess());
+
+            ASSERT_TRUE(fileIO.Remove(tempModulePath.c_str()));
+            ModuleManagerRequestBus::BroadcastResult(
+                reloadOutcome, &ModuleManagerRequestBus::Events::ReloadDynamicModule, tempModulePath.c_str());
+            EXPECT_FALSE(reloadOutcome.IsSuccess());
+            verifyModuleIsActive();
+
+            app.Destroy();
+        }
+    }
+#endif
 
 
 // the following tests only run on the following platforms which support module loading and unloading
