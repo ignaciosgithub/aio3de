@@ -83,11 +83,12 @@ PSOutput MainPS(VSOutput IN, in uint sampleIndex : SV_SampleIndex)
 
     float3 worldPosition;
     float3 irradiance = SampleGlobalIBL(sampleIndex, screenCoords, depth, normal, worldPosition);
-    float iblExposureFactor = pow(2.0, SceneSrg::m_iblExposure);
-    irradiance *= iblExposureFactor;
+    float3 diffuse;
 
     if (PassSrg::m_portableGiEnabled != 0u)
     {
+        const float iblExposureFactor = pow(2.0, SceneSrg::m_iblExposure);
+        irradiance *= iblExposureFactor;
         const float4 probeSample = SampleProbeGrid(
             PassSrg::m_probeGridOrigin,
             PassSrg::m_probeSpacing,
@@ -98,8 +99,13 @@ PSOutput MainPS(VSOutput IN, in uint sampleIndex : SV_SampleIndex)
         {
             irradiance = lerp(irradiance, probeSample.rgb * PassSrg::m_portableGiIntensity, probeSample.a);
         }
+        diffuse = albedo.rgb * irradiance;
     }
-    const float3 diffuse = albedo.rgb * irradiance;
+    else
+    {
+        diffuse = albedo.rgb * irradiance;
+        diffuse *= pow(2.0, SceneSrg::m_iblExposure);
+    }
  
     PSOutput OUT;
     OUT.m_color = float4(diffuse, 1.0f);

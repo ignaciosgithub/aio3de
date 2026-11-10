@@ -158,6 +158,67 @@ namespace UnitTest
         EXPECT_EQ(AZ::SampleProbeGrid(grid, probes, Vector3(-0.1f, 1.5f, 1.5f), Vector3::CreateAxisZ()).second, 0.0f);
     }
 
+    TEST(ProbeGi, RecenteredWrappedProbeHasNoWeightUntilUpdated)
+    {
+        ProbeGridDesc grid;
+        grid.m_origin = Vector3(4.0f, 0.0f, 0.0f);
+        grid.m_spacing = 1.0f;
+        grid.m_dims[0] = grid.m_dims[1] = grid.m_dims[2] = 4;
+        AZStd::vector<ProbeGiEntry> probes(64);
+        const ShL1Rgb oldSh = ConstantRadianceSh(Vector3(3.0f));
+        for (int32_t z = 0; z < 4; ++z)
+        {
+            for (int32_t y = 0; y < 4; ++y)
+            {
+                for (int32_t x = 0; x < 4; ++x)
+                {
+                    ProbeGiEntry& probe = probes[AZ::ProbeGridStorageIndex(grid, x, y, z)];
+                    probe.m_sh = oldSh;
+                    probe.m_worldCell[0] = x;
+                    probe.m_worldCell[1] = y;
+                    probe.m_worldCell[2] = z;
+                    probe.m_valid = true;
+                }
+            }
+        }
+
+        const int32_t cellX = 5;
+        const int32_t cellY = 1;
+        const int32_t cellZ = 1;
+        const uint32_t slot = AZ::ProbeGridStorageIndex(grid, cellX, cellY, cellZ);
+        const Vector3 samplePosition(5.0f, 1.0f, 1.0f);
+        EXPECT_FALSE(AZ::ProbeCellMatches(probes[slot], cellX, cellY, cellZ));
+        EXPECT_EQ(AZ::SampleProbeGrid(grid, probes, samplePosition, Vector3::CreateZero()).second, 0.0f);
+
+        RayTracingBvh bvh;
+        bvh.Build({});
+        AZStd::vector<Vector3> directions;
+        for (uint32_t i = 0; i < 64; ++i)
+        {
+            directions.push_back(AZ::SphericalFibonacciDirection(i, 64));
+        }
+        AZ::UpdateProbe(
+            bvh,
+            {},
+            samplePosition,
+            cellX,
+            cellY,
+            cellZ,
+            Vector3::CreateZero(),
+            Vector3::CreateZero(),
+            directions,
+            0.0f,
+            0.97f,
+            probes[slot],
+            [](const Vector3&) { return Vector3(0.5f); },
+            {});
+
+        EXPECT_TRUE(AZ::ProbeCellMatches(probes[slot], cellX, cellY, cellZ));
+        const auto updated = AZ::SampleProbeGrid(grid, probes, samplePosition, Vector3::CreateZero());
+        EXPECT_NEAR(updated.second, 1.0f, 1.0e-6f);
+        EXPECT_NEAR(updated.first.GetX(), 0.5f, 0.02f);
+    }
+
     TEST(ProbeGi, ProbeAboveBlackGroundReceivesSkyOnlyFromAbove)
     {
         AZStd::vector<BvhTriangle> triangles;

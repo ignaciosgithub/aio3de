@@ -146,7 +146,8 @@ float4 SampleProbeGrid(float3 gridOrigin, float spacing, uint3 dims, float3 posi
             }
         }
     }
-    return float4(totalWeight > 0.0f ? value / totalWeight : float3(0.0f, 0.0f, 0.0f), gridWeight);
+    const float sampleWeight = totalWeight > 0.0f ? gridWeight : 0.0f;
+    return float4(totalWeight > 0.0f ? value / totalWeight : float3(0.0f, 0.0f, 0.0f), sampleWeight);
 }
 
 float3 ShadeProbeRayHit(

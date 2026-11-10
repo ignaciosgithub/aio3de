@@ -199,7 +199,8 @@ namespace AZ
                 }
             }
         }
-        return { totalWeight > 0.0f ? value / totalWeight : Vector3::CreateZero(), gridWeight };
+        const float sampleWeight = totalWeight > 0.0f ? gridWeight : 0.0f;
+        return { totalWeight > 0.0f ? value / totalWeight : Vector3::CreateZero(), sampleWeight };
     }
 
     Vector3 ShadeProbeRayHit(

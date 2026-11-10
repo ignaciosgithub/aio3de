@@ -174,9 +174,20 @@ void MainCS(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
     else
     {
-        PassSrg::m_probeWrite[slot * 4u + 0u] = PassSrg::m_probeRead[slot * 4u + 0u];
-        PassSrg::m_probeWrite[slot * 4u + 1u] = PassSrg::m_probeRead[slot * 4u + 1u];
-        PassSrg::m_probeWrite[slot * 4u + 2u] = PassSrg::m_probeRead[slot * 4u + 2u];
-        PassSrg::m_probeWrite[slot * 4u + 3u] = PassSrg::m_probeRead[slot * 4u + 3u];
+        const float4 metadata = PassSrg::m_probeRead[slot * 4u + 3u];
+        if (ProbeCellMatches(metadata, worldCell))
+        {
+            PassSrg::m_probeWrite[slot * 4u + 0u] = PassSrg::m_probeRead[slot * 4u + 0u];
+            PassSrg::m_probeWrite[slot * 4u + 1u] = PassSrg::m_probeRead[slot * 4u + 1u];
+            PassSrg::m_probeWrite[slot * 4u + 2u] = PassSrg::m_probeRead[slot * 4u + 2u];
+            PassSrg::m_probeWrite[slot * 4u + 3u] = PassSrg::m_probeRead[slot * 4u + 3u];
+        }
+        else
+        {
+            PassSrg::m_probeWrite[slot * 4u + 0u] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+            PassSrg::m_probeWrite[slot * 4u + 1u] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+            PassSrg::m_probeWrite[slot * 4u + 2u] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+            PassSrg::m_probeWrite[slot * 4u + 3u] = float4(float3(worldCell), 0.0f);
+        }
     }
 }
