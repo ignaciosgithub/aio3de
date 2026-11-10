@@ -17,13 +17,145 @@
 #include <AzCore/Component/ComponentApplicationBus.h>
 #include <AzCore/Component/ComponentApplicationLifecycle.h>
 #include <AzCore/NativeUI/NativeUIRequests.h>
+#include <AzCore/IO/FileIO.h>
+#include <AzCore/IO/Path/Path.h>
+#include <AzCore/Settings/SettingsRegistryMergeUtils.h>
+#include <AzCore/Settings/SettingsRegistryVisitorUtils.h>
 
 #include <AzCore/std/algorithm.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
 
+#include <cctype>
+#include <filesystem>
+
 namespace
 {
     static const char* s_moduleLoggingScope = "Module Manager";
+    constexpr AZStd::string_view s_hotReloadEnabledPath = "/O3DE/HotReload/Enabled";
+    constexpr AZStd::string_view s_hotReloadModulesPath = "/O3DE/HotReload/Modules";
+    constexpr AZStd::string_view s_projectUserPath = AZ::SettingsRegistryMergeUtils::FilePathKey_ProjectUserPath;
+
+    AZStd::string GetNormalizedModuleStem(AZStd::string_view modulePath)
+    {
+        AZStd::string stem = AZ::IO::Path(modulePath).Filename().Native();
+        const size_t extensionSeparator = stem.find_last_of('.');
+        if (extensionSeparator != AZStd::string::npos)
+        {
+            AZStd::string extension = stem.substr(extensionSeparator);
+            AZStd::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char value)
+            {
+                return static_cast<char>(std::tolower(value));
+            });
+            if (extension == ".dll" || extension == ".so" || extension == ".dylib")
+            {
+                stem.resize(extensionSeparator);
+            }
+        }
+        if (stem.size() >= 3 && std::tolower(static_cast<unsigned char>(stem[0])) == 'l' &&
+            std::tolower(static_cast<unsigned char>(stem[1])) == 'i' &&
+            std::tolower(static_cast<unsigned char>(stem[2])) == 'b')
+        {
+            stem.erase(0, 3);
+        }
+        AZStd::transform(stem.begin(), stem.end(), stem.begin(), [](unsigned char value)
+        {
+            return static_cast<char>(std::tolower(value));
+        });
+        return stem;
+    }
+
+    bool IsHotReloadModule(AZStd::string_view modulePath)
+    {
+        AZ::SettingsRegistryInterface* settingsRegistry = AZ::SettingsRegistry::Get();
+        bool hotReloadEnabled = false;
+        if (!settingsRegistry || !settingsRegistry->Get(hotReloadEnabled, s_hotReloadEnabledPath) || !hotReloadEnabled)
+        {
+            return false;
+        }
+
+        const AZStd::string moduleStem = GetNormalizedModuleStem(modulePath);
+        bool moduleIsConfigured = false;
+        AZ::SettingsRegistryVisitorUtils::VisitArray(
+            *settingsRegistry,
+            [&moduleIsConfigured, &moduleStem, settingsRegistry](const AZ::SettingsRegistryInterface::VisitArgs& visitArgs)
+            {
+                AZStd::string configuredModule;
+                if (settingsRegistry->Get(configuredModule, visitArgs.m_jsonKeyPath) &&
+                    GetNormalizedModuleStem(configuredModule) == moduleStem)
+                {
+                    moduleIsConfigured = true;
+                    return AZ::SettingsRegistryInterface::VisitResponse::Done;
+                }
+                return AZ::SettingsRegistryInterface::VisitResponse::Continue;
+            },
+            s_hotReloadModulesPath);
+        return moduleIsConfigured;
+    }
+
+    AZ::Outcome<AZStd::string, AZStd::string> CreateModuleShadowCopy(AZStd::string_view sourcePath, AZ::u64 counter)
+    {
+        AZ::IO::FileIOBase* fileIO = AZ::IO::FileIOBase::GetDirectInstance();
+        if (!fileIO || !fileIO->Exists(AZStd::string(sourcePath).c_str()))
+        {
+            return AZ::Failure(AZStd::string::format("Original module file \"%.*s\" does not exist.",
+                AZ_STRING_ARG(sourcePath)));
+        }
+
+        AZStd::string userPath;
+        AZ::SettingsRegistryInterface* settingsRegistry = AZ::SettingsRegistry::Get();
+        if (!settingsRegistry || !settingsRegistry->Get(userPath, s_projectUserPath) || userPath.empty())
+        {
+            std::error_code errorCode;
+            const std::filesystem::path tempPath = std::filesystem::temp_directory_path(errorCode);
+            if (errorCode)
+            {
+                return AZ::Failure(AZStd::string::format("Unable to resolve a temporary directory for module shadow copies: %s",
+                    errorCode.message().c_str()));
+            }
+            userPath = tempPath.string().c_str();
+        }
+
+        AZ::IO::Path shadowDirectory = AZ::IO::Path(userPath) / "HotReload";
+        if (!fileIO->CreatePath(shadowDirectory.c_str()))
+        {
+            return AZ::Failure(AZStd::string::format("Unable to create module shadow-copy directory \"%s\".",
+                shadowDirectory.c_str()));
+        }
+
+        const AZ::IO::Path originalPath(sourcePath);
+        AZStd::string stem = originalPath.Stem().Native();
+        const AZStd::string extension = originalPath.Extension().Native();
+        AZ::IO::Path shadowPath;
+        do
+        {
+            shadowPath = shadowDirectory / AZ::IO::Path(AZStd::string::format("%s.%llu%s", stem.c_str(),
+                static_cast<unsigned long long>(counter++), extension.c_str()));
+        } while (fileIO->Exists(shadowPath.c_str()));
+
+        if (!fileIO->Copy(AZStd::string(sourcePath).c_str(), shadowPath.c_str()))
+        {
+            return AZ::Failure(AZStd::string::format("Unable to copy module \"%.*s\" to shadow path \"%s\".",
+                AZ_STRING_ARG(sourcePath), shadowPath.c_str()));
+        }
+
+#if AZ_TRAIT_OS_USE_WINDOWS_FILE_PATHS
+        AZ::IO::Path originalPdbPath = originalPath;
+        originalPdbPath.ReplaceExtension(".pdb");
+        if (fileIO->Exists(originalPdbPath.c_str()))
+        {
+            AZ::IO::Path shadowPdbPath = shadowPath;
+            shadowPdbPath.ReplaceExtension(".pdb");
+            if (!fileIO->Copy(originalPdbPath.c_str(), shadowPdbPath.c_str()))
+            {
+                fileIO->Remove(shadowPath.c_str());
+                return AZ::Failure(AZStd::string::format("Unable to copy module symbols \"%s\" to shadow path \"%s\".",
+                    originalPdbPath.c_str(), shadowPdbPath.c_str()));
+            }
+        }
+#endif
+
+        return AZ::Success(shadowPath.Native());
+    }
 }
 
 namespace AZ
@@ -162,6 +294,7 @@ namespace AZ
             m_dynamicHandle->Unload();
             m_dynamicHandle.reset();
         }
+
     }
 
     static_assert(!AZStd::is_trivially_copyable_v<ModuleDataImpl>, "Compiler believes ModuleData is trivially copyable, despite having non-trivially copyable members.\n");
@@ -263,6 +396,14 @@ namespace AZ
     void ModuleManager::UnloadModules()
     {
         DeactivateEntities();
+        AZStd::vector<AZStd::string> shadowCopyPaths;
+        for (const auto& moduleData : m_ownedModules)
+        {
+            if (!moduleData->m_shadowCopyPath.empty())
+            {
+                shadowCopyPaths.push_back(moduleData->m_shadowCopyPath);
+            }
+        }
         // Because everything is unique_ptr, we don't need to explicitly delete anything
         // Shutdown in reverse order of initialization, just in case the order matters.
         while (!m_ownedModules.empty())
@@ -275,6 +416,17 @@ namespace AZ
         {
             m_nameToModuleMap = {};
         };
+
+        if (AZ::IO::FileIOBase* fileIO = AZ::IO::FileIOBase::GetDirectInstance())
+        {
+            for (const AZStd::string& shadowCopyPath : shadowCopyPaths)
+            {
+                fileIO->Remove(shadowCopyPath.c_str());
+                AZ::IO::Path shadowPdbPath(shadowCopyPath);
+                shadowPdbPath.ReplaceExtension(".pdb");
+                fileIO->Remove(shadowPdbPath.c_str());
+            }
+        }
     }
 
     //=========================================================================
@@ -340,14 +492,51 @@ namespace AZ
         return finalPath;
     }
 
+    ModuleManager::LoadModuleOutcome ModuleManager::LoadDynamicModule(
+        const char* modulePath, ModuleInitializationSteps lastStepToPerform, bool maintainReference)
+    {
+        return LoadDynamicModuleInternal(modulePath, nullptr, lastStepToPerform, maintainReference);
+    }
+
     //=========================================================================
     // LoadDynamicModule
     //=========================================================================
-    ModuleManager::LoadModuleOutcome ModuleManager::LoadDynamicModule(const char* modulePath, ModuleInitializationSteps lastStepToPerform, bool maintainReference)
+    ModuleManager::LoadModuleOutcome ModuleManager::LoadDynamicModuleInternal(
+        const char* modulePath, const char* loadPathOverride, ModuleInitializationSteps lastStepToPerform, bool maintainReference)
     {
         AZ::OSString preprocessedModulePath = PreProcessModule(modulePath);
-        // Check if the module is already loaded
         AZStd::shared_ptr<ModuleDataImpl> moduleDataPtr = GetLoadedModule(modulePath);
+        AZStd::string actualLoadPath;
+        if (moduleDataPtr)
+        {
+            actualLoadPath = moduleDataPtr->m_shadowCopyPath.empty()
+                ? moduleDataPtr->m_originalModulePath
+                : moduleDataPtr->m_shadowCopyPath;
+        }
+        else
+        {
+            actualLoadPath = preprocessedModulePath.c_str();
+        }
+        AZStd::string shadowCopyPath;
+        if (loadPathOverride && !moduleDataPtr)
+        {
+            const AZ::OSString preprocessedLoadPath = PreProcessModule(loadPathOverride);
+            actualLoadPath = preprocessedLoadPath.c_str();
+            if (preprocessedLoadPath != preprocessedModulePath)
+            {
+                shadowCopyPath = actualLoadPath;
+            }
+        }
+        else if (!moduleDataPtr && IsHotReloadModule(preprocessedModulePath))
+        {
+            auto shadowCopyOutcome = CreateModuleShadowCopy(preprocessedModulePath, m_nextShadowCopyCounter++);
+            if (!shadowCopyOutcome.IsSuccess())
+            {
+                return AZ::Failure(AZStd::move(shadowCopyOutcome.GetError()));
+            }
+            shadowCopyPath = AZStd::move(shadowCopyOutcome.GetValue());
+            actualLoadPath = shadowCopyPath;
+        }
 
         if (!moduleDataPtr)
         {
@@ -363,6 +552,8 @@ namespace AZ
 
             // Create weak pointer to the module data
             m_nameToModuleMap.emplace(preprocessedModulePath, moduleDataPtr);
+            moduleDataPtr->m_originalModulePath = preprocessedModulePath.c_str();
+            moduleDataPtr->m_shadowCopyPath = shadowCopyPath;
         }
 
         // Cache an iterator to the module in the owned modules list. This will be used later to either:
@@ -398,14 +589,14 @@ namespace AZ
             // Load the dynamic module
             {
                 ModuleInitializationSteps::Load,
-                [&moduleDataPtr, &preprocessedModulePath, this]() -> PhaseOutcome
+                [&moduleDataPtr, &preprocessedModulePath, &actualLoadPath, this]() -> PhaseOutcome
                 {
                     m_preModuleLoadEvent.Signal(preprocessedModulePath);
                     // Create handle
-                    moduleDataPtr->m_dynamicHandle = DynamicModuleHandle::Create(preprocessedModulePath.c_str());
+                    moduleDataPtr->m_dynamicHandle = DynamicModuleHandle::Create(actualLoadPath.c_str());
                     if (!moduleDataPtr->m_dynamicHandle)
                     {
-                        return AZ::Failure(AZStd::string::format("Failed to create AZ::DynamicModuleHandle at path \"%s\".", preprocessedModulePath.c_str()));
+                        return AZ::Failure(AZStd::string::format("Failed to create AZ::DynamicModuleHandle at path \"%s\".", actualLoadPath.c_str()));
                     }
 
                     // Load DLL from disk
@@ -515,6 +706,122 @@ namespace AZ
         }
 
         return AZ::Success(AZStd::static_pointer_cast<ModuleData>(moduleDataPtr));
+    }
+
+    ModuleManager::ReloadModuleOutcome ModuleManager::ReloadDynamicModule(const char* modulePath)
+    {
+        AZStd::shared_ptr<ModuleDataImpl> moduleData = GetLoadedModule(modulePath);
+        if (!moduleData)
+        {
+            return AZ::Failure(AZStd::string::format("Cannot reload unknown module \"%s\".", modulePath));
+        }
+        if (!moduleData->m_dynamicHandle)
+        {
+            return AZ::Failure(AZStd::string::format("Cannot reload static module \"%s\".", moduleData->GetDebugName()));
+        }
+
+        auto ownedModuleIt = AZStd::find(m_ownedModules.begin(), m_ownedModules.end(), moduleData);
+        if (ownedModuleIt == m_ownedModules.end())
+        {
+            return AZ::Failure(AZStd::string::format("Cannot reload unowned module \"%s\".", moduleData->GetDebugName()));
+        }
+        if (moduleData.use_count() != 2)
+        {
+            return AZ::Failure(AZStd::string::format(
+                "Cannot reload module \"%s\" while external ModuleData references are held.", moduleData->GetDebugName()));
+        }
+
+        const AZ::OSString originalModulePath = moduleData->m_originalModulePath.empty()
+            ? AZ::OSString(moduleData->m_dynamicHandle->GetFilename())
+            : AZ::OSString(moduleData->m_originalModulePath);
+        const AZStd::string previousShadowCopyPath = moduleData->m_shadowCopyPath;
+        const ModuleInitializationSteps lastCompletedStep = moduleData->m_lastCompletedStep;
+        const size_t ownedModuleIndex = AZStd::distance(m_ownedModules.begin(), ownedModuleIt);
+
+        auto shadowCopyOutcome = CreateModuleShadowCopy(originalModulePath, m_nextShadowCopyCounter++);
+        if (!shadowCopyOutcome.IsSuccess())
+        {
+            return AZ::Failure(AZStd::move(shadowCopyOutcome.GetError()));
+        }
+        const AZStd::string newShadowCopyPath = AZStd::move(shadowCopyOutcome.GetValue());
+
+        if (moduleData->m_moduleEntity && moduleData->m_moduleEntity->GetState() == Entity::State::Active)
+        {
+            AZStd::string componentNamesArray = R"({ "SystemComponents":[)";
+            const Entity::ComponentArrayType& components = moduleData->m_moduleEntity->GetComponents();
+            const char* comma = "";
+            for (Component* component : components)
+            {
+                componentNamesArray += AZStd::string::format(R"(%s"%s")", comma, component->RTTI_GetTypeName());
+                comma = ", ";
+                AZStd::erase(m_systemComponents, component);
+            }
+            componentNamesArray += R"(]})";
+            moduleData->m_moduleEntity->Deactivate();
+
+            if (auto settingsRegistry = AZ::SettingsRegistry::Get(); settingsRegistry != nullptr)
+            {
+                ComponentApplicationLifecycle::SignalEvent(*settingsRegistry, "SystemComponentsDeactivated", componentNamesArray);
+            }
+        }
+
+        const AZ::OSString normalizedOriginalPath = PreProcessModule(originalModulePath);
+        m_ownedModules.erase(ownedModuleIt);
+        m_nameToModuleMap.erase(normalizedOriginalPath);
+        moduleData.reset();
+
+        auto moveModuleToPreviousIndex = [this, ownedModuleIndex](const AZStd::shared_ptr<ModuleData>& reloadedModule)
+        {
+            auto reloadedModuleData = AZStd::static_pointer_cast<ModuleDataImpl>(reloadedModule);
+            auto reloadedIt = AZStd::find(m_ownedModules.begin(), m_ownedModules.end(), reloadedModuleData);
+            if (reloadedIt != m_ownedModules.end())
+            {
+                AZStd::shared_ptr<ModuleDataImpl> moduleToMove = AZStd::move(*reloadedIt);
+                m_ownedModules.erase(reloadedIt);
+                m_ownedModules.insert(m_ownedModules.begin() + AZStd::min(ownedModuleIndex, m_ownedModules.size()), AZStd::move(moduleToMove));
+            }
+        };
+
+        LoadModuleOutcome reloadOutcome = LoadDynamicModuleInternal(
+            originalModulePath.c_str(), newShadowCopyPath.c_str(), lastCompletedStep, true);
+        if (reloadOutcome.IsSuccess())
+        {
+            moveModuleToPreviousIndex(reloadOutcome.GetValue());
+            if (!previousShadowCopyPath.empty())
+            {
+                if (AZ::IO::FileIOBase* fileIO = AZ::IO::FileIOBase::GetDirectInstance())
+                {
+                    fileIO->Remove(previousShadowCopyPath.c_str());
+                    AZ::IO::Path previousPdbPath(previousShadowCopyPath);
+                    previousPdbPath.ReplaceExtension(".pdb");
+                    fileIO->Remove(previousPdbPath.c_str());
+                }
+            }
+            return AZ::Success(AZStd::move(reloadOutcome.GetValue()));
+        }
+
+        AZStd::string reloadError = AZStd::move(reloadOutcome.GetError());
+        const char* rollbackPath = previousShadowCopyPath.empty() ? originalModulePath.c_str() : previousShadowCopyPath.c_str();
+        LoadModuleOutcome rollbackOutcome = LoadDynamicModuleInternal(
+            originalModulePath.c_str(), rollbackPath, lastCompletedStep, true);
+        if (rollbackOutcome.IsSuccess())
+        {
+            moveModuleToPreviousIndex(rollbackOutcome.GetValue());
+            reloadError = AZStd::string::format("%s; the previous module image was restored.", reloadError.c_str());
+        }
+        else
+        {
+            reloadError = AZStd::string::format("%s; rollback also failed: %s", reloadError.c_str(), rollbackOutcome.GetError().c_str());
+        }
+
+        if (AZ::IO::FileIOBase* fileIO = AZ::IO::FileIOBase::GetDirectInstance())
+        {
+            fileIO->Remove(newShadowCopyPath.c_str());
+            AZ::IO::Path newPdbPath(newShadowCopyPath);
+            newPdbPath.ReplaceExtension(".pdb");
+            fileIO->Remove(newPdbPath.c_str());
+        }
+        return AZ::Failure(AZStd::move(reloadError));
     }
 
     //=========================================================================

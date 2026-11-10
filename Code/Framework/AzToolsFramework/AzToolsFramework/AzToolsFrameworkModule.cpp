@@ -24,6 +24,7 @@
 #include <AzToolsFramework/Entity/EditorEntitySortComponent.h>
 #include <AzToolsFramework/Entity/ReadOnly/ReadOnlyEntitySystemComponent.h>
 #include <AzToolsFramework/FocusMode/FocusModeSystemComponent.h>
+#include <AzToolsFramework/HotReload/GameCodeHotReloadSystemComponent.h>
 #include <AzToolsFramework/PaintBrush/GlobalPaintBrushSettingsSystemComponent.h>
 #include <AzToolsFramework/PropertyTreeEditor/PropertyTreeEditorComponent.h>
 #include <AzToolsFramework/Render/EditorIntersectorComponent.h>
@@ -77,6 +78,7 @@ namespace AzToolsFramework
     {
         m_descriptors.insert(m_descriptors.end(), {
             ActionManagerSystemComponent::CreateDescriptor(),
+            GameCodeHotReloadSystemComponent::CreateDescriptor(),
             Components::TransformComponent::CreateDescriptor(),
             Components::EditorNonUniformScaleComponent::CreateDescriptor(),
             Components::SelectionComponent::CreateDescriptor(),

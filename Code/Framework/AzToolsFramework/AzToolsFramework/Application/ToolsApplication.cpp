@@ -51,6 +51,7 @@
 #include <AzToolsFramework/Entity/EditorEntitySortComponent.h>
 #include <AzToolsFramework/Entity/ReadOnly/ReadOnlyEntitySystemComponent.h>
 #include <AzToolsFramework/FocusMode/FocusModeSystemComponent.h>
+#include <AzToolsFramework/HotReload/GameCodeHotReloadSystemComponent.h>
 #include <AzToolsFramework/PaintBrush/GlobalPaintBrushSettingsSystemComponent.h>
 #include <AzToolsFramework/Prefab/PrefabPublicInterface.h>
 #include <AzToolsFramework/Prefab/PrefabSystemComponent.h>
@@ -218,6 +219,7 @@ namespace AzToolsFramework
                 azrtti_typeid<Prefab::ProceduralPrefabSystemComponent>(),
                 azrtti_typeid<EditorEntityFixupComponent>(),
                 azrtti_typeid<AzToolsFramework::ViewBookmarkSystemComponent>(),
+                azrtti_typeid<AzToolsFramework::GameCodeHotReloadSystemComponent>(),
                 azrtti_typeid<Components::EditorComponentAPIComponent>(),
                 azrtti_typeid<Components::EditorLevelComponentAPIComponent>(),
                 azrtti_typeid<Components::EditorEntityActionComponent>(),

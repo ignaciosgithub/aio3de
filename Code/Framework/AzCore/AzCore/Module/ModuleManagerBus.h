@@ -37,6 +37,8 @@ namespace AZ
         virtual Entity* GetEntity() const = 0;
         /// Get the debug name of the module
         virtual const char* GetDebugName() const = 0;
+        /// Get the original path used to load the module, before any shadow-copying.
+        virtual const char* GetOriginalModulePath() const = 0;
     };
 
     /**
@@ -91,6 +93,7 @@ namespace AZ
         virtual void EnumerateModules(EnumerateModulesCallback perModuleCallback) = 0;
 
         using LoadModuleOutcome = AZ::Outcome<AZStd::shared_ptr<ModuleData>, AZStd::string>;
+        using ReloadModuleOutcome = AZ::Outcome<AZStd::shared_ptr<ModuleData>, AZStd::string>;
         /**
          * Load a module, instantiate its AZ::Module class, register it's components, and return a pointer to the data to the caller.
          * Module references are shared (shared_ptr), so subsequent Load calls for the same modules will share instances of the ModuleData.
@@ -103,6 +106,8 @@ namespace AZ
          * \returns a pointer to the ModuleData on success, and error on failure.
          */
         virtual LoadModuleOutcome LoadDynamicModule(const char* modulePath, ModuleInitializationSteps lastStepToPerform, bool maintainReference) = 0;
+        /// Reload a loaded dynamic module from its original path.
+        virtual ReloadModuleOutcome ReloadDynamicModule(const char* modulePath) = 0;
 
         using LoadModulesResult = AZStd::vector<LoadModuleOutcome>;
         /**

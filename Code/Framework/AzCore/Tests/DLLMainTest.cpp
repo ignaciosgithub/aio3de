@@ -13,12 +13,45 @@
 
 #include <AzCore/Component/TransformBus.h>
 #include <AzCore/Component/Entity.h>
+#include <AzCore/Component/Component.h>
 
 #include <AzCore/RTTI/ReflectContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
 #include <Tests/DLLTestVirtualClass.h>
 
 #include "ModuleTestBus.h"
+
+class DllSystemComponent
+    : public AZ::Component
+    , private ModuleTestSystemComponentBus::Handler
+{
+public:
+    AZ_COMPONENT(DllSystemComponent, "{5BD8E187-E1FB-4E69-B21D-651FA9C4942A}");
+
+    void Activate() override
+    {
+        ModuleTestSystemComponentBus::Handler::BusConnect();
+    }
+
+    void Deactivate() override
+    {
+        ModuleTestSystemComponentBus::Handler::BusDisconnect();
+    }
+
+    static void Reflect(AZ::ReflectContext* context)
+    {
+        if (auto serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
+        {
+            serializeContext->Class<DllSystemComponent, AZ::Component>();
+        }
+    }
+
+private:
+    bool IsConnected() override
+    {
+        return true;
+    }
+};
 
 class ReflectedClass
 {
@@ -56,6 +89,7 @@ public:
     DllModule()
     {
         ModuleTestRequestBus::Handler::BusConnect();
+        m_descriptors.emplace_back(DllSystemComponent::CreateDescriptor());
     }
 
     ~DllModule() override
@@ -72,6 +106,11 @@ public:
     const char* GetModuleName() override
     {
         return "DllModule";
+    }
+
+    AZ::ComponentTypeList GetRequiredSystemComponents() const override
+    {
+        return { azrtti_typeid<DllSystemComponent>() };
     }
 };
 
