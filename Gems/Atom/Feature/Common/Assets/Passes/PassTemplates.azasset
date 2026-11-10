@@ -273,6 +273,10 @@
                 "Path": "Passes/RayTracedShadowsFullscreen.pass"
             },
             {
+                "Name": "PortableGiUpdateTemplate",
+                "Path": "Passes/PortableGiUpdate.pass"
+            },
+            {
                 "Name": "SoftBodyGpuSolverTemplate",
                 "Path": "Passes/SoftBodyGpuSolver.pass"
             },

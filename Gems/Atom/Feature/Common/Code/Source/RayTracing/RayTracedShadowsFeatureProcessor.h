@@ -9,9 +9,14 @@
 #pragma once
 
 #include <Atom/RPI.Public/FeatureProcessor.h>
+#include <Atom/RPI.Public/Buffer/Buffer.h>
 #include <AzCore/Math/RayTracedShadows.h>
+#include <AzCore/Math/RayTracingBvh.h>
 #include <AzCore/Math/Vector3.h>
+#include <AzCore/Math/Vector4.h>
 #include <AzCore/std/containers/vector.h>
+#include <AzCore/std/parallel/atomic.h>
+#include <AzCore/std/smart_ptr/shared_ptr.h>
 
 namespace AZ::Render
 {
@@ -47,9 +52,46 @@ namespace AZ::Render
         void Simulate(const SimulatePacket& packet) override;
         void Render(const RenderPacket& packet) override;
 
+        void PrepareSharedBvhBuffers();
+        const Data::Instance<RPI::Buffer>& GetSharedBvhNodesBuffer() const;
+        const Data::Instance<RPI::Buffer>& GetSharedBvhTriangleVerticesBuffer() const;
+        const Data::Instance<RPI::Buffer>& GetSharedBvhPrimitiveIndicesBuffer() const;
+        const Data::Instance<RPI::Buffer>& GetSharedBvhAlbedoBuffer() const;
+        uint32_t GetSharedBvhNodeCount() const;
+        uint32_t GetSharedBvhTriangleCount() const;
+        AZ::Vector3 GetSunDirection() const { return m_sunDirection; }
+        AZ::Vector3 GetSunIlluminanceOverPi() const { return m_sunIlluminanceOverPi; }
+        AZ::Vector3 GetCameraPosition() const { return m_cameraPosition; }
+
     private:
+        struct SharedBvhBuild
+        {
+            AZStd::vector<AZ::BvhTriangle> m_triangles;
+            AZStd::vector<uint32_t> m_albedo;
+            AZ::RayTracingBvh m_bvh;
+            AZStd::vector<AZ::Vector4> m_packedVertices;
+            AZStd::atomic_bool m_ready{ false };
+        };
+
+        struct SharedBvh
+        {
+            bool BeginBuild(AZStd::vector<AZ::BvhTriangle>&& triangles, AZStd::vector<uint32_t>&& albedo);
+            void PrepareBuffers();
+            void CreateBuffers();
+
+            AZStd::shared_ptr<SharedBvhBuild> m_pendingBuild;
+            AZ::RayTracingBvh m_bvh;
+            AZStd::vector<AZ::Vector4> m_packedVertices;
+            AZStd::vector<uint32_t> m_albedo;
+            Data::Instance<RPI::Buffer> m_nodesBuffer;
+            Data::Instance<RPI::Buffer> m_triangleVerticesBuffer;
+            Data::Instance<RPI::Buffer> m_primitiveIndicesBuffer;
+            Data::Instance<RPI::Buffer> m_albedoBuffer;
+            bool m_buffersDirty = true;
+        };
+
         RayTracedShadowsFullscreenPass* FindPass() const;
-        void UpdateOccluderGeometry(RayTracedShadowsFullscreenPass* pass);
+        void UpdateOccluderGeometry();
         void UpdateShadowParams(RayTracedShadowsFullscreenPass* pass);
         //! Collects every point, simple point, disk and simple spot light in the scene.
         void GatherLocalLights(AZStd::vector<AZ::LocalShadowLight>& lights) const;
@@ -62,6 +104,9 @@ namespace AZ::Render
         uint32_t m_framesUntilFarPoll = 0;
         uint32_t m_framesSinceLastRebuild = 0;
         AZ::Vector3 m_cameraPosition = AZ::Vector3::CreateZero();
+        AZ::Vector3 m_sunDirection = AZ::Vector3::CreateZero();
+        AZ::Vector3 m_sunIlluminanceOverPi = AZ::Vector3::CreateZero();
+        SharedBvh m_sharedBvh;
 
         // Scratch list of the local lights that cast shadows this frame.
         AZStd::vector<AZ::LocalShadowLight> m_localLights;

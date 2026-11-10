@@ -383,6 +383,8 @@ set(FILES
     Math/Attestation.h
     Math/RayTracingBvh.cpp
     Math/RayTracingBvh.h
+    Math/ProbeGi.cpp
+    Math/ProbeGi.h
     Math/SoftBody.cpp
     Math/SoftBody.h
     Math/Fluid.cpp

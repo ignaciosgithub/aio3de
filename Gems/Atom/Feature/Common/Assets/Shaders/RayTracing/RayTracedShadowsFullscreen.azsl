@@ -83,6 +83,8 @@ ShaderResourceGroup PassSrg : SRG_PerPass
     float m_lightClearance;
 }
 
+#include "RayTracingBvhAnyHit.azsli"
+
 // Golden angle, pi * (3 - sqrt(5)).
 #define SOFT_SHADOW_GOLDEN_ANGLE 2.39996323f
 
@@ -162,55 +164,6 @@ float InterleavedGradientNoise(float2 pixel, uint frame)
 {
     pixel += 5.588238f * float(frame & 63u);
     return frac(52.9829189f * frac(dot(pixel, float2(0.06711056f, 0.00583715f))));
-}
-
-// Any-hit BVH walk: returns true if any occluder triangle is hit in (0, tMax]. Mirrors
-// RayTracingBvh::IntersectAny (early-out on the first hit).
-bool TraverseAnyHit(float3 origin, float3 direction, float tMax)
-{
-    if (PassSrg::m_nodeCount == 0)
-    {
-        return false;
-    }
-
-    const float3 invDir = 1.0f / direction;
-
-    int stack[BVH_STACK_SIZE];
-    int stackPtr = 0;
-    stack[stackPtr++] = 0;
-
-    while (stackPtr > 0)
-    {
-        const BvhNode node = PassSrg::m_nodes[stack[--stackPtr]];
-        if (!IntersectRayAabb(origin, invDir, node.aabbMin, node.aabbMax, tMax))
-        {
-            continue;
-        }
-
-        if (node.triangleCount > 0)
-        {
-            for (uint i = 0; i < node.triangleCount; ++i)
-            {
-                const uint slot = node.leftFirst + i;
-                const float3 v0 = PassSrg::m_triangleVertices[3u * slot + 0u].xyz;
-                const float3 v1 = PassSrg::m_triangleVertices[3u * slot + 1u].xyz;
-                const float3 v2 = PassSrg::m_triangleVertices[3u * slot + 2u].xyz;
-
-                float t, u, v;
-                if (IntersectRayTriangle(origin, direction, v0, v1, v2, tMax, t, u, v))
-                {
-                    return true;
-                }
-            }
-        }
-        else if (stackPtr + 2 <= BVH_STACK_SIZE)
-        {
-            stack[stackPtr++] = int(node.leftFirst);
-            stack[stackPtr++] = int(node.leftFirst) + 1;
-        }
-    }
-
-    return false;
 }
 
 bool LocalLightRayOccluded(LocalShadowLight light, float3 position, uint sampleIndex, uint sampleCount, float rotation)

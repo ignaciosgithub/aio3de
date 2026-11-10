@@ -1,0 +1,17 @@
+{
+    "Type": "JsonSerialization",
+    "Version": 1,
+    "ClassName": "PassAsset",
+    "ClassData": {
+        "PassTemplate": {
+            "Name": "PortableGiUpdateTemplate",
+            "PassClass": "PortableGiUpdatePass",
+            "PassData": {
+                "$type": "ComputePassData",
+                "ShaderAsset": {
+                    "FilePath": "Shaders/RayTracing/PortableGiUpdate.shader"
+                }
+            }
+        }
+    }
+}

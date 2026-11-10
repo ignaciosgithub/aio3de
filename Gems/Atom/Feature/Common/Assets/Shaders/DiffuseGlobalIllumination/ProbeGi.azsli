@@ -1,0 +1,171 @@
+#pragma once
+
+// CPU mirrors live in AzCore/Math/ProbeGi.cpp: ShProjectRadiance, ShAccumulate, ShScale,
+// ShEvaluateIrradianceOverPi, SphericalFibonacciDirection, ProbeGridStorageIndex,
+// ProbeCellMatches, SampleProbeGrid, and ShadeProbeRayHit.
+#ifndef PROBE_GI_BUFFER
+#define PROBE_GI_BUFFER PassSrg::m_probeBuffer
+#endif
+
+static const float ProbeGiPi = 3.14159265358979323846f;
+static const float ProbeGiShY00 = 0.28209479177387814f;
+static const float ProbeGiShY1 = 0.4886025119029199f;
+
+struct ShL1Rgb
+{
+    float3 m_c0;
+    float3 m_c1;
+    float3 m_c2;
+    float3 m_c3;
+};
+
+ShL1Rgb ShProjectRadiance(float3 direction, float3 radiance)
+{
+    const float3 dir = dot(direction, direction) > 1.0e-20f ? normalize(direction) : float3(0.0f, 0.0f, 0.0f);
+    ShL1Rgb result;
+    result.m_c0 = radiance * ProbeGiShY00;
+    result.m_c1 = radiance * (ProbeGiShY1 * dir.x);
+    result.m_c2 = radiance * (ProbeGiShY1 * dir.y);
+    result.m_c3 = radiance * (ProbeGiShY1 * dir.z);
+    return result;
+}
+
+void ShAccumulate(inout ShL1Rgb target, ShL1Rgb value)
+{
+    target.m_c0 += value.m_c0;
+    target.m_c1 += value.m_c1;
+    target.m_c2 += value.m_c2;
+    target.m_c3 += value.m_c3;
+}
+
+void ShScale(inout ShL1Rgb value, float scale)
+{
+    value.m_c0 *= scale;
+    value.m_c1 *= scale;
+    value.m_c2 *= scale;
+    value.m_c3 *= scale;
+}
+
+float3 ShEvaluateIrradianceOverPi(ShL1Rgb sh, float3 normal)
+{
+    const float3 n = dot(normal, normal) > 1.0e-20f ? normalize(normal) : float3(0.0f, 0.0f, 0.0f);
+    float3 result = sh.m_c0 * ProbeGiShY00;
+    result += sh.m_c1 * (ProbeGiShY1 * n.x * (2.0f / 3.0f));
+    result += sh.m_c2 * (ProbeGiShY1 * n.y * (2.0f / 3.0f));
+    result += sh.m_c3 * (ProbeGiShY1 * n.z * (2.0f / 3.0f));
+    return max(result, 0.0f);
+}
+
+float3 SphericalFibonacciDirection(uint index, uint count)
+{
+    if (count == 0u)
+    {
+        return float3(0.0f, 0.0f, 1.0f);
+    }
+    const float z = 1.0f - 2.0f * (float(index) + 0.5f) / float(count);
+    const float radius = sqrt(max(0.0f, 1.0f - z * z));
+    const float phi = 2.39996322972865332f * float(index);
+    return float3(radius * cos(phi), radius * sin(phi), z);
+}
+
+uint ProbeGridStorageIndex(int3 worldCell, uint3 dims)
+{
+    const int3 signedDims = max(int3(dims), int3(1, 1, 1));
+    const int3 slot = ((worldCell % signedDims) + signedDims) % signedDims;
+    return uint(slot.x) + dims.x * (uint(slot.y) + dims.y * uint(slot.z));
+}
+
+bool ProbeCellMatches(float4 metadata, int3 expectedCell)
+{
+    return metadata.w > 0.5f && all(int3(round(metadata.xyz)) == expectedCell);
+}
+
+ShL1Rgb LoadProbeSh(uint slot)
+{
+    const float4 red = PROBE_GI_BUFFER[slot * 4u + 0u];
+    const float4 green = PROBE_GI_BUFFER[slot * 4u + 1u];
+    const float4 blue = PROBE_GI_BUFFER[slot * 4u + 2u];
+    ShL1Rgb sh;
+    sh.m_c0 = float3(red.x, green.x, blue.x);
+    sh.m_c1 = float3(red.y, green.y, blue.y);
+    sh.m_c2 = float3(red.z, green.z, blue.z);
+    sh.m_c3 = float3(red.w, green.w, blue.w);
+    return sh;
+}
+
+float4 SampleProbeGrid(float3 gridOrigin, float spacing, uint3 dims, float3 position, float3 normal)
+{
+    if (spacing <= 0.0f || any(dims == 0u))
+    {
+        return float4(0.0f, 0.0f, 0.0f, 0.0f);
+    }
+    const float3 n = dot(normal, normal) > 1.0e-20f ? normalize(normal) : float3(0.0f, 0.0f, 0.0f);
+    const float3 biasedPosition = position + n * (0.2f * spacing);
+    const float3 coordinate = (biasedPosition - gridOrigin) / spacing;
+    const float3 rawCoordinate = (position - gridOrigin) / spacing;
+    const float3 maxCoordinate = float3(dims - 1u);
+    if (any(rawCoordinate < 0.0f) || any(rawCoordinate > maxCoordinate))
+    {
+        return float4(0.0f, 0.0f, 0.0f, 0.0f);
+    }
+
+    const int3 base = clamp(int3(floor(coordinate)), int3(0, 0, 0), int3(dims) - 1);
+    const float3 fraction = saturate(coordinate - floor(coordinate));
+    const float edgeDistance = min(
+        min(min(rawCoordinate.x, rawCoordinate.y), rawCoordinate.z),
+        min(min(maxCoordinate.x - rawCoordinate.x, maxCoordinate.y - rawCoordinate.y), maxCoordinate.z - rawCoordinate.z));
+    const float gridWeight = saturate(edgeDistance);
+    const int3 originCell = int3(floor(gridOrigin / spacing));
+    float3 value = float3(0.0f, 0.0f, 0.0f);
+    float totalWeight = 0.0f;
+    for (int dz = 0; dz <= 1; ++dz)
+    {
+        for (int dy = 0; dy <= 1; ++dy)
+        {
+            for (int dx = 0; dx <= 1; ++dx)
+            {
+                const int3 local = min(base + int3(dx, dy, dz), int3(dims) - 1);
+                const int3 expectedCell = originCell + local;
+                const uint slot = ProbeGridStorageIndex(expectedCell, dims);
+                const float4 metadata = PROBE_GI_BUFFER[slot * 4u + 3u];
+                if (!ProbeCellMatches(metadata, expectedCell))
+                {
+                    continue;
+                }
+                const float triWeight =
+                    (dx != 0 ? fraction.x : 1.0f - fraction.x) *
+                    (dy != 0 ? fraction.y : 1.0f - fraction.y) *
+                    (dz != 0 ? fraction.z : 1.0f - fraction.z);
+                const float3 probePosition = gridOrigin + float3(local) * spacing;
+                const float3 toProbe = probePosition - biasedPosition;
+                const float3 probeDirection = dot(toProbe, toProbe) > 1.0e-20f ? normalize(toProbe) : float3(0.0f, 0.0f, 0.0f);
+                const float wrap = max(0.05f, (dot(probeDirection, n) + 1.0f) * 0.5f);
+                const float weight = triWeight * wrap * wrap;
+                value += ShEvaluateIrradianceOverPi(LoadProbeSh(slot), n) * weight;
+                totalWeight += weight;
+            }
+        }
+    }
+    const float sampleWeight = totalWeight > 0.0f ? gridWeight : 0.0f;
+    return float4(totalWeight > 0.0f ? value / totalWeight : float3(0.0f, 0.0f, 0.0f), sampleWeight);
+}
+
+float3 ShadeProbeRayHit(
+    float3 albedo,
+    float3 hitNormal,
+    float3 rayDirection,
+    float3 sunDirection,
+    float3 sunIlluminanceOverPi,
+    bool sunVisible,
+    float3 bounceValue)
+{
+    const float3 normal = dot(hitNormal, hitNormal) > 1.0e-20f ? normalize(hitNormal) : float3(0.0f, 0.0f, 0.0f);
+    if (dot(normal, rayDirection) > 0.0f)
+    {
+        return float3(0.0f, 0.0f, 0.0f);
+    }
+    const float3 sunDir = dot(sunDirection, sunDirection) > 1.0e-20f ? normalize(sunDirection) : float3(0.0f, 0.0f, 0.0f);
+    const float cosine = max(0.0f, dot(normal, -sunDir));
+    const float3 direct = sunIlluminanceOverPi * (sunVisible ? cosine : 0.0f);
+    return albedo * (direct + bounceValue);
+}

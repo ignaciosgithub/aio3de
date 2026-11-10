@@ -121,6 +121,7 @@ set(FILES
     Math/AttestationTests.cpp
     Math/RayTracingBvhTests.cpp
     Math/RayTracedShadowsTests.cpp
+    Math/ProbeGiTests.cpp
     Math/RayTracingPerformanceTests.cpp
     Math/SoftBodyTests.cpp
     Math/SoftBodyPerformanceTests.cpp

@@ -216,6 +216,11 @@
                     ]
                 },
                 {
+                    "Name": "PortableGiUpdatePass",
+                    "TemplateName": "PortableGiUpdateTemplate",
+                    "Enabled": false
+                },
+                {
                     "Name": "OpaquePass",
                     "TemplateName": "OpaqueParentTemplate",
                     "Connections": [
