@@ -101,4 +101,62 @@ namespace AZ
     //! that RayTracedShadowsFullscreen.azsl mirrors.
     AZCORE_API float ComputeSoftShadowVisibility(
         const RayTracingBvh& bvh, const ShadowSample& sample, const ShadowRayParams& params, const SoftShadowParams& soft);
+    //! A local (point / spot / area) light for ray-traced shadows. Shadow rays aim at points spread
+    //! over a disk of m_radius around m_position: facing the receiver for a sphere (bulb) light, or
+    //! in the plane perpendicular to m_diskNormal for a disk light. Radius 0 = hard shadow.
+    struct LocalShadowLight
+    {
+        Vector3 m_position = Vector3::CreateZero();
+        //! Bulb (sphere) or disk radius in meters.
+        float m_radius = 0.0f;
+        //! Disk lights: the emission direction (the disk's normal). Zero = sphere light.
+        Vector3 m_diskNormal = Vector3::CreateZero();
+        //! Luminance of the light's intensity in candela (weights its shadow against other lights).
+        float m_intensity = 0.0f;
+        //! Spot lights: the direction the cone points. Zero = omnidirectional.
+        Vector3 m_spotDirection = Vector3::CreateZero();
+        //! 1 / attenuationRadius^2, as stored by the light feature processors. 0 = infinite range.
+        float m_invAttenuationRadiusSquared = 0.0f;
+        float m_cosInnerConeAngle = 0.0f;
+        float m_cosOuterConeAngle = -1.0f;
+    };
+
+    //! Illuminance (lux) the light delivers to \p receiver, ignoring occlusion and the surface
+    //! normal: inverse-square falloff windowed to zero at the attenuation radius and the spot cone's
+    //! smoothstep, mirroring the Atom PBR point/spot light shaders. Used to weight light shadows.
+    AZCORE_API float ComputeLocalLightIlluminance(const LocalShadowLight& light, const Vector3& receiver);
+
+    //! Target point of shadow ray \p sampleIndex of \p sampleCount on the light's disk (a Vogel
+    //! disk point, rotated by \p rotation). With radius 0 or one sample it is the light's position.
+    AZCORE_API Vector3 ComputeLocalLightSamplePoint(
+        const LocalShadowLight& light, const Vector3& receiver, uint32_t sampleIndex, uint32_t sampleCount, float rotation);
+
+    //! Visibility in [0, 1] of a local light from \p sample: the fraction of rays toward
+    //! ComputeLocalLightSamplePoint() points that are unoccluded. Each ray stops \p clearance
+    //! before its target so the light's own fixture (bulb mesh, lamp shade) does not shadow it, and
+    //! geometry behind the light never occludes. soft.m_sampleCount / m_adaptive / m_rotation are
+    //! used as for ComputeSoftShadowVisibility; soft.m_angularRadius is ignored (m_radius sets the size).
+    AZCORE_API float ComputeLocalLightShadowVisibility(
+        const RayTracingBvh& bvh,
+        const ShadowSample& sample,
+        const LocalShadowLight& light,
+        float normalBias,
+        float clearance,
+        const SoftShadowParams& soft);
+
+    //! One light's contribution to a pixel's combined shadow.
+    struct WeightedShadowVisibility
+    {
+        float m_weight = 0.0f;     //!< Illuminance the light delivers (>= 0).
+        float m_visibility = 1.0f; //!< Its shadow visibility in [0, 1].
+    };
+
+    //! Fraction of the total illuminance that is unoccluded: sum(w * v) / sum(w), or 1 if no light
+    //! reaches the pixel. With a single light this is exactly its visibility.
+    AZCORE_API float CombineShadowVisibility(const AZStd::vector<WeightedShadowVisibility>& lights);
+
+    //! Keeps the \p maxCount lights most likely to cast visible shadows near \p camera (highest
+    //! intensity / max(1, distance^2), after dropping lights whose range does not reach within
+    //! \p maxDistance of the camera), sorted by that score.
+    AZCORE_API void SelectShadowLights(AZStd::vector<LocalShadowLight>& lights, const Vector3& camera, float maxDistance, uint32_t maxCount);
 } // namespace AZ

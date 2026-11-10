@@ -25,6 +25,21 @@
 
 #include "RayTracingBvh.azsli"
 
+// A point / spot / disk light that casts ray-traced shadows. Mirrors AZ::LocalShadowLight and the
+// pass's packed upload layout (64 bytes).
+struct LocalShadowLight
+{
+    float3 m_position;
+    float m_radius;
+    float3 m_diskNormal;                 // zero = sphere light (sample disk faces the receiver)
+    float m_intensity;                   // luminance, candela
+    float3 m_spotDirection;              // zero = omnidirectional
+    float m_invAttenuationRadiusSquared; // 0 = infinite range
+    float m_cosInnerConeAngle;
+    float m_cosOuterConeAngle;
+    float2 m_padding;
+};
+
 ShaderResourceGroup PassSrg : SRG_PerPass
 {
     // Occluder BVH (AZ::RayTracingBvh::GetNodes()).
@@ -58,26 +73,87 @@ ShaderResourceGroup PassSrg : SRG_PerPass
     uint m_adaptive;
     // Per-frame offset of the per-pixel pattern rotation (0 = static pattern).
     uint m_noiseFrame;
+
+    // Local lights (most important first) and how much the directional light's shadow counts
+    // (its illuminance in lux; 0 = no directional shadow).
+    StructuredBuffer<LocalShadowLight> m_localLights;
+    uint m_localLightCount;
+    float m_directionalWeight;
+    // Local-light rays stop this far before the light so its own fixture does not shadow it.
+    float m_lightClearance;
 }
 
 // Golden angle, pi * (3 - sqrt(5)).
 #define SOFT_SHADOW_GOLDEN_ANGLE 2.39996323f
 
 // Mirrors AZ::ComputeSoftShadowRayDirection: Vogel disk point of radius tanAngularRadius around n.
-float3 SoftShadowRayDirection(float3 n, float tanAngularRadius, uint sampleIndex, uint sampleCount, float rotation)
+void OrthonormalBasis(float3 n, out float3 tangent, out float3 bitangent)
 {
-    // Branchless orthonormal basis around n (Duff et al. 2017).
+    // Branchless orthonormal basis (Duff et al. 2017), as in AZ::ComputeSoftShadowRayDirection.
     const float sign = n.z >= 0.0f ? 1.0f : -1.0f;
     const float a = -1.0f / (sign + n.z);
     const float b = n.x * n.y * a;
-    const float3 tangent = float3(1.0f + sign * n.x * n.x * a, sign * b, -sign * n.x);
-    const float3 bitangent = float3(b, sign + n.y * n.y * a, -n.y);
+    tangent = float3(1.0f + sign * n.x * n.x * a, sign * b, -sign * n.x);
+    bitangent = float3(b, sign + n.y * n.y * a, -n.y);
+}
 
+float2 VogelDiskPoint(uint sampleIndex, uint sampleCount, float rotation)
+{
     const float radius = sqrt((float(sampleIndex) + 0.5f) / float(max(1u, sampleCount)));
     const float theta = float(sampleIndex) * SOFT_SHADOW_GOLDEN_ANGLE + rotation;
-    const float2 disk = radius * float2(cos(theta), sin(theta)) * tanAngularRadius;
+    return radius * float2(cos(theta), sin(theta));
+}
 
+float3 SoftShadowRayDirection(float3 n, float tanAngularRadius, uint sampleIndex, uint sampleCount, float rotation)
+{
+    float3 tangent, bitangent;
+    OrthonormalBasis(n, tangent, bitangent);
+    const float2 disk = VogelDiskPoint(sampleIndex, sampleCount, rotation) * tanAngularRadius;
     return normalize(n + tangent * disk.x + bitangent * disk.y);
+}
+
+// Mirrors AZ::ComputeLocalLightIlluminance.
+float LocalLightIlluminance(LocalShadowLight light, float3 receiver)
+{
+    const float3 toLight = light.m_position - receiver;
+    const float distanceSquared = dot(toLight, toLight);
+    const float falloff = distanceSquared * light.m_invAttenuationRadiusSquared;
+    if (falloff >= 1.0f || light.m_intensity <= 0.0f)
+    {
+        return 0.0f;
+    }
+    float radiusAttenuation = 1.0f - falloff * falloff;
+    radiusAttenuation *= radiusAttenuation;
+    float illuminance = light.m_intensity / max(distanceSquared, 1.0e-6f) * radiusAttenuation;
+
+    if (any(light.m_spotDirection != 0.0f))
+    {
+        const float cosAngle = dot(-normalize(toLight), normalize(light.m_spotDirection));
+        if (cosAngle <= light.m_cosOuterConeAngle)
+        {
+            return 0.0f;
+        }
+        if (cosAngle < light.m_cosInnerConeAngle)
+        {
+            const float t = (cosAngle - light.m_cosOuterConeAngle) / (light.m_cosInnerConeAngle - light.m_cosOuterConeAngle);
+            illuminance *= t * t * (3.0f - 2.0f * t);
+        }
+    }
+    return illuminance;
+}
+
+// Mirrors AZ::ComputeLocalLightSamplePoint.
+float3 LocalLightSamplePoint(LocalShadowLight light, float3 receiver, uint sampleIndex, uint sampleCount, float rotation)
+{
+    if (sampleCount <= 1u || light.m_radius <= 0.0f)
+    {
+        return light.m_position;
+    }
+    const float3 n = any(light.m_diskNormal != 0.0f) ? normalize(light.m_diskNormal) : normalize(light.m_position - receiver);
+    float3 tangent, bitangent;
+    OrthonormalBasis(n, tangent, bitangent);
+    const float2 disk = VogelDiskPoint(sampleIndex, sampleCount, rotation) * light.m_radius;
+    return light.m_position + tangent * disk.x + bitangent * disk.y;
 }
 
 // Interleaved gradient noise (Jimenez 2014): cheap per-pixel value in [0, 1) that turns the fixed
@@ -137,6 +213,43 @@ bool TraverseAnyHit(float3 origin, float3 direction, float tMax)
     return false;
 }
 
+bool LocalLightRayOccluded(LocalShadowLight light, float3 position, uint sampleIndex, uint sampleCount, float rotation)
+{
+    const float3 toTarget = LocalLightSamplePoint(light, position, sampleIndex, sampleCount, rotation) - position;
+    const float distance = length(toTarget);
+    const float3 direction = toTarget / max(distance, 1.0e-6f);
+    const float bias = PassSrg::m_rayBias;
+    const float tMax = distance - bias - PassSrg::m_lightClearance;
+    return tMax > 0.0f && TraverseAnyHit(position + direction * bias, direction, tMax);
+}
+
+// Mirrors AZ::ComputeLocalLightShadowVisibility.
+float LocalLightVisibility(LocalShadowLight light, float3 position, float rotation)
+{
+    const uint sampleCount = light.m_radius > 0.0f ? max(1u, PassSrg::m_sampleCount) : 1u;
+    if (sampleCount == 1u)
+    {
+        return LocalLightRayOccluded(light, position, 0u, 1u, rotation) ? 0.0f : 1.0f;
+    }
+
+    const uint probeCount = clamp(PassSrg::m_probeCount, 1u, sampleCount);
+    const uint firstProbe = sampleCount - probeCount;
+    uint hits = 0;
+    for (uint probe = firstProbe; probe < sampleCount; ++probe)
+    {
+        hits += LocalLightRayOccluded(light, position, probe, sampleCount, rotation) ? 1u : 0u;
+    }
+    if (PassSrg::m_adaptive != 0u && (hits == 0u || hits == probeCount))
+    {
+        return hits == 0u ? 1.0f : 0.0f;
+    }
+    for (uint index = 0; index < firstProbe; ++index)
+    {
+        hits += LocalLightRayOccluded(light, position, index, sampleCount, rotation) ? 1u : 0u;
+    }
+    return 1.0f - float(hits) / float(sampleCount);
+}
+
 PSOutput MainPS(VSOutput IN)
 {
     PSOutput OUT;
@@ -162,42 +275,63 @@ PSOutput MainPS(VSOutput IN)
     const float tMax = PassSrg::m_maxDistance;
     const float bias = PassSrg::m_rayBias;
 
-    float visibility;
-    const uint sampleCount = PassSrg::m_sampleCount;
-    if (sampleCount <= 1u || PassSrg::m_tanAngularRadius <= 0.0f)
+    // Each light's shadow counts in proportion to the illuminance it brings to this pixel, so the
+    // single darkening factor below is the fraction of the total incoming light that is blocked.
+    const float rotation = InterleavedGradientNoise(float2(pixel), PassSrg::m_noiseFrame) * 6.28318531f;
+    float totalWeight = 0.0f;
+    float visibleWeight = 0.0f;
+    if (PassSrg::m_directionalWeight > 0.0f)
     {
-        visibility = TraverseAnyHit(position + toLight * bias, toLight, tMax) ? 0.0f : 1.0f;
-    }
-    else
-    {
-        // Mirrors AZ::ComputeSoftShadowVisibility: the last probeCount samples (outer ring of the
-        // disk) first, then the rest only if they disagree, i.e. the pixel is in the penumbra.
-        const float rotation = InterleavedGradientNoise(float2(pixel), PassSrg::m_noiseFrame) * 6.28318531f;
-        const float tanRadius = PassSrg::m_tanAngularRadius;
-        const uint probeCount = clamp(PassSrg::m_probeCount, 1u, sampleCount);
-        const uint firstProbe = sampleCount - probeCount;
-
-        uint hits = 0;
-        for (uint probe = firstProbe; probe < sampleCount; ++probe)
+        float visibility;
+        const uint sampleCount = PassSrg::m_sampleCount;
+        if (sampleCount <= 1u || PassSrg::m_tanAngularRadius <= 0.0f)
         {
-            const float3 direction = SoftShadowRayDirection(toLight, tanRadius, probe, sampleCount, rotation);
-            hits += TraverseAnyHit(position + direction * bias, direction, tMax) ? 1u : 0u;
-        }
-
-        if (PassSrg::m_adaptive != 0u && (hits == 0u || hits == probeCount))
-        {
-            visibility = hits == 0u ? 1.0f : 0.0f;
+            visibility = TraverseAnyHit(position + toLight * bias, toLight, tMax) ? 0.0f : 1.0f;
         }
         else
         {
-            for (uint index = 0; index < firstProbe; ++index)
+            // Mirrors AZ::ComputeSoftShadowVisibility: the last probeCount samples (outer ring of the
+            // disk) first, then the rest only if they disagree, i.e. the pixel is in the penumbra.
+            const float tanRadius = PassSrg::m_tanAngularRadius;
+            const uint probeCount = clamp(PassSrg::m_probeCount, 1u, sampleCount);
+            const uint firstProbe = sampleCount - probeCount;
+
+            uint hits = 0;
+            for (uint probe = firstProbe; probe < sampleCount; ++probe)
             {
-                const float3 direction = SoftShadowRayDirection(toLight, tanRadius, index, sampleCount, rotation);
+                const float3 direction = SoftShadowRayDirection(toLight, tanRadius, probe, sampleCount, rotation);
                 hits += TraverseAnyHit(position + direction * bias, direction, tMax) ? 1u : 0u;
             }
-            visibility = 1.0f - float(hits) / float(sampleCount);
+
+            if (PassSrg::m_adaptive != 0u && (hits == 0u || hits == probeCount))
+            {
+                visibility = hits == 0u ? 1.0f : 0.0f;
+            }
+            else
+            {
+                for (uint index = 0; index < firstProbe; ++index)
+                {
+                    const float3 direction = SoftShadowRayDirection(toLight, tanRadius, index, sampleCount, rotation);
+                    hits += TraverseAnyHit(position + direction * bias, direction, tMax) ? 1u : 0u;
+                }
+                visibility = 1.0f - float(hits) / float(sampleCount);
+            }
+        }
+        totalWeight += PassSrg::m_directionalWeight;
+        visibleWeight += PassSrg::m_directionalWeight * visibility;
+    }
+
+    for (uint lightIndex = 0; lightIndex < PassSrg::m_localLightCount; ++lightIndex)
+    {
+        const LocalShadowLight light = PassSrg::m_localLights[lightIndex];
+        const float weight = LocalLightIlluminance(light, position);
+        if (weight > 0.0f)
+        {
+            totalWeight += weight;
+            visibleWeight += weight * LocalLightVisibility(light, position, rotation);
         }
     }
+    const float visibility = totalWeight > 0.0f ? visibleWeight / totalWeight : 1.0f;
 
     // Lit = 1 (untouched), umbra = m_shadowFactor, penumbra in between.
     const float factor = lerp(PassSrg::m_shadowFactor, 1.0f, visibility);

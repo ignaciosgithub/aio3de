@@ -10,6 +10,10 @@
 #include <RayTracing/RayTracedShadowsFullscreenPass.h>
 
 #include <CoreLights/DirectionalLightFeatureProcessor.h>
+#include <CoreLights/DiskLightFeatureProcessor.h>
+#include <CoreLights/PointLightFeatureProcessor.h>
+#include <CoreLights/SimplePointLightFeatureProcessor.h>
+#include <CoreLights/SimpleSpotLightFeatureProcessor.h>
 #include <Mesh/MeshFeatureProcessor.h>
 
 #include <Atom/RPI.Public/Pass/PassFilter.h>
@@ -177,6 +181,101 @@ namespace AZ::Render
         "Rotate the soft-shadow sample pattern every frame. With TAA on this averages more rays over "
         "time (smoother penumbra); without TAA leave it off to avoid shimmer.");
 
+    AZ_CVAR(
+        uint32_t,
+        r_rayTracedShadowsLocalLights,
+        4,
+        nullptr,
+        AZ::ConsoleFunctorFlags::Null,
+        "How many point / spot / disk lights cast ray-traced shadows (the brightest near the camera), "
+        "0 = only the directional light. Max 16. Each one costs up to r_rayTracedShadowsSamples rays "
+        "for the pixels it reaches.");
+
+    AZ_CVAR(
+        float,
+        r_rayTracedShadowsLightClearance,
+        0.1f,
+        nullptr,
+        AZ::ConsoleFunctorFlags::Null,
+        "Point / spot / disk light shadow rays stop this many meters before the light, so the light's "
+        "own fixture (bulb mesh, lamp shade) does not shadow it. Raise it for large fixtures.");
+
+    namespace
+    {
+        // Luminance of a linear ACEScg color.
+        float Luminance(const Vector3& rgb)
+        {
+            return AZStd::max(0.0f, rgb.Dot(Vector3(0.2722287f, 0.6740818f, 0.0536895f)));
+        }
+
+        float Luminance(const AZStd::array<float, 3>& rgb)
+        {
+            return Luminance(Vector3::CreateFromFloat3(rgb.data()));
+        }
+
+        Vector3 ToVector3(const AZStd::array<float, 3>& value)
+        {
+            return Vector3::CreateFromFloat3(value.data());
+        }
+    } // namespace
+
+    void RayTracedShadowsFeatureProcessor::GatherLocalLights(AZStd::vector<AZ::LocalShadowLight>& lights) const
+    {
+        lights.clear();
+        const RPI::Scene* scene = GetParentScene();
+        if (const auto* fp = scene->GetFeatureProcessor<PointLightFeatureProcessor>())
+        {
+            for (const auto& data : fp->GetLightData())
+            {
+                AZ::LocalShadowLight& light = lights.emplace_back();
+                light.m_position = ToVector3(data.m_position);
+                light.m_radius = data.m_bulbRadius;
+                light.m_intensity = Luminance(data.m_rgbIntensity);
+                light.m_invAttenuationRadiusSquared = data.m_invAttenuationRadiusSquared;
+            }
+        }
+        if (const auto* fp = scene->GetFeatureProcessor<SimplePointLightFeatureProcessor>())
+        {
+            for (const auto& data : fp->GetLightData())
+            {
+                AZ::LocalShadowLight& light = lights.emplace_back();
+                light.m_position = ToVector3(data.m_position);
+                light.m_intensity = Luminance(data.m_rgbIntensity);
+                light.m_invAttenuationRadiusSquared = data.m_invAttenuationRadiusSquared;
+            }
+        }
+        if (const auto* fp = scene->GetFeatureProcessor<DiskLightFeatureProcessor>())
+        {
+            for (const auto& data : fp->GetLightData())
+            {
+                // A disk light only emits forward (m_direction); with "Use cone angle" also within the cone.
+                const bool useCone = (data.m_flags & DiskLightData::Flags::UseConeAngle) != 0;
+                AZ::LocalShadowLight& light = lights.emplace_back();
+                light.m_position = ToVector3(data.m_position);
+                light.m_radius = data.m_diskRadius;
+                light.m_diskNormal = ToVector3(data.m_direction);
+                light.m_spotDirection = light.m_diskNormal;
+                light.m_intensity = Luminance(data.m_rgbIntensity);
+                light.m_invAttenuationRadiusSquared = data.m_invAttenuationRadiusSquared;
+                light.m_cosInnerConeAngle = useCone ? data.m_cosInnerConeAngle : 0.0f;
+                light.m_cosOuterConeAngle = useCone ? data.m_cosOuterConeAngle : 0.0f;
+            }
+        }
+        if (const auto* fp = scene->GetFeatureProcessor<SimpleSpotLightFeatureProcessor>())
+        {
+            for (const auto& data : fp->GetLightData())
+            {
+                AZ::LocalShadowLight& light = lights.emplace_back();
+                light.m_position = ToVector3(data.m_position);
+                light.m_spotDirection = ToVector3(data.m_direction);
+                light.m_intensity = Luminance(data.m_rgbIntensity);
+                light.m_invAttenuationRadiusSquared = data.m_invAttenuationRadiusSquared;
+                light.m_cosInnerConeAngle = data.m_cosInnerConeAngle;
+                light.m_cosOuterConeAngle = data.m_cosOuterConeAngle;
+            }
+        }
+    }
+
     void RayTracedShadowsFeatureProcessor::Reflect(AZ::ReflectContext* context)
     {
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
@@ -241,11 +340,15 @@ namespace AZ::Render
         // Default sun direction (high noon-ish) and disk size used when the scene has no directional light.
         Vector3 toLight(0.2f, 0.3f, 0.9f);
         float lightAngularRadius = AZ::DegToRad(0.25f);
+        bool hasDirectionalLight = false;
+        float directionalIlluminance = 0.0f;
         if (auto* lightFeatureProcessor = GetParentScene()->GetFeatureProcessor<DirectionalLightFeatureProcessor>())
         {
             if (lightFeatureProcessor->GetLightCount() > 0)
             {
                 lightAngularRadius = lightFeatureProcessor->GetFirstLightAngularRadius();
+                hasDirectionalLight = true;
+                directionalIlluminance = Luminance(lightFeatureProcessor->GetFirstLightRgbIntensity());
             }
 
             // m_direction points from the light toward the scene; the shadow ray goes the other way.
@@ -270,6 +373,21 @@ namespace AZ::Render
         soft.m_adaptive = r_rayTracedShadowsAdaptive;
         pass->SetSoftShadowParams(soft);
         pass->SetAnimateNoise(r_rayTracedShadowsAnimateNoise);
+
+        const uint32_t maxLocalLights = AZStd::min<uint32_t>(r_rayTracedShadowsLocalLights, RayTracedShadowsFullscreenPass::MaxLocalLights);
+        if (maxLocalLights > 0)
+        {
+            GatherLocalLights(m_localLights);
+            AZ::SelectShadowLights(m_localLights, m_cameraPosition, r_rayTracedShadowsMaxDistance, maxLocalLights);
+        }
+        else
+        {
+            m_localLights.clear();
+        }
+        // Each light's shadow is weighted by the illuminance it delivers. Without any light in the
+        // scene keep the default sun at full weight, as before local lights were supported.
+        const float directionalWeight = hasDirectionalLight ? directionalIlluminance : (m_localLights.empty() ? 1.0f : 0.0f);
+        pass->SetLocalLights(m_localLights, directionalWeight, AZStd::max(0.0f, static_cast<float>(r_rayTracedShadowsLightClearance)));
     }
 
     void RayTracedShadowsFeatureProcessor::Simulate([[maybe_unused]] const SimulatePacket& packet)

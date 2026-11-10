@@ -239,8 +239,75 @@ Still hardware-agnostic: plain pixel shader + structured buffers, no DXR / `VK_K
 
 ## Known limits / next increments
 
-- Only the first directional light. Point/spot lights would need per-pixel light vectors.
+- Only the first directional light (point / spot / disk lights: see increment 4).
 - No spatial/temporal denoiser yet: at low sample counts the penumbra shows the noise pattern
   (smoothed by TAA when `r_rayTracedShadowsAnimateNoise` is on).
 - The adaptive early-out can miss an occluder thinner than the probe spacing inside the cone; set
   `r_rayTracedShadowsAdaptive false` if thin geometry (wires, fences) loses its penumbra.
+
+# Increment 4: soft shadows from point, spot and disk lights
+
+The fullscreen pass now also shades up to `r_rayTracedShadowsLocalLights` (default 4, max 16)
+local lights per frame, besides the first directional light. Lights covered: Point (sphere), Disk
+(the Spot light component's default) and the Simple point / Simple spot lights.
+
+## How it works
+
+- **Light selection** (CPU, every frame): every light of the four feature processors is collected,
+  lights whose attenuation radius does not come within `r_rayTracedShadowsMaxDistance` of the camera
+  or with zero intensity are dropped, and the rest are ranked by `intensity / max(1, distance²)` to
+  the camera (`AZ::SelectShadowLights`). The top N are uploaded to a fixed-size structured buffer
+  (re-uploaded only when a light changed).
+- **Per pixel, per light**: the light's illuminance at the pixel is computed exactly like the Atom
+  PBR light shaders (inverse square, windowed to 0 at the attenuation radius, spot cone smoothstep;
+  a disk light without a cone emits over its front hemisphere). Lights that do not reach the pixel
+  cost nothing. Otherwise shadow rays go from the pixel toward **points on the light**: a Vogel disk
+  of the bulb radius facing the pixel for a sphere light, or the light's own disk for a disk light.
+  Rays end at the light, so geometry behind it never occludes, and they stop
+  `r_rayTracedShadowsLightClearance` (0.1 m) short so the light's own fixture does not shadow it.
+- **Softness**: the penumbra comes from the light's existing *Bulb radius* / *Disk radius*, with the
+  same `r_rayTracedShadowsSamples`, adaptive probes and noise rotation as the sun. Radius 0 (and the
+  Simple lights, which have none) gives hard shadows with one ray.
+- **Composite**: the pass still writes one darkening factor per pixel, multiplied onto the lit
+  image. It is now built from the fraction of the pixel's incoming light that is blocked: each
+  light's visibility is weighted by the illuminance it delivers there (the sun by its lux), so a
+  lamp's shadow is faint outdoors in daylight and full strength indoors
+  (`AZ::CombineShadowVisibility`). With only a directional light the output is unchanged; with no
+  light at all the default sun is used as before. A light that is in the scene but has intensity 0
+  no longer casts a shadow.
+
+| Layer | File | Role |
+| --- | --- | --- |
+| CPU core (reference) | `Code/Framework/AzCore/AzCore/Math/RayTracedShadows.{h,cpp}` | `LocalShadowLight`, `ComputeLocalLightIlluminance`, `ComputeLocalLightSamplePoint`, `ComputeLocalLightShadowVisibility`, `CombineShadowVisibility`, `SelectShadowLights`. |
+| CPU tests | `Code/Framework/AzCore/Tests/Math/RayTracedShadowsTests.cpp` | 9 new tests (below). |
+| CPU benchmark | `Code/Framework/AzCore/Tests/Math/RayTracingPerformanceTests.cpp` | `BM_RayTracingBvh/LocalLightShadowBatch/<tris>/<adaptive>`. |
+| GPU shader | `Gems/Atom/Feature/Common/Assets/Shaders/RayTracing/RayTracedShadowsFullscreen.azsl` | `LocalShadowLight` buffer + per-light loop mirroring the CPU core. |
+| Pass | `.../RayTracing/RayTracedShadowsFullscreenPass.{h,cpp}` | `SetLocalLights`, 64-byte packed light buffer (16 slots), new SRG constants. |
+| Feature processor | `.../RayTracing/RayTracedShadowsFeatureProcessor.{h,cpp}` | Gathers lights, new cvars. The four light feature processors get a read-only `GetLightData()`; the directional one `GetFirstLightRgbIntensity()`. |
+
+## Verification
+
+- New `MATH_RayTracedShadows` tests: illuminance follows the inverse square and is 0 beyond the
+  attenuation radius; spot illuminance is full inside the inner cone, partial between the cones and 0
+  outside / behind the light; an occluder between pixel and light shadows it, one behind the light
+  does not; the clearance ignores a lamp-shade quad 5 cm from the light; sample points lie on the
+  light's disk (facing the receiver for spheres, in the disk plane for disk lights) and collapse to
+  the center for radius 0 / one sample; the penumbra is monotonic and its width matches
+  `2 · radius · occluder-to-receiver / light-to-occluder`; adaptive equals full sampling except on at
+  most 2% of samples; the weighted combine; light selection by score and range.
+- CPU benchmark (`LocalLightShadowBatch`, 0.5 m bulb, 8 rays/sample, Linux VM): adaptive 2.0x faster
+  on 16K triangles (414k vs 208k samples/s) and 1.8x on 131K (204k vs 115k).
+- Shader: `azslc --semantic` clean, DXC compiles the emitted HLSL to DXIL (`ps_6_2`) and SPIR-V.
+- Not measurable in the headless sandbox: the visual result and GPU cost. Each local light can cost
+  as much as the sun for the pixels it reaches; compare `r_rayTracedShadowsLocalLights 0` vs `4` with
+  the Editor profiler.
+
+## Known limits
+
+- A light mesh that encloses the light beyond the clearance (a closed lamp shade) shadows everything:
+  raise `r_rayTracedShadowsLightClearance` or exclude the mesh.
+- The cone of a disk light with *Use cone angle* is measured from the disk center, not from the cone
+  tip behind it, so the cone edge is slightly wider than the lit area.
+- One combined factor: a pixel lit by a red and a blue light, with only the red one blocked, darkens
+  both colors by the same blocked fraction.
+- Projected shadow maps of those lights (if enabled) still apply on top.
