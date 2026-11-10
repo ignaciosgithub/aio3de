@@ -88,6 +88,9 @@ namespace AZ
             //! Multiply source size by these values to obtain new size
             PassAttachmentSizeMultipliers m_sizeMultipliers;
 
+            //! Whether the image dimensions scale with the owning render pipeline's render-resolution scale
+            bool m_scaleWithRenderResolution = false;
+
             //! The source attachment from which to derive this attachment's array size
             //! If null, keep this attachment's array size as is
             const PassAttachmentBinding* m_arraySizeSource = nullptr;

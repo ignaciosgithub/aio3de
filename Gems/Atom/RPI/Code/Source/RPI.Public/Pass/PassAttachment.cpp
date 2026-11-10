@@ -14,6 +14,7 @@
 #include <Atom/RHI/RHIUtils.h>
 
 
+#include <Atom/RPI.Public/Pass/Pass.h>
 #include <Atom/RPI.Public/Pass/PassAttachment.h>
 #include <Atom/RPI.Public/RenderPipeline.h>
 #include <Atom/RPI.Reflect/Pass/PassName.h>
@@ -52,6 +53,7 @@ namespace AZ
             clone->m_multisampleSource = this->m_multisampleSource;
             clone->m_sizeSource = this->m_sizeSource;
             clone->m_sizeMultipliers = this->m_sizeMultipliers;
+            clone->m_scaleWithRenderResolution = this->m_scaleWithRenderResolution;
             clone->m_arraySizeSource = this->m_arraySizeSource;
             clone->m_generateFullMipChain = this->m_generateFullMipChain;
 
@@ -231,6 +233,19 @@ namespace AZ
                     refAttachment->UpdateImageSize();
                     RHI::Size sourceSize = refAttachment->m_descriptor.m_image.m_size;
                     m_descriptor.m_image.m_size = m_sizeMultipliers.ApplyModifiers(sourceSize);
+                }
+            }
+
+            RenderPipeline* renderPipeline = m_renderPipelineSource;
+            if (!renderPipeline && m_ownerPass)
+            {
+                renderPipeline = m_ownerPass->GetRenderPipeline();
+            }
+            if (m_scaleWithRenderResolution && renderPipeline)
+            {
+                if (renderPipeline->GetRenderResolutionScale() != 1.0f)
+                {
+                    m_descriptor.m_image.m_size = renderPipeline->GetRenderResolutionSize(m_descriptor.m_image.m_size);
                 }
             }
             m_updatingSize = false;

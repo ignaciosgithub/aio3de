@@ -163,6 +163,7 @@ set(FILES
     Math/SplineTests.cpp
     Math/TransformPerformanceTests.cpp
     Math/TransformTests.cpp
+    Math/UpscalingTests.cpp
     Math/Vector2PerformanceTests.cpp
     Math/Vector2Tests.cpp
     Math/Vector3PerformanceTests.cpp

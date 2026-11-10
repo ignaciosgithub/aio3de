@@ -1,0 +1,101 @@
+{
+    "Type": "JsonSerialization",
+    "Version": 1,
+    "ClassName": "PassAsset",
+    "ClassData": {
+        "PassTemplate": {
+            "Name": "UpscaleParentTemplate",
+            "PassClass": "FsrUpscaleParentPass",
+            "Slots": [
+                {
+                    "Name": "InputColor",
+                    "SlotType": "Input"
+                },
+                {
+                    "Name": "PipelineOutput",
+                    "SlotType": "Input"
+                },
+                {
+                    "Name": "OutputColor",
+                    "SlotType": "Output"
+                }
+            ],
+            "ImageAttachments": [
+                {
+                    "Name": "Output",
+                    "SizeSource": {
+                        "Source": {
+                            "Pass": "This",
+                            "Attachment": "PipelineOutput"
+                        }
+                    },
+                    "FormatSource": {
+                        "Pass": "This",
+                        "Attachment": "InputColor"
+                    },
+                    "ImageDescriptor": {
+                        "Format": "R16G16B16A16_FLOAT",
+                        "BindFlags": "ShaderReadWrite"
+                    }
+                }
+            ],
+            "Connections": [
+                {
+                    "LocalSlot": "OutputColor",
+                    "AttachmentRef": {
+                        "Pass": "FsrRcasPass",
+                        "Attachment": "Output"
+                    }
+                }
+            ],
+            "FallbackConnections": [
+                {
+                    "Input": "InputColor",
+                    "Output": "OutputColor"
+                }
+            ],
+            "PassRequests": [
+                {
+                    "Name": "FsrEasuPass",
+                    "TemplateName": "FsrEasuTemplate",
+                    "Connections": [
+                        {
+                            "LocalSlot": "InputColor",
+                            "AttachmentRef": {
+                                "Pass": "Parent",
+                                "Attachment": "InputColor"
+                            }
+                        },
+                        {
+                            "LocalSlot": "PipelineOutput",
+                            "AttachmentRef": {
+                                "Pass": "Parent",
+                                "Attachment": "PipelineOutput"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "Name": "FsrRcasPass",
+                    "TemplateName": "FsrRcasTemplate",
+                    "Connections": [
+                        {
+                            "LocalSlot": "InputColor",
+                            "AttachmentRef": {
+                                "Pass": "FsrEasuPass",
+                                "Attachment": "Output"
+                            }
+                        },
+                        {
+                            "LocalSlot": "Output",
+                            "AttachmentRef": {
+                                "Pass": "Parent",
+                                "Attachment": "Output"
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+}
