@@ -853,6 +853,19 @@ namespace AZ
             return m_renderResolutionScale;
         }
 
+        RHI::Size RenderPipeline::GetRenderResolutionSize() const
+        {
+            return GetRenderResolutionSize(m_activeRenderSettings.m_size);
+        }
+
+        RHI::Size RenderPipeline::GetRenderResolutionSize(const RHI::Size& size) const
+        {
+            RHI::Size renderResolutionSize = size;
+            renderResolutionSize.m_width = AZStd::max(1u, static_cast<uint32_t>(ceilf(size.m_width * m_renderResolutionScale)));
+            renderResolutionSize.m_height = AZStd::max(1u, static_cast<uint32_t>(ceilf(size.m_height * m_renderResolutionScale)));
+            return renderResolutionSize;
+        }
+
         void RenderPipeline::RevertRenderSettings()
         {
             m_activeRenderSettings = m_descriptor.m_renderSettings;

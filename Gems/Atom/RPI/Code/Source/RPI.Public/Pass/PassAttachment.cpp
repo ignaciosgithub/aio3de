@@ -243,12 +243,9 @@ namespace AZ
             }
             if (m_scaleWithRenderResolution && renderPipeline)
             {
-                const float scale = renderPipeline->GetRenderResolutionScale();
-                if (scale != 1.0f)
+                if (renderPipeline->GetRenderResolutionScale() != 1.0f)
                 {
-                    RHI::Size& imageSize = m_descriptor.m_image.m_size;
-                    imageSize.m_width = AZStd::max(1u, static_cast<uint32_t>(ceilf(imageSize.m_width * scale)));
-                    imageSize.m_height = AZStd::max(1u, static_cast<uint32_t>(ceilf(imageSize.m_height * scale)));
+                    m_descriptor.m_image.m_size = renderPipeline->GetRenderResolutionSize(m_descriptor.m_image.m_size);
                 }
             }
             m_updatingSize = false;

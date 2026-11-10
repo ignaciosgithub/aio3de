@@ -198,6 +198,8 @@ namespace AZ
             //! Sets the scale applied to opted-in render-resolution attachments
             void SetRenderResolutionScale(float scale);
             float GetRenderResolutionScale() const;
+            RHI::Size GetRenderResolutionSize() const;
+            RHI::Size GetRenderResolutionSize(const RHI::Size& size) const;
 
             //! Undoes runtime changes made to active render settings by reverting to original settings from the descriptor
             void RevertRenderSettings();

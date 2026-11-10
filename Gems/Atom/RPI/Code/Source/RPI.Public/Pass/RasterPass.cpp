@@ -180,7 +180,9 @@ namespace AZ
                         const auto targetAttachment = renderTarget->GetAttachment();
                         const RHI::Size& targetSize = targetAttachment->m_descriptor.m_image.m_size;
                         const RHI::Size& pipelineSize = m_pipeline->GetRenderSettings().m_size;
-                        if ((targetSize.m_width != pipelineSize.m_width || targetSize.m_height != pipelineSize.m_height) &&
+                        const RHI::Size renderResolutionSize = m_pipeline->GetRenderResolutionSize();
+                        if (targetSize.m_width == renderResolutionSize.m_width &&
+                            targetSize.m_height == renderResolutionSize.m_height &&
                             pipelineSize.m_width > 0 && pipelineSize.m_height > 0)
                         {
                             const float scaleX = static_cast<float>(targetSize.m_width) / pipelineSize.m_width;
