@@ -21,6 +21,18 @@
                 "Path": "Passes/Depth.pass"
             },
             {
+                "Name": "FsrEasuTemplate",
+                "Path": "Passes/FsrEasu.pass"
+            },
+            {
+                "Name": "FsrRcasTemplate",
+                "Path": "Passes/FsrRcas.pass"
+            },
+            {
+                "Name": "UpscaleParentTemplate",
+                "Path": "Passes/UpscaleParent.pass"
+            },
+            {
                 "Name": "DepthMSAAPassTemplate",
                 "Path": "Passes/DepthMSAA.pass"
             },
@@ -259,6 +271,10 @@
             {
                 "Name": "RayTracedShadowsFullscreenTemplate",
                 "Path": "Passes/RayTracedShadowsFullscreen.pass"
+            },
+            {
+                "Name": "PortableGiUpdateTemplate",
+                "Path": "Passes/PortableGiUpdate.pass"
             },
             {
                 "Name": "SoftBodyGpuSolverTemplate",

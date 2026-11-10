@@ -68,6 +68,10 @@ set(FILES
     Source/SoftBody/SoftBodyGpuSolverSystem.h
     Source/RayTracing/RayTracingBvhPass.cpp
     Source/RayTracing/RayTracingBvhPass.h
+    Source/RayTracing/PortableGiUpdatePass.cpp
+    Source/RayTracing/PortableGiUpdatePass.h
+    Source/DiffuseGlobalIllumination/DiffuseGlobalFullscreenPass.cpp
+    Source/DiffuseGlobalIllumination/DiffuseGlobalFullscreenPass.h
     Source/RayTracing/RayTracedShadowsPass.cpp
     Source/RayTracing/RayTracedShadowsPass.h
     Source/RayTracing/RayTracedShadowsFullscreenPass.cpp
@@ -281,6 +285,8 @@ set(FILES
     Source/PostProcessing/SubsurfaceScatteringPass.h
     Source/PostProcessing/TaaPass.h
     Source/PostProcessing/TaaPass.cpp
+    Source/PostProcessing/FsrUpscalePasses.h
+    Source/PostProcessing/FsrUpscalePasses.cpp
     Source/PostProcessing/WhiteBalancePass.h
     Source/PostProcessing/WhiteBalancePass.cpp
     Source/RayTracing/RayTracingFeatureProcessor.h

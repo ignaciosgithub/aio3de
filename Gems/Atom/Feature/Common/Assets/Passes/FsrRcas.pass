@@ -1,0 +1,32 @@
+{
+    "Type": "JsonSerialization",
+    "Version": 1,
+    "ClassName": "PassAsset",
+    "ClassData": {
+        "PassTemplate": {
+            "Name": "FsrRcasTemplate",
+            "PassClass": "FsrRcasPass",
+            "Slots": [
+                {
+                    "Name": "InputColor",
+                    "ShaderInputName": "m_inputColor",
+                    "SlotType": "Input",
+                    "ScopeAttachmentUsage": "Shader"
+                },
+                {
+                    "Name": "Output",
+                    "ShaderInputName": "m_outputColor",
+                    "SlotType": "Output",
+                    "ScopeAttachmentUsage": "Shader"
+                }
+            ],
+            "PassData": {
+                "$type": "ComputePassData",
+                "ShaderAsset": {
+                    "FilePath": "Shaders/PostProcessing/FsrRcas.shader"
+                },
+                "FullscreenSizeSourceSlotName": "Output"
+            }
+        }
+    }
+}

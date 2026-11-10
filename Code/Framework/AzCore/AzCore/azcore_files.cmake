@@ -341,6 +341,8 @@ set(FILES
     Math/MathReflection.h
     Math/MathScriptHelpers.cpp
     Math/MathScriptHelpers.h
+    Math/Upscaling.cpp
+    Math/Upscaling.h
     Math/MathUtils.cpp
     Math/MathUtils.h
     Math/MathMatrixSerializer.h
@@ -381,6 +383,8 @@ set(FILES
     Math/Attestation.h
     Math/RayTracingBvh.cpp
     Math/RayTracingBvh.h
+    Math/ProbeGi.cpp
+    Math/ProbeGi.h
     Math/SoftBody.cpp
     Math/SoftBody.h
     Math/Fluid.cpp

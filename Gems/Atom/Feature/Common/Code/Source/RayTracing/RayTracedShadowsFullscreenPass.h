@@ -8,13 +8,10 @@
 #pragma once
 
 #include <AzCore/Math/RayTracedShadows.h>
-#include <AzCore/Math/RayTracingBvh.h>
 #include <AzCore/Math/Vector3.h>
 #include <AzCore/Math/Vector4.h>
 #include <AzCore/Memory/SystemAllocator.h>
 #include <AzCore/std/containers/vector.h>
-#include <AzCore/std/parallel/atomic.h>
-#include <AzCore/std/smart_ptr/shared_ptr.h>
 
 #include <Atom/RHI.Reflect/ShaderInputNameIndex.h>
 
@@ -50,15 +47,6 @@ namespace AZ
 
             static RPI::Ptr<RayTracedShadowsFullscreenPass> Create(const RPI::PassDescriptor& descriptor);
 
-            //! Kicks off an asynchronous BVH build over the occluder \p triangles (world space)
-            //! on a background job; the result is swapped in (and the GPU buffers re-created) at
-            //! the start of the first frame after the build finishes, so rebuilds never stall
-            //! the frame. Returns false (and does nothing) if a build is already in flight.
-            bool SetOccluderGeometry(AZStd::vector<AZ::BvhTriangle>&& triangles);
-
-            //! True while a background BVH build kicked off by SetOccluderGeometry is running.
-            bool IsRebuildInFlight() const;
-
             //! Sets the shadow-ray parameters (direction toward the light, max distance, ray bias).
             void SetShadowParams(const AZ::ShadowRayParams& params);
 
@@ -89,7 +77,6 @@ namespace AZ
             void FrameBeginInternal(FramePrepareParams params) override;
 
         private:
-            void CreateBuffers();
             void UploadLocalLights();
 
             //! GPU layout of AZ::LocalShadowLight; mirrors the shader's LocalShadowLight.
@@ -107,22 +94,6 @@ namespace AZ
             };
             static_assert(sizeof(LocalShadowLightPacked) == 64, "Must match LocalShadowLight in RayTracedShadowsFullscreen.azsl");
 
-            //! Result of a background BVH build, shared between the pass and the job so the
-            //! job stays safe even if the pass is destroyed before it finishes.
-            struct PendingBvhBuild
-            {
-                AZStd::vector<AZ::BvhTriangle> m_triangles;
-                AZ::RayTracingBvh m_bvh;
-                AZStd::vector<AZ::Vector4> m_packedVertices;
-                AZStd::atomic_bool m_ready{ false };
-            };
-
-            AZStd::shared_ptr<PendingBvhBuild> m_pendingBuild;
-
-            AZ::RayTracingBvh m_bvh;
-
-            // Packed, GPU-ready geometry derived from m_bvh in SetOccluderGeometry.
-            AZStd::vector<AZ::Vector4> m_triangleVertices; // 3 per ordered triangle, xyz used.
             AZ::ShadowRayParams m_params;
             float m_shadowFactor = 0.25f;
             AZ::SoftShadowParams m_softParams;
@@ -133,11 +104,7 @@ namespace AZ
             float m_directionalWeight = 1.0f;
             float m_lightClearance = 0.1f;
 
-            Data::Instance<RPI::Buffer> m_nodesBuffer;
-            Data::Instance<RPI::Buffer> m_triangleVerticesBuffer;
             Data::Instance<RPI::Buffer> m_localLightsBuffer;
-
-            bool m_buffersDirty = false;
 
             // SRG constant binding indices.
             AZ::RHI::ShaderInputNameIndex m_toLightIndex = "m_toLight";

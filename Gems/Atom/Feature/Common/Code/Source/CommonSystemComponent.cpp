@@ -43,6 +43,7 @@
 #include <DisplayMapper/DisplayMapperFullScreenPass.h>
 #include <DisplayMapper/DisplayMapperPass.h>
 #include <DisplayMapper/OutputTransformPass.h>
+#include <DiffuseGlobalIllumination/DiffuseGlobalFullscreenPass.h>
 #include <ImageBasedLights/ImageBasedLightFeatureProcessor.h>
 #include <Mesh/MeshFeatureProcessor.h>
 #include <PostProcess/PostProcessFeatureProcessor.h>
@@ -75,6 +76,7 @@
 #include <PostProcessing/SMAANeighborhoodBlendingPass.h>
 #include <PostProcessing/SsaoPasses.h>
 #include <PostProcessing/SubsurfaceScatteringPass.h>
+#include <PostProcessing/FsrUpscalePasses.h>
 #include <PostProcessing/TaaPass.h>
 #include <PostProcessing/VignettePass.h>
 #include <PostProcessing/WhiteBalancePass.h>
@@ -99,6 +101,7 @@
 #include <SoftBody/SoftBodyGpuSolverPass.h>
 #include <SoftBody/SoftBodyGpuSolverSystem.h>
 #include <RayTracing/RayTracingBvhPass.h>
+#include <RayTracing/PortableGiUpdatePass.h>
 #include <RayTracing/RayTracedShadowsPass.h>
 #include <RayTracing/RayTracedShadowsFullscreenPass.h>
 #include <RayTracing/RayTracedShadowsFeatureProcessor.h>
@@ -260,6 +263,7 @@ namespace AZ
             m_softBodyGpuSolverSystem = AZStd::make_unique<SoftBodyGpuSolverSystem>();
             m_softBodyGpuSolverSystem->Activate();
             passSystem->AddPassCreator(Name("RayTracingBvhPass"), &RayTracingBvhPass::Create);
+            passSystem->AddPassCreator(Name("PortableGiUpdatePass"), &PortableGiUpdatePass::Create);
             passSystem->AddPassCreator(Name("RayTracedShadowsPass"), &RayTracedShadowsPass::Create);
             passSystem->AddPassCreator(Name("RayTracedShadowsFullscreenPass"), &RayTracedShadowsFullscreenPass::Create);
             passSystem->AddPassCreator(Name("BlendColorGradingLutsPass"), &BlendColorGradingLutsPass::Create);
@@ -277,6 +281,10 @@ namespace AZ
             
             // Add Taa Pass
             passSystem->AddPassCreator(Name("TaaPass"), &TaaPass::Create);
+            passSystem->AddPassCreator(Name("DiffuseGlobalFullscreenPass"), &DiffuseGlobalFullscreenPass::Create);
+            passSystem->AddPassCreator(Name("FsrUpscaleParentPass"), &FsrUpscaleParentPass::Create);
+            passSystem->AddPassCreator(Name("FsrEasuPass"), &FsrEasuPass::Create);
+            passSystem->AddPassCreator(Name("FsrRcasPass"), &FsrRcasPass::Create);
 
             // Add DepthOfField pass
             passSystem->AddPassCreator(Name("DepthOfFieldCompositePass"), &DepthOfFieldCompositePass::Create);

@@ -8,6 +8,7 @@
 
 #include <RayTracing/RayTracedShadowsFeatureProcessor.h>
 #include <RayTracing/RayTracedShadowsFullscreenPass.h>
+#include <RayTracing/PortableGiUpdatePass.h>
 
 #include <CoreLights/DirectionalLightFeatureProcessor.h>
 #include <CoreLights/DiskLightFeatureProcessor.h>
@@ -20,14 +21,140 @@
 #include <Atom/RPI.Public/Pass/PassSystemInterface.h>
 #include <Atom/RPI.Public/Scene.h>
 #include <Atom/RPI.Public/View.h>
+#include <Atom/RPI.Public/Buffer/BufferSystemInterface.h>
 
 #include <AzCore/Console/IConsole.h>
+#include <AzCore/Jobs/JobFunction.h>
 #include <AzCore/Math/MathUtils.h>
 #include <AzCore/Math/RayTracedShadows.h>
 #include <AzCore/Serialization/SerializeContext.h>
 
 namespace AZ::Render
 {
+    AZ_CVAR(
+        bool,
+        r_portableGi,
+        false,
+        nullptr,
+        AZ::ConsoleFunctorFlags::Null,
+        "Enable portable software-BVH diffuse probe GI.");
+
+    bool RayTracedShadowsFeatureProcessor::SharedBvh::BeginBuild(
+        AZStd::vector<AZ::BvhTriangle>&& triangles, AZStd::vector<uint32_t>&& albedo)
+    {
+        if (m_pendingBuild && !m_pendingBuild->m_ready.load(AZStd::memory_order_acquire))
+        {
+            return false;
+        }
+
+        auto pending = AZStd::make_shared<SharedBvhBuild>();
+        pending->m_triangles = AZStd::move(triangles);
+        pending->m_albedo = AZStd::move(albedo);
+        if (pending->m_albedo.size() < pending->m_triangles.size())
+        {
+            pending->m_albedo.resize(pending->m_triangles.size(), 0xff808080u);
+        }
+        m_pendingBuild = pending;
+
+        auto* job = AZ::CreateJobFunction(
+            [pending]()
+            {
+                pending->m_bvh.Build(pending->m_triangles);
+                const AZStd::vector<AZ::BvhTriangle>& ordered = pending->m_bvh.GetOrderedTriangles();
+                pending->m_packedVertices.reserve(ordered.size() * 3);
+                for (const AZ::BvhTriangle& triangle : ordered)
+                {
+                    pending->m_packedVertices.emplace_back(
+                        triangle.m_v0.GetX(), triangle.m_v0.GetY(), triangle.m_v0.GetZ(), 0.0f);
+                    pending->m_packedVertices.emplace_back(
+                        triangle.m_v1.GetX(), triangle.m_v1.GetY(), triangle.m_v1.GetZ(), 0.0f);
+                    pending->m_packedVertices.emplace_back(
+                        triangle.m_v2.GetX(), triangle.m_v2.GetY(), triangle.m_v2.GetZ(), 0.0f);
+                }
+                pending->m_ready.store(true, AZStd::memory_order_release);
+            },
+            true);
+        job->Start();
+        return true;
+    }
+
+    void RayTracedShadowsFeatureProcessor::SharedBvh::CreateBuffers()
+    {
+        const auto& nodes = m_bvh.GetNodes();
+        const auto& primitiveIndices = m_bvh.GetPrimitiveIndices();
+
+        auto createBuffer = [](const char* name, uint32_t elementSize, uint32_t elementCount, const void* data)
+        {
+            RPI::CommonBufferDescriptor descriptor;
+            descriptor.m_poolType = RPI::CommonBufferPoolType::ReadOnly;
+            descriptor.m_bufferName = name;
+            descriptor.m_elementSize = elementSize;
+            descriptor.m_byteCount = static_cast<uint64_t>(elementSize) * AZStd::max(1u, elementCount);
+            descriptor.m_bufferData = elementCount == 0 ? nullptr : data;
+            return RPI::BufferSystemInterface::Get()->CreateBufferFromCommonPool(descriptor);
+        };
+        m_nodesBuffer = createBuffer("RayTracedShadows.Shared.Nodes", sizeof(AZ::BvhNodePacked),
+            static_cast<uint32_t>(nodes.size()), nodes.data());
+        m_triangleVerticesBuffer = createBuffer("RayTracedShadows.Shared.TriangleVertices", sizeof(AZ::Vector4),
+            static_cast<uint32_t>(m_packedVertices.size()), m_packedVertices.data());
+        m_primitiveIndicesBuffer = createBuffer("RayTracedShadows.Shared.PrimitiveIndices", sizeof(uint32_t),
+            static_cast<uint32_t>(primitiveIndices.size()), primitiveIndices.data());
+        m_albedoBuffer = createBuffer("RayTracedShadows.Shared.Albedo", sizeof(uint32_t),
+            static_cast<uint32_t>(m_albedo.size()), m_albedo.data());
+        m_buffersDirty = false;
+    }
+
+    void RayTracedShadowsFeatureProcessor::SharedBvh::PrepareBuffers()
+    {
+        if (m_pendingBuild && m_pendingBuild->m_ready.load(AZStd::memory_order_acquire))
+        {
+            m_bvh = AZStd::move(m_pendingBuild->m_bvh);
+            m_packedVertices = AZStd::move(m_pendingBuild->m_packedVertices);
+            m_albedo = AZStd::move(m_pendingBuild->m_albedo);
+            m_pendingBuild.reset();
+            m_buffersDirty = true;
+        }
+        if (m_buffersDirty || !m_nodesBuffer)
+        {
+            CreateBuffers();
+        }
+    }
+
+    void RayTracedShadowsFeatureProcessor::PrepareSharedBvhBuffers()
+    {
+        m_sharedBvh.PrepareBuffers();
+    }
+
+    const Data::Instance<RPI::Buffer>& RayTracedShadowsFeatureProcessor::GetSharedBvhNodesBuffer() const
+    {
+        return m_sharedBvh.m_nodesBuffer;
+    }
+
+    const Data::Instance<RPI::Buffer>& RayTracedShadowsFeatureProcessor::GetSharedBvhTriangleVerticesBuffer() const
+    {
+        return m_sharedBvh.m_triangleVerticesBuffer;
+    }
+
+    const Data::Instance<RPI::Buffer>& RayTracedShadowsFeatureProcessor::GetSharedBvhPrimitiveIndicesBuffer() const
+    {
+        return m_sharedBvh.m_primitiveIndicesBuffer;
+    }
+
+    const Data::Instance<RPI::Buffer>& RayTracedShadowsFeatureProcessor::GetSharedBvhAlbedoBuffer() const
+    {
+        return m_sharedBvh.m_albedoBuffer;
+    }
+
+    uint32_t RayTracedShadowsFeatureProcessor::GetSharedBvhNodeCount() const
+    {
+        return m_sharedBvh.m_bvh.GetNodeCount();
+    }
+
+    uint32_t RayTracedShadowsFeatureProcessor::GetSharedBvhTriangleCount() const
+    {
+        return m_sharedBvh.m_bvh.GetTriangleCount();
+    }
+
     AZ_CVAR(
         bool,
         r_rayTracedShadows,
@@ -315,20 +442,21 @@ namespace AZ::Render
         return result;
     }
 
-    void RayTracedShadowsFeatureProcessor::UpdateOccluderGeometry(RayTracedShadowsFullscreenPass* pass)
+    void RayTracedShadowsFeatureProcessor::UpdateOccluderGeometry()
     {
-        if (pass->IsRebuildInFlight())
+        if (m_sharedBvh.m_pendingBuild && !m_sharedBvh.m_pendingBuild->m_ready.load(AZStd::memory_order_acquire))
         {
             return; // Retry next Simulate once the background build finishes.
         }
 
         AZStd::vector<AZ::BvhTriangle> triangles;
+        AZStd::vector<uint32_t> albedo;
         if (auto* meshFeatureProcessor = GetParentScene()->GetFeatureProcessor<MeshFeatureProcessor>())
         {
             meshFeatureProcessor->GetWorldTriangles(
-                triangles, r_rayTracedShadowsMaxTriangles, r_rayTracedShadowsIncludeDynamicMeshes);
+                triangles, r_rayTracedShadowsMaxTriangles, r_rayTracedShadowsIncludeDynamicMeshes, &albedo);
         }
-        if (pass->SetOccluderGeometry(AZStd::move(triangles)))
+        if (m_sharedBvh.BeginBuild(AZStd::move(triangles), AZStd::move(albedo)))
         {
             m_geometryUploaded = true;
             m_framesSinceLastRebuild = 0;
@@ -339,6 +467,8 @@ namespace AZ::Render
     {
         // Default sun direction (high noon-ish) and disk size used when the scene has no directional light.
         Vector3 toLight(0.2f, 0.3f, 0.9f);
+        m_sunDirection = Vector3::CreateZero();
+        m_sunIlluminanceOverPi = Vector3::CreateZero();
         float lightAngularRadius = AZ::DegToRad(0.25f);
         bool hasDirectionalLight = false;
         float directionalIlluminance = 0.0f;
@@ -348,13 +478,16 @@ namespace AZ::Render
             {
                 lightAngularRadius = lightFeatureProcessor->GetFirstLightAngularRadius();
                 hasDirectionalLight = true;
-                directionalIlluminance = Luminance(lightFeatureProcessor->GetFirstLightRgbIntensity());
+                const Vector3 intensity = lightFeatureProcessor->GetFirstLightRgbIntensity();
+                directionalIlluminance = Luminance(intensity);
+                m_sunIlluminanceOverPi = intensity / 3.14159265358979323846f;
             }
 
             // m_direction points from the light toward the scene; the shadow ray goes the other way.
             const Vector3 lightDirection = lightFeatureProcessor->GetFirstLightDirection();
             if (!lightDirection.IsZero())
             {
+                m_sunDirection = lightDirection.GetNormalizedSafe();
                 toLight = -lightDirection;
             }
         }
@@ -405,6 +538,19 @@ namespace AZ::Render
             m_passEnabled = enabled;
         }
 
+        if (AZ::RPI::PassSystemInterface::Get())
+        {
+            const auto giPassFilter =
+                AZ::RPI::PassFilter::CreateWithTemplateName(Name("PortableGiUpdateTemplate"), GetParentScene());
+            AZ::RPI::PassSystemInterface::Get()->ForEachPass(
+                giPassFilter,
+                [](AZ::RPI::Pass* updatePass)
+                {
+                    updatePass->SetEnabled(static_cast<bool>(r_portableGi));
+                    return AZ::RPI::PassFilterExecutionFlow::StopVisitingPasses;
+                });
+        }
+
         if (r_rayTracedShadowsRebuild)
         {
             r_rayTracedShadowsRebuild = false;
@@ -416,7 +562,7 @@ namespace AZ::Render
         // polled often (its shadows are the visible ones), far geometry rarely. A change
         // invalidates the geometry so it gets rebuilt asynchronously below, rate-limited by
         // r_rayTracedShadowsMinRebuildFrames.
-        if (enabled || r_rayTracedShadowsPrewarm)
+        if (enabled || r_rayTracedShadowsPrewarm || r_portableGi)
         {
             const bool pollNear = m_framesUntilNearPoll == 0;
             const bool pollFar = m_framesUntilFarPoll == 0;
@@ -466,11 +612,11 @@ namespace AZ::Render
             // prewarm is on, so the first enable doesn't have to build anything.
             if (!m_geometryUploaded && m_framesSinceLastRebuild >= r_rayTracedShadowsMinRebuildFrames)
             {
-                UpdateOccluderGeometry(pass);
+                UpdateOccluderGeometry();
             }
         }
 
-        if (!enabled)
+        if (!enabled && !r_portableGi)
         {
             return;
         }
