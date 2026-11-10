@@ -136,6 +136,7 @@ set(FILES
     Prefab/PrefabTestFixture.h
     Prefab/PrefabTestUndoFixture.cpp
     Prefab/PrefabTestUndoFixture.h
+    Prefab/HotReloadUndoTests.cpp
     Prefab/PrefabTestUtils.h
     Prefab/PrefabUndoAddEntityTestFixture.cpp
     Prefab/PrefabUndoAddEntityTestFixture.h

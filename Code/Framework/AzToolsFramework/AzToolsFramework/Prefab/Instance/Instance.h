@@ -327,6 +327,7 @@ namespace AzToolsFramework
             PrefabDomReference GetCachedInstanceDom();
             void SetCachedInstanceDom(PrefabDomValueConstReference instanceDom);
             void EnableDomCaching(bool enableDomCaching);
+            bool IsDomCachingEnabled() const { return m_isDomCachingEnabled; }
             //! @}
 
         private:

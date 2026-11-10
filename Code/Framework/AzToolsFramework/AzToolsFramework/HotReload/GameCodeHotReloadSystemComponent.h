@@ -12,12 +12,15 @@
 #include <AzCore/Component/TickBus.h>
 #include <AzCore/std/containers/unordered_map.h>
 #include <AzCore/std/containers/vector.h>
+#include <AzCore/std/function/function_fwd.h>
 #include <AzCore/std/string/string.h>
 #include <AzToolsFramework/ActionManager/ActionManagerRegistrationNotificationBus.h>
 #include <AzToolsFramework/AzToolsFrameworkAPI.h>
 
 namespace AzToolsFramework
 {
+    AZTF_API bool RebuildLevelEntities(const AZStd::function<void()>& betweenTeardownAndRebuild);
+
     class AZTF_API GameCodeHotReloadSystemComponent
         : public AZ::Component
         , private AZ::TickBus::Handler
