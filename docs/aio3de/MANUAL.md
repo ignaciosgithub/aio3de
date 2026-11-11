@@ -334,9 +334,11 @@ Build the game gem while the Editor remains open, then run
 `ed_reloadGameCode`, choose **Tools > Reload Game Code**, or use
 **Ctrl+Alt+F11**. Set `ed_hotReloadWatch` to `true` to poll the configured
 module files once per second and reload a module after its timestamp has
-remained stable for two seconds. Reload saves the level to memory, clears the
-Editor context and undo history, reloads the configured modules, then restores
-the level. Keep the module names aligned with the built game gem targets.
+remained stable for two seconds. Reload temporarily tears down and rebuilds the
+level's entities while preserving prefab instances, templates, links, dirty
+state, selection, prefab focus, and edit-mode undo history. Component mode is
+exited before entities are destroyed; no undo node types are dropped. Keep the
+module names aligned with the built game gem targets.
 
 This is intended for game gems only. It does not rebuild engine gems, Script
 Canvas node registries, Python bindings, `AZ::Interface` singletons or asset

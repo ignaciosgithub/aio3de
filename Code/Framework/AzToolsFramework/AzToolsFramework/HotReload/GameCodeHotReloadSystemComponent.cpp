@@ -19,16 +19,24 @@
 #include <AzCore/Settings/SettingsRegistryVisitorUtils.h>
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/std/algorithm.h>
+#include <AzCore/std/functional.h>
 #include <AzCore/std/string/string_view.h>
 
 #include <AzToolsFramework/ActionManager/Action/ActionManagerInterface.h>
 #include <AzToolsFramework/ActionManager/HotKey/HotKeyManagerInterface.h>
 #include <AzToolsFramework/ActionManager/Menu/MenuManagerInterface.h>
 #include <AzToolsFramework/API/ToolsApplicationAPI.h>
+#include <AzToolsFramework/ComponentMode/EditorComponentModeBus.h>
 #include <AzToolsFramework/Editor/ActionManagerIdentifiers/EditorContextIdentifiers.h>
 #include <AzToolsFramework/Editor/ActionManagerIdentifiers/EditorMenuIdentifiers.h>
 #include <AzToolsFramework/Entity/EditorEntityContextBus.h>
+#include <AzToolsFramework/Entity/EditorEntityHelpers.h>
 #include <AzToolsFramework/Entity/PrefabEditorEntityOwnershipInterface.h>
+#include <AzToolsFramework/Prefab/Instance/InstanceDomGeneratorInterface.h>
+#include <AzToolsFramework/Prefab/Link/Link.h>
+#include <AzToolsFramework/Prefab/PrefabDomUtils.h>
+#include <AzToolsFramework/Prefab/PrefabPublicInterface.h>
+#include <AzToolsFramework/Prefab/PrefabPublicNotificationBus.h>
 #include <AzToolsFramework/Prefab/PrefabSystemComponentInterface.h>
 
 #include <chrono>
@@ -42,6 +50,84 @@ namespace AzToolsFramework
         constexpr AZStd::string_view ReloadActionIdentifier = "o3de.action.gamecode.reload";
 
         GameCodeHotReloadSystemComponent* s_gameCodeHotReloadSystemComponent = nullptr;
+
+        struct InstanceRebuildData
+        {
+            Prefab::Instance* m_instance = nullptr;
+            Prefab::PrefabDom m_instanceDom;
+            bool m_wasDomCachingEnabled = false;
+        };
+
+        bool CollectInstanceRebuildData(
+            Prefab::Instance& instance,
+            const Prefab::InstanceDomGeneratorInterface& instanceDomGenerator,
+            AZStd::vector<InstanceRebuildData>& instanceRebuildData)
+        {
+            Prefab::PrefabDom instanceDom;
+            instanceDomGenerator.GetInstanceDomFromTemplate(instanceDom, instance);
+            if (!instanceDom.IsObject())
+            {
+                return false;
+            }
+
+            InstanceRebuildData rebuildData;
+            rebuildData.m_instance = &instance;
+            rebuildData.m_wasDomCachingEnabled = instance.IsDomCachingEnabled();
+            rebuildData.m_instanceDom.CopyFrom(instanceDom, rebuildData.m_instanceDom.GetAllocator());
+            instanceRebuildData.emplace_back(AZStd::move(rebuildData));
+
+            bool success = true;
+            instance.GetNestedInstances([&](AZStd::unique_ptr<Prefab::Instance>& nestedInstance)
+            {
+                if (nestedInstance)
+                {
+                    success = CollectInstanceRebuildData(*nestedInstance, instanceDomGenerator, instanceRebuildData) && success;
+                }
+            });
+            return success;
+        }
+
+        void RemoveDomMember(Prefab::PrefabDom& prefabDom, const char* memberName)
+        {
+            auto member = prefabDom.FindMember(memberName);
+            if (member != prefabDom.MemberEnd())
+            {
+                prefabDom.RemoveMember(member);
+            }
+        }
+
+        void RestoreNestedInstanceLinkIds(Prefab::Instance& instance, Prefab::PrefabSystemComponentInterface& prefabSystem)
+        {
+            Prefab::TemplateReference templateReference = prefabSystem.FindTemplate(instance.GetTemplateId());
+            if (!templateReference.has_value())
+            {
+                return;
+            }
+
+            Prefab::Template& instanceTemplate = templateReference->get();
+            instance.GetNestedInstances([&](AZStd::unique_ptr<Prefab::Instance>& nestedInstance)
+            {
+                if (!nestedInstance)
+                {
+                    return;
+                }
+
+                if (nestedInstance->GetLinkId() == Prefab::InvalidLinkId)
+                {
+                    for (Prefab::LinkId linkId : instanceTemplate.GetLinks())
+                    {
+                        Prefab::LinkReference nestedLink = prefabSystem.FindLink(linkId);
+                        if (nestedLink.has_value() && nestedLink->get().GetInstanceName() == nestedInstance->GetInstanceAlias())
+                        {
+                            nestedInstance->SetLinkId(linkId);
+                            break;
+                        }
+                    }
+                }
+
+                RestoreNestedInstanceLinkIds(*nestedInstance, prefabSystem);
+            });
+        }
 
         AZStd::string NormalizeModuleStem(AZStd::string_view path)
         {
@@ -143,6 +229,121 @@ namespace AzToolsFramework
         }
 
         QueueReload(AZStd::move(modulePaths));
+    }
+
+    bool RebuildLevelEntities(const AZStd::function<void()>& betweenTeardownAndRebuild)
+    {
+        PrefabEditorEntityOwnershipInterface* ownershipInterface =
+            AZ::Interface<PrefabEditorEntityOwnershipInterface>::Get();
+        Prefab::PrefabSystemComponentInterface* prefabSystemInterface =
+            AZ::Interface<Prefab::PrefabSystemComponentInterface>::Get();
+        Prefab::InstanceDomGeneratorInterface* instanceDomGenerator =
+            AZ::Interface<Prefab::InstanceDomGeneratorInterface>::Get();
+        if (!ownershipInterface || !prefabSystemInterface || !instanceDomGenerator || !ownershipInterface->IsRootPrefabAssigned())
+        {
+            AZ_Error("GameCodeHotReload", false, "Cannot rebuild level entities without an assigned Editor level prefab.");
+            return false;
+        }
+
+        Prefab::InstanceOptionalReference rootInstance = ownershipInterface->GetRootPrefabInstance();
+        if (!rootInstance.has_value())
+        {
+            AZ_Error("GameCodeHotReload", false, "Cannot access the Editor level prefab instance.");
+            return false;
+        }
+
+        const Prefab::TemplateId rootTemplateId = rootInstance->get().GetTemplateId();
+        const bool wasRootTemplateDirty = prefabSystemInterface->IsTemplateDirty(rootTemplateId);
+
+        AZStd::vector<InstanceRebuildData> instanceRebuildData;
+        if (!CollectInstanceRebuildData(rootInstance->get(), *instanceDomGenerator, instanceRebuildData))
+        {
+            AZ_Error("GameCodeHotReload", false, "Failed to generate prefab DOM for rebuilding the Editor level.");
+            return false;
+        }
+
+        EntityIdList selectedEntityIds;
+        ToolsApplicationRequestBus::BroadcastResult(selectedEntityIds, &ToolsApplicationRequests::GetSelectedEntities);
+
+        bool inComponentMode = false;
+        ComponentModeFramework::ComponentModeSystemRequestBus::BroadcastResult(
+            inComponentMode, &ComponentModeFramework::ComponentModeSystemRequests::InComponentMode);
+        if (inComponentMode)
+        {
+            ComponentModeFramework::ComponentModeSystemRequestBus::Broadcast(
+                &ComponentModeFramework::ComponentModeSystemRequests::EndComponentMode);
+        }
+
+        ToolsApplicationRequestBus::Broadcast(
+            &ToolsApplicationRequests::SetSelectedEntities, EntityIdList{});
+        Prefab::PrefabPublicNotificationBus::Broadcast(&Prefab::PrefabPublicNotifications::OnPrefabInstancePropagationBegin);
+
+        rootInstance->get().DetachAllEntitiesInHierarchy(
+            [](AZStd::unique_ptr<AZ::Entity> entity)
+            {
+                if (entity && entity->GetState() == AZ::Entity::State::Active)
+                {
+                    entity->Deactivate();
+                }
+                entity.reset();
+            });
+
+        if (betweenTeardownAndRebuild)
+        {
+            betweenTeardownAndRebuild();
+        }
+
+        EntityList rebuiltEntities;
+        bool rebuildSucceeded = true;
+        for (InstanceRebuildData& rebuildData : instanceRebuildData)
+        {
+            Prefab::PrefabDom cacheBaseline;
+            cacheBaseline.CopyFrom(rebuildData.m_instanceDom, cacheBaseline.GetAllocator());
+            RemoveDomMember(cacheBaseline, Prefab::PrefabDomUtils::EntitiesName);
+            RemoveDomMember(cacheBaseline, Prefab::PrefabDomUtils::ContainerEntityName);
+
+            Prefab::Instance& instance = *rebuildData.m_instance;
+            instance.EnableDomCaching(true);
+            instance.SetCachedInstanceDom(cacheBaseline);
+
+            EntityList entitiesForInstance;
+            const bool instanceRebuilt = Prefab::PrefabDomUtils::LoadInstanceFromPrefabDom(
+                instance, entitiesForInstance, rebuildData.m_instanceDom,
+                Prefab::PrefabDomUtils::LoadFlags::UseSelectiveDeserialization);
+
+            instance.EnableDomCaching(rebuildData.m_wasDomCachingEnabled);
+            if (!rebuildData.m_wasDomCachingEnabled)
+            {
+                instance.SetCachedInstanceDom(AZStd::nullopt);
+            }
+
+            if (!instanceRebuilt)
+            {
+                rebuildSucceeded = false;
+                AZ_Error("GameCodeHotReload", false, "Failed to rebuild a prefab instance's entities after reloading game code.");
+                continue;
+            }
+
+            rebuiltEntities.insert(rebuiltEntities.end(), entitiesForInstance.begin(), entitiesForInstance.end());
+        }
+
+        RestoreNestedInstanceLinkIds(rootInstance->get(), *prefabSystemInterface);
+        if (!rebuiltEntities.empty())
+        {
+            EditorEntityContextRequestBus::Broadcast(
+                &EditorEntityContextRequests::HandleEntitiesAdded, rebuiltEntities);
+        }
+
+        prefabSystemInterface->SetTemplateDirtyFlag(rootTemplateId, wasRootTemplateDirty);
+        Prefab::PrefabPublicNotificationBus::Broadcast(&Prefab::PrefabPublicNotifications::OnPrefabInstancePropagationEnd);
+
+        AZStd::erase_if(selectedEntityIds, [](AZ::EntityId entityId)
+        {
+            return GetEntityById(entityId) == nullptr;
+        });
+        ToolsApplicationRequestBus::Broadcast(&ToolsApplicationRequests::SetSelectedEntities, selectedEntityIds);
+
+        return rebuildSucceeded;
     }
 
     void GameCodeHotReloadSystemComponent::QueueReload(AZStd::vector<AZStd::string> modulePaths)
@@ -291,70 +492,35 @@ namespace AzToolsFramework
     void GameCodeHotReloadSystemComponent::PerformReload(const AZStd::vector<AZStd::string>& modulePaths)
     {
         const auto startTime = std::chrono::steady_clock::now();
-        PrefabEditorEntityOwnershipInterface* ownershipInterface =
-            AZ::Interface<PrefabEditorEntityOwnershipInterface>::Get();
-        Prefab::PrefabSystemComponentInterface* prefabSystemInterface =
-            AZ::Interface<Prefab::PrefabSystemComponentInterface>::Get();
-        if (!ownershipInterface || !prefabSystemInterface || !ownershipInterface->IsRootPrefabAssigned())
-        {
-            AZ_Error("GameCodeHotReload", false, "Cannot reload game code without an assigned Editor level prefab.");
-            return;
-        }
-
-        auto rootInstance = ownershipInterface->GetRootPrefabInstance();
-        if (!rootInstance)
-        {
-            AZ_Error("GameCodeHotReload", false, "Cannot access the Editor level prefab instance.");
-            return;
-        }
-
-        const AZ::IO::Path levelPath = rootInstance->get().GetTemplateSourcePath();
-        const Prefab::TemplateId templateId = ownershipInterface->GetRootPrefabTemplateId();
-        const bool wasDirty = prefabSystemInterface->IsTemplateDirty(templateId);
-        AZStd::vector<char> levelBuffer;
-        AZ::IO::ByteContainerStream<AZStd::vector<char>> levelStream(&levelBuffer);
-        if (!ownershipInterface->SaveToStream(levelStream, levelPath.Native()))
-        {
-            AZ_Error("GameCodeHotReload", false, "Failed to serialize the current level before reloading game code.");
-            return;
-        }
-
-        EditorEntityContextRequestBus::Broadcast(&EditorEntityContextRequests::ResetEditorContext);
-        ToolsApplicationRequestBus::Broadcast(&ToolsApplicationRequestBus::Events::FlushUndo);
-
         AZ::u32 reloadedModuleCount = 0;
         AZStd::string reloadErrors;
-        for (const AZStd::string& modulePath : modulePaths)
+        const bool entitiesRebuilt = RebuildLevelEntities([&]()
         {
-            AZ::ModuleManagerRequests::ReloadModuleOutcome reloadOutcome =
-                AZ::Failure(AZStd::string("Module reload was not attempted."));
-            AZ::ModuleManagerRequestBus::BroadcastResult(
-                reloadOutcome, &AZ::ModuleManagerRequests::ReloadDynamicModule, modulePath.c_str());
-            if (reloadOutcome.IsSuccess())
+            for (const AZStd::string& modulePath : modulePaths)
             {
-                ++reloadedModuleCount;
-                reloadOutcome.GetValue().reset();
+                AZ::ModuleManagerRequests::ReloadModuleOutcome reloadOutcome =
+                    AZ::Failure(AZStd::string("Module reload was not attempted."));
+                AZ::ModuleManagerRequestBus::BroadcastResult(
+                    reloadOutcome, &AZ::ModuleManagerRequests::ReloadDynamicModule, modulePath.c_str());
+                if (reloadOutcome.IsSuccess())
+                {
+                    ++reloadedModuleCount;
+                    reloadOutcome.GetValue().reset();
+                }
+                else
+                {
+                    reloadErrors += AZStd::string::format("%s%s", reloadErrors.empty() ? "" : "\n", reloadOutcome.GetError().c_str());
+                }
             }
-            else
-            {
-                reloadErrors += AZStd::string::format("%s%s", reloadErrors.empty() ? "" : "\n", reloadOutcome.GetError().c_str());
-            }
-        }
-
-        levelStream.Seek(0, AZ::IO::GenericStream::ST_SEEK_BEGIN);
-        const bool levelRestored = ownershipInterface->LoadFromStream(levelStream, levelPath.Native());
-        if (levelRestored && ownershipInterface->IsRootPrefabAssigned())
+        });
+        if (!entitiesRebuilt)
         {
-            prefabSystemInterface->SetTemplateDirtyFlag(ownershipInterface->GetRootPrefabTemplateId(), wasDirty);
-        }
-        if (!levelRestored)
-        {
-            AZ_Error("GameCodeHotReload", false, "Failed to restore the Editor level after reloading game code.");
+            AZ_Error("GameCodeHotReload", false, "Failed to rebuild the Editor level after reloading game code.");
         }
 
         const auto elapsedMilliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - startTime).count();
-        if (reloadErrors.empty() && levelRestored)
+        if (reloadErrors.empty() && entitiesRebuilt)
         {
             AZ_Printf("GameCodeHotReload", "Hot reload: reloaded %u module(s) in %lld ms",
                 reloadedModuleCount, static_cast<long long>(elapsedMilliseconds));
