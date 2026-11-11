@@ -57,6 +57,7 @@
         "Gems/LandscapeCanvas",
         "Gems/LevelStreaming",
         "Gems/VoxelNav",
+        "Gems/BehaviorTree",
         "Gems/LmbrCentral",
         "Gems/LocalUser",
         "Gems/LyShine",
