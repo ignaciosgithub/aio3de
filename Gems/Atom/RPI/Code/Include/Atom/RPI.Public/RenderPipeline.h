@@ -198,6 +198,8 @@ namespace AZ
             //! Sets the scale applied to opted-in render-resolution attachments
             void SetRenderResolutionScale(float scale);
             float GetRenderResolutionScale() const;
+            //! Returns the size of the root pass's PipelineOutput attachment, falling back to render settings size.
+            RHI::Size GetPipelineOutputSize() const;
             RHI::Size GetRenderResolutionSize() const;
             RHI::Size GetRenderResolutionSize(const RHI::Size& size) const;
 

@@ -34,6 +34,7 @@
                             "Attachment": "PipelineOutput"
                         }
                     },
+                    "ScaleWithRenderResolution": true,
                     "MultisampleSource": {
                         "Pass": "Pipeline"
                     },
