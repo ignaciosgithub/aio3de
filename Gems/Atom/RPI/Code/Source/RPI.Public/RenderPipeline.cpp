@@ -9,6 +9,7 @@
 #include <Atom/RHI/DrawListTagRegistry.h>
 
 #include <Atom/RPI.Public/Base.h>
+#include <Atom/RPI.Public/Pass/PassAttachment.h>
 #include <Atom/RPI.Public/Pass/PassFilter.h>
 #include <Atom/RPI.Public/Pass/PassSystem.h>
 #include <Atom/RPI.Public/Pass/Specific/SwapChainPass.h>
@@ -853,9 +854,28 @@ namespace AZ
             return m_renderResolutionScale;
         }
 
+        RHI::Size RenderPipeline::GetPipelineOutputSize() const
+        {
+            if (m_passTree.m_rootPass)
+            {
+                const PassAttachmentBinding* outputBinding =
+                    m_passTree.m_rootPass->FindAttachmentBinding(Name("PipelineOutput"));
+                if (outputBinding)
+                {
+                    const Ptr<PassAttachment>& outputAttachment = outputBinding->GetAttachment();
+                    if (outputAttachment && outputAttachment->GetAttachmentType() == RHI::AttachmentType::Image)
+                    {
+                        return outputAttachment->m_descriptor.m_image.m_size;
+                    }
+                }
+            }
+
+            return m_activeRenderSettings.m_size;
+        }
+
         RHI::Size RenderPipeline::GetRenderResolutionSize() const
         {
-            return GetRenderResolutionSize(m_activeRenderSettings.m_size);
+            return GetRenderResolutionSize(GetPipelineOutputSize());
         }
 
         RHI::Size RenderPipeline::GetRenderResolutionSize(const RHI::Size& size) const
