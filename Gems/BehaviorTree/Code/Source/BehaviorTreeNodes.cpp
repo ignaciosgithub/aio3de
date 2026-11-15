@@ -668,7 +668,14 @@ namespace BehaviorTree
             const AZ::Vector3 direction = m_movePath[m_waypointIndex] - position;
             if (!direction.IsZero())
             {
-                tick.m_context.MoveToward(direction.GetNormalized(), speed);
+                float requestedSpeed = speed;
+                if (m_waypointIndex + 1 == m_movePath.size())
+                {
+                    const float distanceToFinalWaypoint = position.GetDistance(m_movePath[m_waypointIndex]);
+                    requestedSpeed = AZStd::min(
+                        speed, distanceToFinalWaypoint / AZStd::max(tick.m_deltaTime, 1.0e-4f));
+                }
+                tick.m_context.MoveToward(direction.GetNormalized(), requestedSpeed);
             }
             return NodeStatus::Running;
         }

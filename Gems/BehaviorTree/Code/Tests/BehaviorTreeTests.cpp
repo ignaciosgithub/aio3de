@@ -434,6 +434,19 @@ namespace BehaviorTree::Tests
         EXPECT_EQ(once.Tick(0.1f, context), NodeStatus::Success);
         EXPECT_TRUE(once.IsComplete());
     }
+
+    TEST(BehaviorTreeRuntime, MoveToClampsSpeedAtFinalWaypoint)
+    {
+        MockContext context;
+        context.m_moveDeltaTime = 0.25f;
+        TreeInstance tree(ParseTree(
+            R"({"blackboard":{"target":{"type":"vector3","value":[0.6,0,0]}},"root":{"type":"MoveTo","targetKey":"target","speed":4.0,"acceptanceRadius":0.1}})"));
+
+        EXPECT_EQ(tree.Tick(0.25f, context), NodeStatus::Running);
+        EXPECT_FLOAT_EQ(context.m_lastSpeed, 2.4f);
+        EXPECT_TRUE(context.m_position.IsClose(AZ::Vector3(0.6f, 0.0f, 0.0f)));
+        EXPECT_EQ(tree.Tick(0.25f, context), NodeStatus::Success);
+    }
 } // namespace BehaviorTree::Tests
 
 AZ_UNIT_TEST_HOOK(DEFAULT_UNIT_TEST_ENV);
