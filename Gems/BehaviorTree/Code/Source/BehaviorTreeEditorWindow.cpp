@@ -39,6 +39,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSaveFile>
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QSplitter>
@@ -499,18 +500,32 @@ namespace BehaviorTree
             return false;
         }
 
-        QFile file(path);
-        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        QSaveFile file(path);
+        if (!file.open(QIODevice::WriteOnly))
         {
-            QMessageBox::critical(this, "Save failed", file.errorString());
+            const QString error = file.errorString();
+            file.cancelWriting();
+            QMessageBox::critical(this, "Save failed", error);
             return false;
         }
+
         const AZStd::string json = BehaviorTreeWriter::Write(m_definition);
-        if (file.write(json.c_str(), aznumeric_cast<qint64>(json.size())) < 0)
+        const qint64 jsonSize = aznumeric_cast<qint64>(json.size());
+        if (file.write(json.c_str(), jsonSize) != jsonSize)
         {
-            QMessageBox::critical(this, "Save failed", file.errorString());
+            const QString error = file.errorString();
+            file.cancelWriting();
+            QMessageBox::critical(this, "Save failed", error);
             return false;
         }
+        if (!file.commit())
+        {
+            const QString error = file.errorString();
+            file.cancelWriting();
+            QMessageBox::critical(this, "Save failed", error);
+            return false;
+        }
+
         m_filePath = path.toUtf8().constData();
         SetDirty(false);
         Validate();
