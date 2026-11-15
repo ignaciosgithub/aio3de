@@ -650,6 +650,7 @@ namespace BehaviorTree
             if (!m_hasPath || tick.m_time >= m_nextRepathTime)
             {
                 m_movePath = tick.m_context.FindPath(position, target);
+                m_pathGoal = target;
                 m_waypointIndex = 0;
                 m_hasPath = !m_movePath.empty();
                 m_nextRepathTime = tick.m_time + AZStd::max(GetFloat("repathInterval", 0.5f), 0.0f);
@@ -669,6 +670,11 @@ namespace BehaviorTree
                 position.GetDistance(m_movePath[m_waypointIndex]) <= AZStd::max(acceptanceRadius, 0.25f) &&
                 position.GetDistance(target) > acceptanceRadius)
             {
+                if (target.GetDistance(m_pathGoal) > acceptanceRadius)
+                {
+                    m_hasPath = false;
+                    return NodeStatus::Running;
+                }
                 tick.m_context.StopMoving();
                 m_hasPath = false;
                 return NodeStatus::Failure;
@@ -725,6 +731,7 @@ namespace BehaviorTree
         m_started = false;
         m_hasPath = false;
         m_movePath.clear();
+        m_pathGoal = AZ::Vector3::CreateZero();
         m_waypointIndex = 0;
         AZStd::fill(m_parallelStatuses.begin(), m_parallelStatuses.end(), NodeStatus::Running);
     }
@@ -746,6 +753,7 @@ namespace BehaviorTree
             m_started = false;
             m_hasPath = false;
             m_movePath.clear();
+            m_pathGoal = AZ::Vector3::CreateZero();
             m_waypointIndex = 0;
             AZStd::fill(m_parallelStatuses.begin(), m_parallelStatuses.end(), NodeStatus::Running);
         }

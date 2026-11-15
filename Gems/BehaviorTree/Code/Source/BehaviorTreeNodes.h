@@ -63,6 +63,7 @@ namespace BehaviorTree
         bool m_started = false;
         bool m_hasPath = false;
         AZStd::vector<AZ::Vector3> m_movePath;
+        AZ::Vector3 m_pathGoal = AZ::Vector3::CreateZero();
         size_t m_waypointIndex = 0;
     };
 } // namespace BehaviorTree

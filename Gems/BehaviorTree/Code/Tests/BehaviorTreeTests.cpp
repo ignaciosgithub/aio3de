@@ -31,6 +31,10 @@ namespace BehaviorTree::Tests
             {
                 return {};
             }
+            if (m_pathCalls > 1 && !m_repathPath.empty())
+            {
+                return m_repathPath;
+            }
             return m_customPath.empty() ? AZStd::vector<AZ::Vector3>{ from, to } : m_customPath;
         }
         void MoveToward(const AZ::Vector3& direction, float speed) override
@@ -71,6 +75,7 @@ namespace BehaviorTree::Tests
 
         AZ::Vector3 m_position = AZ::Vector3::CreateZero();
         AZStd::vector<AZ::Vector3> m_customPath;
+        AZStd::vector<AZ::Vector3> m_repathPath;
         AZStd::unordered_map<AZStd::string, AZStd::vector<int>> m_actionResults;
         AZStd::unordered_map<AZStd::string, AZStd::vector<bool>> m_conditionResults;
         AZStd::unordered_map<AZ::EntityId, AZ::Vector3> m_entityPositions;
@@ -468,6 +473,26 @@ namespace BehaviorTree::Tests
         EXPECT_TRUE(context.m_position.IsClose(AZ::Vector3(2.0f, 0.0f, 0.0f)));
         EXPECT_EQ(context.m_pathCalls, 1);
         EXPECT_EQ(context.m_stopCalls, 1);
+    }
+
+    TEST(BehaviorTreeRuntime, MoveToRepathsWhenEntityTargetMovesBeyondOldEndpoint)
+    {
+        MockContext context;
+        const AZ::EntityId targetEntity(7);
+        context.m_entityPositions[targetEntity] = AZ::Vector3(4.0f, 0.0f, 0.0f);
+        context.m_customPath = { AZ::Vector3::CreateZero(), AZ::Vector3(2.0f, 0.0f, 0.0f) };
+        context.m_repathPath = { AZ::Vector3(2.0f, 0.0f, 0.0f), AZ::Vector3(6.0f, 0.0f, 0.0f) };
+        context.m_moveDeltaTime = 0.5f;
+        TreeInstance tree(ParseTree(
+            R"({"blackboard":{"target":{"type":"entity","value":7}},"root":{"type":"MoveTo","targetKey":"target","speed":4.0,"acceptanceRadius":0.1,"repathInterval":100.0}})"));
+
+        EXPECT_EQ(tree.Tick(0.5f, context), NodeStatus::Running);
+        context.m_entityPositions[targetEntity] = AZ::Vector3(6.0f, 0.0f, 0.0f);
+        EXPECT_EQ(tree.Tick(0.5f, context), NodeStatus::Running);
+        EXPECT_EQ(context.m_pathCalls, 1);
+        EXPECT_EQ(tree.Tick(0.5f, context), NodeStatus::Running);
+        EXPECT_EQ(context.m_pathCalls, 2);
+        EXPECT_EQ(context.m_stopCalls, 0);
     }
 } // namespace BehaviorTree::Tests
 
