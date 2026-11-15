@@ -55,7 +55,7 @@ void FsrEasuSetF(inout float2 dir, inout float len, float2 pp, bool biS, bool bi
 
     float dc = lD - lC;
     float cb = lC - lB;
-    float lenX = rcp(max(abs(dc), abs(cb)));
+    float lenX = rcp(max(max(abs(dc), abs(cb)), 1.0 / 32768.0));
     float dirX = lD - lB;
     dir.x += dirX * w;
     lenX = saturate(abs(dirX) * lenX);
@@ -63,7 +63,7 @@ void FsrEasuSetF(inout float2 dir, inout float len, float2 pp, bool biS, bool bi
 
     float ec = lE - lC;
     float ca = lC - lA;
-    float lenY = rcp(max(abs(ec), abs(ca)));
+    float lenY = rcp(max(max(abs(ec), abs(ca)), 1.0 / 32768.0));
     float dirY = lE - lA;
     dir.y += dirY * w;
     lenY = saturate(abs(dirY) * lenY);

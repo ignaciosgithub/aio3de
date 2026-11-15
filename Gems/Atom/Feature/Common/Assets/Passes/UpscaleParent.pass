@@ -65,13 +65,6 @@
                                 "Pass": "Parent",
                                 "Attachment": "InputColor"
                             }
-                        },
-                        {
-                            "LocalSlot": "PipelineOutput",
-                            "AttachmentRef": {
-                                "Pass": "Parent",
-                                "Attachment": "PipelineOutput"
-                            }
                         }
                     ]
                 },
