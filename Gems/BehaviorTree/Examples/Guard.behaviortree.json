@@ -1,0 +1,33 @@
+{
+    "version": 1,
+    "blackboard": {
+        "alert": { "type": "bool", "value": false },
+        "target": { "type": "entity" },
+        "patrolPoint": { "type": "vector3", "value": [0, 0, 0] }
+    },
+    "root": {
+        "type": "Selector",
+        "name": "Guard",
+        "reactive": true,
+        "children": [
+            {
+                "type": "Sequence",
+                "children": [
+                    { "type": "CheckBlackboard", "key": "alert", "op": "IsTrue" },
+                    { "type": "MoveTo", "targetKey": "target", "acceptanceRadius": 1.0, "speed": 4.0 }
+                ]
+            },
+            {
+                "type": "Sequence",
+                "children": [
+                    { "type": "SetBlackboard", "key": "patrolPoint", "valueType": "vector3", "value": "0,0,0" },
+                    { "type": "MoveTo", "targetKey": "patrolPoint" },
+                    { "type": "Wait", "seconds": 1.0 },
+                    { "type": "SetBlackboard", "key": "patrolPoint", "valueType": "vector3", "value": "8,0,0" },
+                    { "type": "MoveTo", "targetKey": "patrolPoint" },
+                    { "type": "Wait", "seconds": 1.0 }
+                ]
+            }
+        ]
+    }
+}
