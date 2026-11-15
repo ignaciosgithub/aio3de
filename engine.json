@@ -111,6 +111,7 @@
         "Gems/VideoPlaybackFramework",
         "Gems/VideoTexture",
         "Gems/VirtualGamepad",
+        "Gems/WorldPartition",
         "Gems/WhiteBox"
     ],
     "gem_names": [

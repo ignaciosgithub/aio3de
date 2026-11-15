@@ -1,0 +1,11 @@
+set(FILES
+    Source/WorldPartitionComponent.cpp
+    Source/WorldPartitionComponent.h
+    Source/WorldPartitionPolicyComponent.cpp
+    Source/WorldPartitionPolicyComponent.h
+    Source/WorldPartitionStreamingSourceComponent.cpp
+    Source/WorldPartitionStreamingSourceComponent.h
+    Source/WorldPartitionStreamingPlanner.cpp
+    Source/WorldPartitionSystemComponent.cpp
+    Source/WorldPartitionSystemComponent.h
+)

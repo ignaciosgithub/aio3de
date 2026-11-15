@@ -1,0 +1,33 @@
+{
+    "Amazon":
+    {
+        "Tools":
+        {
+            "Prefab":
+            {
+                "Processing":
+                {
+                    "Stack":
+                    {
+                        "PlayInEditor":
+                        {
+                            "WorldPartition":
+                            {
+                                "$type": "WorldPartition::WorldPartitionPrefabProcessor",
+                                "$stack_before": "Prefab catchment"
+                            }
+                        },
+                        "GameObjectCreation":
+                        {
+                            "WorldPartition":
+                            {
+                                "$type": "WorldPartition::WorldPartitionPrefabProcessor",
+                                "$stack_before": "Prefab catchment"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

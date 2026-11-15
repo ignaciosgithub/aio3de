@@ -69,6 +69,7 @@
         "TestAssetBuilder",
         "TextureAtlas",
         "Vegetation",
-        "WhiteBox"
+        "WhiteBox",
+        "WorldPartition"
     ]
 }

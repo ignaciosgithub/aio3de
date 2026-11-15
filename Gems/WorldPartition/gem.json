@@ -1,0 +1,12 @@
+{
+    "gem_name": "WorldPartition",
+    "version": "0.1.0",
+    "display_name": "World Partition",
+    "license": "Apache-2.0 Or MIT",
+    "origin": "aio3de",
+    "type": "Code",
+    "summary": "Grid-based level entity streaming with prefab-backed cells.",
+    "canonical_tags": ["Gem"],
+    "user_tags": ["World", "Streaming"],
+    "dependencies": []
+}
