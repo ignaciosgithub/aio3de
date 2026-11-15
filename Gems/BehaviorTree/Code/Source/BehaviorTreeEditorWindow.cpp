@@ -370,13 +370,24 @@ namespace BehaviorTree
         {
             bool accepted = false;
             const QString key = QInputDialog::getText(this, "Add blackboard key", "Key name:", QLineEdit::Normal, {}, &accepted);
-            if (accepted && !key.trimmed().isEmpty())
+            const QString baseKey = key.trimmed();
+            if (accepted && !baseKey.isEmpty())
             {
+                QString uniqueKey = baseKey;
+                AZStd::string blackboardKey = uniqueKey.toUtf8().constData();
+                for (uint32_t suffix = 1;
+                    m_definition.m_blackboard.find(blackboardKey) != m_definition.m_blackboard.end();
+                    ++suffix)
+                {
+                    uniqueKey = baseKey + QString::number(suffix);
+                    blackboardKey = uniqueKey.toUtf8().constData();
+                }
+
                 BlackboardEntry entry;
                 entry.m_type = BlackboardType::Float;
                 entry.m_value = 0.0f;
                 entry.m_hasExplicitValue = true;
-                m_definition.m_blackboard.insert_or_assign(key.toUtf8().constData(), entry);
+                m_definition.m_blackboard.emplace(blackboardKey, entry);
                 RebuildBlackboard();
                 SetDirty(true);
             }
@@ -858,6 +869,11 @@ namespace BehaviorTree
             const QString valueText = m_blackboardTable->item(row, 2)->text();
             BlackboardEntry entry;
             const AZStd::string key = keyText.toUtf8().constData();
+            if (!key.empty() && entries.find(key) != entries.end())
+            {
+                m_blackboardEditorError = AZStd::string::format("blackboard.%s: duplicate key", key.c_str());
+                continue;
+            }
             if (key.empty() || !ParseBlackboardType(typeText.toUtf8().constData(), entry.m_type))
             {
                 m_blackboardEditorError = AZStd::string::format("blackboard row %d: invalid key or type", row + 1);
@@ -885,7 +901,7 @@ namespace BehaviorTree
                     continue;
                 }
             }
-            entries.insert_or_assign(key, AZStd::move(entry));
+            entries.emplace(key, AZStd::move(entry));
         }
         m_definition.m_blackboard = AZStd::move(entries);
         RebuildRuntimeBlackboard();
