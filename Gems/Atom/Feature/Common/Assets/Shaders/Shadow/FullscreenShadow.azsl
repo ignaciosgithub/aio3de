@@ -116,26 +116,30 @@ option enum class MsaaMode { MsaaNone, Msaa2x, Msaa4x, Msaa8x, Msaa16x } o_msaaM
     const float2 screenUV  = IN.m_texCoord.xy + centerOffset;      // The UV value [0, 1] of the screen pixel
 #endif
 
-    // Do 2 depth gather ops to get 5 depth values (cross centered on pixel being shaded). Reminder that gather is laid out like so:
-    //  W Z
-    //  X Y
-    float4 depthUpLeft = PassSrg::m_depthLinear.Gather(PassSrg::PointSampler, screenUV - pixelSamplePosition);
-    float4 depthBottomRight = PassSrg::m_depthLinear.Gather(PassSrg::PointSampler, screenUV + pixelSamplePosition);
+    // Load exact texels: a Gather at a texel center has an ambiguous 2x2 footprint, which caused horizontal shadow bands.
+    const int2 depthSize = int2(PassSrg::m_constantData.m_screenSize.xy);
+    const int2 maxCoord = depthSize - 1;
+    const int2 depthCoord = int2(screenPos);
+    const float depthCenter = PassSrg::m_depthLinear.Load(int3(depthCoord, 0)).r;
+    const float depthLeft = PassSrg::m_depthLinear.Load(int3(clamp(depthCoord + int2(-1, 0), 0, maxCoord), 0)).r;
+    const float depthRight = PassSrg::m_depthLinear.Load(int3(clamp(depthCoord + int2(1, 0), 0, maxCoord), 0)).r;
+    const float depthUp = PassSrg::m_depthLinear.Load(int3(clamp(depthCoord + int2(0, -1), 0, maxCoord), 0)).r;
+    const float depthDown = PassSrg::m_depthLinear.Load(int3(clamp(depthCoord + int2(0, 1), 0, maxCoord), 0)).r;
 
-    float3 positionVS = ViewSrg::GetViewSpacePosition(screenUV, depthUpLeft.y);
+    float3 positionVS = ViewSrg::GetViewSpacePosition(screenUV, depthCenter);
 
     float3 diffX;
     {
-        float3 positionLeft  = ViewSrg::GetViewSpacePosition( float2(screenUV.x - pixelSize.x, screenUV.y), depthUpLeft.x);
-        float3 positionRight = ViewSrg::GetViewSpacePosition( float2(screenUV.x + pixelSize.x, screenUV.y), depthBottomRight.z);
+        float3 positionLeft  = ViewSrg::GetViewSpacePosition( float2(screenUV.x - pixelSize.x, screenUV.y), depthLeft);
+        float3 positionRight = ViewSrg::GetViewSpacePosition( float2(screenUV.x + pixelSize.x, screenUV.y), depthRight);
         float3 diffLeft = positionVS - positionLeft;
         float3 diffRight = positionRight - positionVS;
         diffX = (abs(diffLeft.z) < abs(diffRight.z)) ? diffLeft : diffRight;
     }
     float3 diffY;
     {
-        float3 positionUp   = ViewSrg::GetViewSpacePosition( float2(screenUV.x, screenUV.y - pixelSize.y), depthUpLeft.z);
-        float3 positionDown = ViewSrg::GetViewSpacePosition( float2(screenUV.x, screenUV.y + pixelSize.y), depthBottomRight.x);
+        float3 positionUp   = ViewSrg::GetViewSpacePosition( float2(screenUV.x, screenUV.y - pixelSize.y), depthUp);
+        float3 positionDown = ViewSrg::GetViewSpacePosition( float2(screenUV.x, screenUV.y + pixelSize.y), depthDown);
         float3 diffUp = positionVS - positionUp;
         float3 diffDown = positionDown - positionVS;
         diffY = (abs(diffUp.z) < abs(diffDown.z)) ? diffUp : diffDown;
