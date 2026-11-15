@@ -14,10 +14,6 @@
                     "ScopeAttachmentUsage": "Shader"
                 },
                 {
-                    "Name": "PipelineOutput",
-                    "SlotType": "Input"
-                },
-                {
                     "Name": "Output",
                     "ShaderInputName": "m_outputColor",
                     "SlotType": "Output",
