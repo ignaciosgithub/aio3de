@@ -970,6 +970,27 @@ Query from Lua / Script Canvas via `VoxelNavRequestBus.Broadcast.FindPath(start,
 feet positions. Ready-made followers: `Gems/VoxelNav/Examples/PathFollower.lua` and
 `Gems/CSharpScripting/Examples/PathFollower.cs`. Details: `Gems/VoxelNav/README.md`.
 
+### 14.2 Behavior trees (BehaviorTree gem)
+
+The `BehaviorTree` gem runs data-driven AI trees from `.behaviortree.json`
+files. Enable it alongside `VoxelNav`, add the **Behavior Tree** component from
+the **AI** category, and assign a project-relative tree file. The
+**Behavior Tree Editor** is available from **Tools** and from the component's
+**Open in Behavior Tree Editor** button. Its tree outline, schema property form,
+blackboard table, and validation pane use the same `NodeRegistry` as the runtime
+parser; runtime node paths and blackboard values are polled at 10 Hz during
+game mode.
+
+The runtime provides Sequence, Selector, Parallel, decorators, Wait, typed
+blackboard checks and updates, scriptable Action and Condition nodes, Log, and
+VoxelNav-backed MoveTo. Implement `BehaviorTreeActionNotificationBus` in Lua
+or Script Canvas for custom actions and conditions; `BehaviorTreeRequestBus`
+provides blackboard access and runtime control. There is no C# hook, and the
+Editor is an outline rather than a node-graph canvas. MoveTo requires a
+VoxelNav volume. Without a Physics character controller, movement uses
+TransformBus without collision resolution. See `Gems/BehaviorTree/README.md`
+and its Guard example.
+
 ## 15. The example game: Arena Shooter
 
 The fork ships a complete example game in three gems, built in layers so each
