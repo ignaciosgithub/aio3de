@@ -447,6 +447,28 @@ namespace BehaviorTree::Tests
         EXPECT_TRUE(context.m_position.IsClose(AZ::Vector3(0.6f, 0.0f, 0.0f)));
         EXPECT_EQ(tree.Tick(0.25f, context), NodeStatus::Success);
     }
+
+    TEST(BehaviorTreeRuntime, MoveToFailsAtSnappedPathEndpointOutsideAcceptanceRadius)
+    {
+        MockContext context;
+        context.m_customPath = { AZ::Vector3::CreateZero(), AZ::Vector3(2.0f, 0.0f, 0.0f) };
+        context.m_moveDeltaTime = 0.5f;
+        TreeInstance tree(ParseTree(
+            R"({"blackboard":{"target":{"type":"vector3","value":[4,0,0]}},"root":{"type":"MoveTo","targetKey":"target","speed":4.0,"acceptanceRadius":0.1,"repathInterval":100.0}})"));
+
+        NodeStatus status = NodeStatus::Running;
+        int tickCount = 0;
+        for (; tickCount < 3 && status == NodeStatus::Running; ++tickCount)
+        {
+            status = tree.Tick(0.5f, context);
+        }
+
+        EXPECT_EQ(status, NodeStatus::Failure);
+        EXPECT_LE(tickCount, 3);
+        EXPECT_TRUE(context.m_position.IsClose(AZ::Vector3(2.0f, 0.0f, 0.0f)));
+        EXPECT_EQ(context.m_pathCalls, 1);
+        EXPECT_EQ(context.m_stopCalls, 1);
+    }
 } // namespace BehaviorTree::Tests
 
 AZ_UNIT_TEST_HOOK(DEFAULT_UNIT_TEST_ENV);

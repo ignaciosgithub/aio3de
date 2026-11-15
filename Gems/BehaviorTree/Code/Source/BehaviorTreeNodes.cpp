@@ -665,6 +665,14 @@ namespace BehaviorTree
             {
                 ++m_waypointIndex;
             }
+            if (m_waypointIndex + 1 == m_movePath.size() &&
+                position.GetDistance(m_movePath[m_waypointIndex]) <= AZStd::max(acceptanceRadius, 0.25f) &&
+                position.GetDistance(target) > acceptanceRadius)
+            {
+                tick.m_context.StopMoving();
+                m_hasPath = false;
+                return NodeStatus::Failure;
+            }
             const AZ::Vector3 direction = m_movePath[m_waypointIndex] - position;
             if (!direction.IsZero())
             {
