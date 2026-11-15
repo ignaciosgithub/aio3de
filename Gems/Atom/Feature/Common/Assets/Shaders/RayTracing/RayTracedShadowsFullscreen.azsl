@@ -87,6 +87,7 @@ ShaderResourceGroup PassSrg : SRG_PerPass
 
 // Golden angle, pi * (3 - sqrt(5)).
 #define SOFT_SHADOW_GOLDEN_ANGLE 2.39996323f
+static const float BackfaceSkipCosine = -0.05f;
 
 // Mirrors AZ::ComputeSoftShadowRayDirection: Vogel disk point of radius tanAngularRadius around n.
 void OrthonormalBasis(float3 n, out float3 tangent, out float3 bitangent)
@@ -203,6 +204,14 @@ float LocalLightVisibility(LocalShadowLight light, float3 position, float rotati
     return 1.0f - float(hits) / float(sampleCount);
 }
 
+float3 ReconstructWorldPosition(float2 uv, float depth)
+{
+    const float2 ndc = float2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
+    float4 worldPos = mul(ViewSrg::m_viewProjectionInverseMatrix, float4(ndc, depth, 1.0f));
+    worldPos /= worldPos.w;
+    return worldPos.xyz;
+}
+
 PSOutput MainPS(VSOutput IN)
 {
     PSOutput OUT;
@@ -219,12 +228,83 @@ PSOutput MainPS(VSOutput IN)
 
     // Reconstruct the world position from the depth buffer.
     const float2 uv = IN.m_texCoord;
-    const float2 ndc = float2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
-    float4 worldPos = mul(ViewSrg::m_viewProjectionInverseMatrix, float4(ndc, depth, 1.0f));
-    worldPos /= worldPos.w;
+    uint depthWidth;
+    uint depthHeight;
+    PassSrg::m_depth.GetDimensions(depthWidth, depthHeight);
+    const int2 maxPixel = int2(depthWidth, depthHeight) - 1;
+    const float3 position = ReconstructWorldPosition(uv, depth);
+    const float2 pixelSize = rcp(float2(depthWidth, depthHeight));
+    const float2 uvMin = 0.5f * pixelSize;
+    const float2 uvMax = 1.0f - uvMin;
+    const int2 leftPixel = clamp(pixel + int2(-1, 0), 0, maxPixel);
+    const int2 rightPixel = clamp(pixel + int2(1, 0), 0, maxPixel);
+    const int2 upPixel = clamp(pixel + int2(0, -1), 0, maxPixel);
+    const int2 downPixel = clamp(pixel + int2(0, 1), 0, maxPixel);
+    const float depthLeft = PassSrg::m_depth.Load(int3(leftPixel, 0)).r;
+    const float depthRight = PassSrg::m_depth.Load(int3(rightPixel, 0)).r;
+    const float depthUp = PassSrg::m_depth.Load(int3(upPixel, 0)).r;
+    const float depthDown = PassSrg::m_depth.Load(int3(downPixel, 0)).r;
+
+    float3 diffX = 0.0f;
+    if (depthLeft > 0.0f && depthRight > 0.0f)
+    {
+        const float3 positionLeft = ReconstructWorldPosition(
+            clamp(uv - float2(pixelSize.x, 0.0f), uvMin, uvMax), depthLeft);
+        const float3 positionRight = ReconstructWorldPosition(
+            clamp(uv + float2(pixelSize.x, 0.0f), uvMin, uvMax), depthRight);
+        diffX = abs(depth - depthLeft) < abs(depthRight - depth) ? position - positionLeft : positionRight - position;
+    }
+    else if (depthLeft > 0.0f)
+    {
+        const float3 positionLeft = ReconstructWorldPosition(
+            clamp(uv - float2(pixelSize.x, 0.0f), uvMin, uvMax), depthLeft);
+        diffX = position - positionLeft;
+    }
+    else if (depthRight > 0.0f)
+    {
+        const float3 positionRight = ReconstructWorldPosition(
+            clamp(uv + float2(pixelSize.x, 0.0f), uvMin, uvMax), depthRight);
+        diffX = positionRight - position;
+    }
+
+    float3 diffY = 0.0f;
+    if (depthUp > 0.0f && depthDown > 0.0f)
+    {
+        const float3 positionUp = ReconstructWorldPosition(
+            clamp(uv - float2(0.0f, pixelSize.y), uvMin, uvMax), depthUp);
+        const float3 positionDown = ReconstructWorldPosition(
+            clamp(uv + float2(0.0f, pixelSize.y), uvMin, uvMax), depthDown);
+        const float3 deltaUp = position - positionUp;
+        const float3 deltaDown = positionDown - position;
+        diffY = abs(depth - depthUp) < abs(depthDown - depth) ? deltaUp : deltaDown;
+    }
+    else if (depthUp > 0.0f)
+    {
+        const float3 positionUp = ReconstructWorldPosition(
+            clamp(uv - float2(0.0f, pixelSize.y), uvMin, uvMax), depthUp);
+        diffY = position - positionUp;
+    }
+    else if (depthDown > 0.0f)
+    {
+        const float3 positionDown = ReconstructWorldPosition(
+            clamp(uv + float2(0.0f, pixelSize.y), uvMin, uvMax), depthDown);
+        diffY = positionDown - position;
+    }
+
+    const float3 unnormalizedNormal = cross(diffX, diffY);
+    const float normalLengthSquared = dot(unnormalizedNormal, unnormalizedNormal);
+    bool hasGeometricNormal = normalLengthSquared > 1.0e-8f;
+    float3 geometricNormal = float3(0.0f, 0.0f, 0.0f);
+    if (hasGeometricNormal)
+    {
+        geometricNormal = normalize(unnormalizedNormal);
+        if (dot(geometricNormal, ViewSrg::m_worldPosition - position) < 0.0f)
+        {
+            geometricNormal = -geometricNormal;
+        }
+    }
 
     const float3 toLight = normalize(PassSrg::m_toLight);
-    const float3 position = worldPos.xyz;
     const float tMax = PassSrg::m_maxDistance;
     const float bias = PassSrg::m_rayBias;
 
@@ -237,7 +317,11 @@ PSOutput MainPS(VSOutput IN)
     {
         float visibility;
         const uint sampleCount = PassSrg::m_sampleCount;
-        if (sampleCount <= 1u || PassSrg::m_tanAngularRadius <= 0.0f)
+        if (hasGeometricNormal && dot(geometricNormal, toLight) < BackfaceSkipCosine)
+        {
+            visibility = 0.0f;
+        }
+        else if (sampleCount <= 1u || PassSrg::m_tanAngularRadius <= 0.0f)
         {
             visibility = TraverseAnyHit(position + toLight * bias, toLight, tMax) ? 0.0f : 1.0f;
         }
@@ -281,7 +365,11 @@ PSOutput MainPS(VSOutput IN)
         if (weight > 0.0f)
         {
             totalWeight += weight;
-            visibleWeight += weight * LocalLightVisibility(light, position, rotation);
+            const float3 toLocalLight = normalize(light.m_position - position);
+            const float localVisibility = hasGeometricNormal && dot(geometricNormal, toLocalLight) < BackfaceSkipCosine
+                ? 0.0f
+                : LocalLightVisibility(light, position, rotation);
+            visibleWeight += weight * localVisibility;
         }
     }
     const float visibility = totalWeight > 0.0f ? visibleWeight / totalWeight : 1.0f;

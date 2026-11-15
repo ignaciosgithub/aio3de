@@ -105,22 +105,29 @@ void UpdateProbe(uint slot, uint3 localCell, int3 worldCell, uint logicalIndex)
             const float3 v2 = PassSrg::m_triangleVertices[3u * hit.triangleSlot + 2u].xyz;
             const float3 crossNormal = cross(v1 - v0, v2 - v0);
             const float3 hitNormal = dot(crossNormal, crossNormal) > 1.0e-20f ? normalize(crossNormal) : float3(0.0f, 0.0f, 0.0f);
-            const float3 hitPosition = probePosition + direction * hit.t;
-            const float3 toLight = -PassSrg::m_sunDirection;
-            const bool hasSun = dot(PassSrg::m_sunIlluminanceOverPi, PassSrg::m_sunIlluminanceOverPi) > 0.0f;
-            const bool sunVisible = !hasSun || !TraverseAnyHit(
-                hitPosition + hitNormal * (0.01f * PassSrg::m_probeSpacing), toLight, 1000000.0f);
-            const float4 bounceSample = SampleProbeGrid(
-            PassSrg::m_gridOrigin, PassSrg::m_probeSpacing, uint3(PassSrg::m_gridDims), hitPosition, hitNormal);
-            const float3 bounce = bounceSample.rgb * bounceSample.a;
-            radiance = ShadeProbeRayHit(
-                DecodeTriangleAlbedo(PassSrg::m_triangleAlbedo[hit.primitiveId]),
-                hitNormal,
-                direction,
-                PassSrg::m_sunDirection,
-                PassSrg::m_sunIlluminanceOverPi,
-                sunVisible,
-                bounce);
+            if (dot(hitNormal, direction) <= 0.0f)
+            {
+                const float3 hitPosition = probePosition + direction * hit.t;
+                const float3 toLight = -PassSrg::m_sunDirection;
+                const bool hasSun = dot(PassSrg::m_sunIlluminanceOverPi, PassSrg::m_sunIlluminanceOverPi) > 0.0f;
+                bool sunVisible = true;
+                if (hasSun && dot(hitNormal, toLight) > 0.0f)
+                {
+                    sunVisible = !TraverseAnyHit(
+                        hitPosition + hitNormal * (0.01f * PassSrg::m_probeSpacing), toLight, 1000000.0f);
+                }
+                const float4 bounceSample = SampleProbeGrid(
+                    PassSrg::m_gridOrigin, PassSrg::m_probeSpacing, uint3(PassSrg::m_gridDims), hitPosition, hitNormal);
+                const float3 bounce = bounceSample.rgb * bounceSample.a;
+                radiance = ShadeProbeRayHit(
+                    DecodeTriangleAlbedo(PassSrg::m_triangleAlbedo[hit.primitiveId]),
+                    hitNormal,
+                    direction,
+                    PassSrg::m_sunDirection,
+                    PassSrg::m_sunIlluminanceOverPi,
+                    sunVisible,
+                    bounce);
+            }
         }
         else
         {
