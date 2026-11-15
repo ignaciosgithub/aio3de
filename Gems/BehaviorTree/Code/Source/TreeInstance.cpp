@@ -63,6 +63,7 @@ namespace BehaviorTree
     void TreeInstance::Restart(TreeContext& context)
     {
         m_root->Reset(context);
+        m_root->ClearCooldowns();
         m_elapsed = 0.0f;
         m_finalStatus = NodeStatus::Running;
         m_running = true;

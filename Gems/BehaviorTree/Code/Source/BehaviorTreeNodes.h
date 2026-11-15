@@ -34,6 +34,7 @@ namespace BehaviorTree
         NodeStatus Tick(NodeTick& tick);
         void Abort(TreeContext& context);
         void Reset(TreeContext& context);
+        void ClearCooldowns();
         void CollectActiveNodePaths(AZStd::vector<AZStd::string>& paths) const;
 
     private:

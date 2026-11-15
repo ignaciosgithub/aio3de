@@ -246,6 +246,19 @@ namespace BehaviorTree::Tests
         EXPECT_EQ(context.m_actionAborts["long"], 1);
     }
 
+    TEST(BehaviorTreeRuntime, RestartClearsCooldown)
+    {
+        MockContext context;
+        TreeInstance cooldown(ParseTree(
+            R"({"root":{"type":"Cooldown","seconds":5.0,"children":[{"type":"Action","name":"done"}]}})"));
+        EXPECT_EQ(cooldown.Tick(0.1f, context), NodeStatus::Success);
+        EXPECT_EQ(context.m_actionTicks["done"], 1);
+
+        cooldown.Restart(context);
+        EXPECT_EQ(cooldown.Tick(0.1f, context), NodeStatus::Success);
+        EXPECT_EQ(context.m_actionTicks["done"], 2);
+    }
+
     TEST(BehaviorTreeRuntime, WaitIsDeterministicForEqualSeeds)
     {
         const BehaviorTreeDefinition definition = ParseTree(R"({"root":{"type":"Wait","seconds":1.0,"randomDeviation":0.25}})");

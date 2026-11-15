@@ -740,6 +740,15 @@ namespace BehaviorTree
         }
     }
 
+    void RuntimeNode::ClearCooldowns()
+    {
+        m_cooldownUntil = 0.0f;
+        for (AZStd::unique_ptr<RuntimeNode>& child : m_children)
+        {
+            child->ClearCooldowns();
+        }
+    }
+
     void RuntimeNode::CollectActiveNodePaths(AZStd::vector<AZStd::string>& paths) const
     {
         if (m_lastStatus == NodeStatus::Running)
