@@ -202,6 +202,80 @@ namespace UnitTest
         }
     }
 
+    TEST(MATH_RayTracingBvh, MatchesBruteForceAcrossLargeRandomScenes)
+    {
+        constexpr uint32_t Seeds[] = { 1234u, 5678u, 9012u };
+        constexpr uint32_t TriangleCounts[] = { 1024u, 4096u, 16384u };
+        constexpr uint32_t RayCount = 10000;
+        constexpr float TMax = 500.0f;
+        std::uniform_real_distribution<float> pos(-50.0f, 50.0f);
+        std::uniform_real_distribution<float> originPos(-100.0f, 100.0f);
+        std::uniform_real_distribution<float> size(0.5f, 6.0f);
+        std::uniform_real_distribution<float> dirDist(-1.0f, 1.0f);
+
+        for (uint32_t seed : Seeds)
+        {
+            std::mt19937 rng(seed);
+            for (uint32_t triangleCount : TriangleCounts)
+            {
+                AZStd::vector<BvhTriangle> triangles;
+                triangles.reserve(triangleCount);
+                for (uint32_t i = 0; i < triangleCount; ++i)
+                {
+                    const Vector3 base(pos(rng), pos(rng), pos(rng));
+                    triangles.push_back(
+                        { base,
+                          base + Vector3(size(rng), dirDist(rng), dirDist(rng)),
+                          base + Vector3(dirDist(rng), size(rng), dirDist(rng)) });
+                }
+
+                RayTracingBvh bvh;
+                bvh.Build(triangles);
+
+                std::uniform_int_distribution<uint32_t> targetTriangle(0, triangleCount - 1);
+                uint32_t hitCount = 0;
+                for (uint32_t rayIndex = 0; rayIndex < RayCount; ++rayIndex)
+                {
+                    Vector3 origin(originPos(rng), originPos(rng), originPos(rng));
+                    Vector3 direction;
+                    if ((rayIndex & 1u) == 0)
+                    {
+                        const BvhTriangle& triangle = triangles[targetTriangle(rng)];
+                        const Vector3 target = (triangle.m_v0 + triangle.m_v1 + triangle.m_v2) * (1.0f / 3.0f);
+                        if ((target - origin).GetLength() < 1.0e-3f)
+                        {
+                            origin += Vector3(0.0f, 0.0f, 10.0f);
+                        }
+                        direction = (target - origin).GetNormalizedSafe();
+                    }
+                    else
+                    {
+                        direction = Vector3(dirDist(rng), dirDist(rng), dirDist(rng));
+                        if (direction.GetLength() < 1.0e-3f)
+                        {
+                            direction = Vector3(0.0f, 0.0f, 1.0f);
+                        }
+                        direction = direction.GetNormalizedSafe();
+                    }
+
+                    const BvhRayHit bvhHit = bvh.IntersectClosest(origin, direction, TMax);
+                    const BvhRayHit refHit = BruteForceClosest(triangles, origin, direction, TMax);
+                    ASSERT_EQ(bvhHit.m_hit, refHit.m_hit)
+                        << "hit mismatch, seed " << seed << ", triangles " << triangleCount << ", ray " << rayIndex;
+                    if (refHit.m_hit)
+                    {
+                        ++hitCount;
+                        ASSERT_EQ(bvhHit.m_t, refHit.m_t)
+                            << "t mismatch, seed " << seed << ", triangles " << triangleCount << ", ray " << rayIndex;
+                    }
+                    EXPECT_EQ(refHit.m_hit, bvh.IntersectAny(origin, direction, TMax))
+                        << "any-hit mismatch, seed " << seed << ", triangles " << triangleCount << ", ray " << rayIndex;
+                }
+                EXPECT_GT(hitCount, 0u) << "expected hits for seed " << seed << ", triangles " << triangleCount;
+            }
+        }
+    }
+
     TEST(MATH_RayTracingBvh, ChildNodesAreContiguousAndLeavesCoverAllTriangles)
     {
         std::mt19937 rng(99u);
