@@ -475,6 +475,20 @@ namespace BehaviorTree::Tests
         EXPECT_EQ(context.m_stopCalls, 1);
     }
 
+    TEST(BehaviorTreeRuntime, MoveToReachesTargetWithSmallAcceptanceRadius)
+    {
+        MockContext context;
+        context.m_moveDeltaTime = 0.4f;
+        TreeInstance tree(ParseTree(
+            R"({"blackboard":{"target":{"type":"vector3","value":[1,0,0]}},"root":{"type":"MoveTo","targetKey":"target","speed":2.0,"acceptanceRadius":0.05,"repathInterval":100.0}})"));
+
+        EXPECT_EQ(tree.Tick(0.4f, context), NodeStatus::Running);
+        EXPECT_TRUE(context.m_position.IsClose(AZ::Vector3(0.8f, 0.0f, 0.0f)));
+        EXPECT_EQ(tree.Tick(0.4f, context), NodeStatus::Running);
+        EXPECT_TRUE(context.m_position.IsClose(AZ::Vector3(1.0f, 0.0f, 0.0f)));
+        EXPECT_EQ(tree.Tick(0.4f, context), NodeStatus::Success);
+    }
+
     TEST(BehaviorTreeRuntime, MoveToRepathsWhenEntityTargetMovesBeyondOldEndpoint)
     {
         MockContext context;
