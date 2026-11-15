@@ -25,6 +25,7 @@
 #include <AzToolsFramework/Prefab/Instance/Instance.h>
 #include <AzToolsFramework/Prefab/Spawnable/PrefabDocument.h>
 #include <AzToolsFramework/Prefab/Spawnable/PrefabProcessorContext.h>
+#include <algorithm>
 #include <map>
 #include <set>
 
@@ -163,14 +164,49 @@ namespace WorldPartition
                 }
             }
             const AZ::EntityId containerId = rootInstance.GetContainerEntityId();
-            AZStd::vector<Candidate> movable;
+            AZStd::unordered_map<AZ::EntityId, AZStd::vector<AZ::EntityId>> outgoing;
+            AZStd::unordered_map<AZ::EntityId, AZStd::vector<AZ::EntityId>> incoming;
+            for (const auto& entityEntry : entities)
+            {
+                const AZ::EntityId entityId = entityEntry.first;
+                AZ::Entity* entity = entityEntry.second;
+                for (AZ::Component* component : entity->GetComponents())
+                {
+                    auto* transform = azrtti_cast<AzFramework::TransformComponent*>(component);
+                    AZ::EntityUtils::EnumerateEntityIds(
+                        component, component->RTTI_GetType(),
+                        [&, entityId, transform](const AZ::EntityId& referencedId, bool, const AZ::SerializeContext::ClassElement*)
+                        {
+                            if (!referencedId.IsValid() || referencedId == entityId ||
+                                (transform && referencedId == transform->GetParentId()))
+                            {
+                                return;
+                            }
+                            outgoing[entityId].push_back(referencedId);
+                            incoming[referencedId].push_back(entityId);
+                        });
+                }
+            }
+
+            AZStd::vector<AZ::EntityId> candidateRootIds;
+            candidateRootIds.reserve(entities.size());
             for (const auto& [id, entity] : entities)
             {
                 auto* transform = entity->FindComponent<AzFramework::TransformComponent>();
-                if (!transform || transform->GetParentId() != containerId)
+                if (transform && transform->GetParentId() == containerId)
                 {
-                    continue;
+                    candidateRootIds.push_back(id);
                 }
+            }
+            std::sort(candidateRootIds.begin(), candidateRootIds.end(), [](const AZ::EntityId& lhs, const AZ::EntityId& rhs)
+            {
+                return static_cast<AZ::u64>(lhs) < static_cast<AZ::u64>(rhs);
+            });
+
+            AZStd::vector<Candidate> movable;
+            for (AZ::EntityId id : candidateRootIds)
+            {
+                AZ::Entity* entity = entities[id];
                 Candidate candidate;
                 candidate.m_root = entity;
                 AZStd::vector<AZ::EntityId> pending{ id };
@@ -186,6 +222,10 @@ namespace WorldPartition
                         pending.insert(pending.end(), found->second.begin(), found->second.end());
                     }
                 }
+                std::sort(candidate.m_entities.begin(), candidate.m_entities.end(), [](const AZ::EntityId& lhs, const AZ::EntityId& rhs)
+                {
+                    return static_cast<AZ::u64>(lhs) < static_cast<AZ::u64>(rhs);
+                });
 
                 AZStd::string reason = "ineligible";
                 bool eligible = true;
@@ -243,29 +283,32 @@ namespace WorldPartition
                 }
                 if (eligible)
                 {
-                    for (const auto& entityEntry : entities)
+                    for (AZ::EntityId memberId : candidate.m_entities)
                     {
-                        const AZ::EntityId id = entityEntry.first;
-                        AZ::Entity* entity = entityEntry.second;
-                        for (AZ::Component* component : entity->GetComponents())
+                        if (auto references = outgoing.find(memberId); references != outgoing.end())
                         {
-                            AZ::EntityUtils::EnumerateEntityIds(component, component->RTTI_GetType(),
-                                [&](const AZ::EntityId& referencedId, bool, const AZ::SerializeContext::ClassElement*)
+                            for (AZ::EntityId referencedId : references->second)
+                            {
+                                if (!subtree.contains(referencedId))
                                 {
-                                    if (!referencedId.IsValid() || referencedId == entity->GetId()) { return; }
-                                    const bool sourceInside = subtree.contains(id);
-                                    const bool targetInside = subtree.contains(referencedId);
-                                    const bool rootTransformParent =
-                                        component == candidate.m_root->FindComponent<AzFramework::TransformComponent>() &&
-                                        id == candidate.m_root->GetId() && referencedId == containerId;
-                                    if ((!sourceInside && targetInside) ||
-                                        (sourceInside && !targetInside && !rootTransformParent))
-                                    {
-                                        eligible = false;
-                                        reason = "cross-reference";
-                                    }
-                                });
-                            if (!eligible) { break; }
+                                    eligible = false;
+                                    reason = "cross-reference";
+                                    break;
+                                }
+                            }
+                        }
+                        if (!eligible) { break; }
+                        if (auto references = incoming.find(memberId); references != incoming.end())
+                        {
+                            for (AZ::EntityId referencingId : references->second)
+                            {
+                                if (!subtree.contains(referencingId))
+                                {
+                                    eligible = false;
+                                    reason = "cross-reference";
+                                    break;
+                                }
+                            }
                         }
                         if (!eligible) { break; }
                     }
@@ -328,7 +371,19 @@ namespace WorldPartition
                         }
                     }
                 }
+                AZStd::vector<PrefabInstance*> nestedInstancesToMove;
+                nestedInstancesToMove.reserve(nestedToMove.size());
                 for (PrefabInstance* nested : nestedToMove)
+                {
+                    nestedInstancesToMove.push_back(nested);
+                }
+                std::sort(
+                    nestedInstancesToMove.begin(), nestedInstancesToMove.end(),
+                    [](const PrefabInstance* lhs, const PrefabInstance* rhs)
+                    {
+                        return lhs->GetInstanceAlias() < rhs->GetInstanceAlias();
+                    });
+                for (PrefabInstance* nested : nestedInstancesToMove)
                 {
                     AZStd::unique_ptr<PrefabInstance> detached = rootInstance.DetachNestedInstance(nested->GetInstanceAlias());
                     if (detached) { cellInstance.AddInstance(AZStd::move(detached)); }
@@ -353,14 +408,17 @@ namespace WorldPartition
             }
         });
 
-        uint32_t keptCount = 0;
-        AZStd::string reasons;
-        for (const auto& [reason, count] : kept)
+        if (levels > 0)
         {
-            keptCount += count;
-            reasons += AZStd::string::format("%s%s:%u", reasons.empty() ? "" : ",", reason.c_str(), count);
+            uint32_t keptCount = 0;
+            AZStd::string reasons;
+            for (const auto& [reason, count] : kept)
+            {
+                keptCount += count;
+                reasons += AZStd::string::format("%s%s:%u", reasons.empty() ? "" : ",", reason.c_str(), count);
+            }
+            AZ_Printf("WorldPartition", "prefabs=%u cells=%u streamedRoots=%u keptRoots=%u reasons={%s}\n",
+                levels, cellCount, streamedRoots, keptCount, reasons.c_str());
         }
-        AZ_Printf("WorldPartition", "prefabs=%u cells=%u streamedRoots=%u keptRoots=%u reasons={%s}\n",
-            levels, cellCount, streamedRoots, keptCount, reasons.c_str());
     }
 }

@@ -111,8 +111,8 @@
         "Gems/VideoPlaybackFramework",
         "Gems/VideoTexture",
         "Gems/VirtualGamepad",
-        "Gems/WorldPartition",
-        "Gems/WhiteBox"
+        "Gems/WhiteBox",
+        "Gems/WorldPartition"
     ],
     "gem_names": [
         "Atom_Bootstrap",
