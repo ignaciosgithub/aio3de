@@ -25,6 +25,7 @@
                 "ShaderAsset": {
                     "FilePath": "Shaders/PostProcessing/FsrRcas.shader"
                 },
+                "FullscreenDispatch": true,
                 "FullscreenSizeSourceSlotName": "Output"
             }
         }

@@ -53,6 +53,7 @@
                 "ShaderAsset": {
                     "FilePath": "Shaders/PostProcessing/FsrEasu.shader"
                 },
+                "FullscreenDispatch": true,
                 "FullscreenSizeSourceSlotName": "Output"
             }
         }
