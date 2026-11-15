@@ -675,9 +675,12 @@ namespace BehaviorTree
                     m_hasPath = false;
                     return NodeStatus::Running;
                 }
-                tick.m_context.StopMoving();
-                m_hasPath = false;
-                return NodeStatus::Failure;
+                if (m_movePath.back().GetDistance(m_pathGoal) > acceptanceRadius)
+                {
+                    tick.m_context.StopMoving();
+                    m_hasPath = false;
+                    return NodeStatus::Failure;
+                }
             }
             const AZ::Vector3 direction = m_movePath[m_waypointIndex] - position;
             if (!direction.IsZero())
