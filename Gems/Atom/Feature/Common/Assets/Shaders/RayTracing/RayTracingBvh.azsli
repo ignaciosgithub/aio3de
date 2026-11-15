@@ -10,7 +10,7 @@
 //
 // These helpers are a line-for-line mirror of the CPU reference implementation in
 // AzCore/Math/RayTracingBvh.cpp (RayTracingBvhInternal::IntersectRayAabb /
-// IntersectRayTriangle and the stackless traversal in IntersectClosest). They use only
+// IntersectRayTriangle and the stack traversal in IntersectClosest). They use only
 // plain compute + structured buffers, with NO dependency on DXR / VK_KHR_ray_tracing or
 // RT cores, so the same shader runs on every RHI backend (Vulkan, DX12, Metal, Null).
 
@@ -42,7 +42,8 @@ struct BvhRayHit
 
 // Slab test. invDir may contain +/-inf for axis-aligned rays; the min/max ordering handles it.
 // Mirrors RayTracingBvhInternal::IntersectRayAabb.
-bool IntersectRayAabb(float3 origin, float3 invDir, float3 aabbMin, float3 aabbMax, float tMax)
+bool IntersectRayAabb(
+    float3 origin, float3 invDir, float3 aabbMin, float3 aabbMax, float tMax, out float outTNear)
 {
     float tNear = 0.0f;
     float tFar = tMax;
@@ -65,7 +66,14 @@ bool IntersectRayAabb(float3 origin, float3 invDir, float3 aabbMin, float3 aabbM
             return false;
         }
     }
+    outTNear = tNear;
     return true;
+}
+
+bool IntersectRayAabb(float3 origin, float3 invDir, float3 aabbMin, float3 aabbMax, float tMax)
+{
+    float tNear;
+    return IntersectRayAabb(origin, invDir, aabbMin, aabbMax, tMax, tNear);
 }
 
 // Moller-Trumbore, two-sided. Mirrors RayTracingBvhInternal::IntersectRayTriangle.

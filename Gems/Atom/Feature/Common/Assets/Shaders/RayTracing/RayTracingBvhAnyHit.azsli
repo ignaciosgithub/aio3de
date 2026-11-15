@@ -10,17 +10,18 @@ bool TraverseAnyHit(float3 origin, float3 direction, float tMax)
     }
 
     const float3 invDir = 1.0f / direction;
+    const BvhNode root = PassSrg::m_nodes[0];
+    if (!IntersectRayAabb(origin, invDir, root.aabbMin, root.aabbMax, tMax))
+    {
+        return false;
+    }
+
     int stack[BVH_STACK_SIZE];
     int stackPtr = 0;
     stack[stackPtr++] = 0;
     while (stackPtr > 0)
     {
         const BvhNode node = PassSrg::m_nodes[stack[--stackPtr]];
-        if (!IntersectRayAabb(origin, invDir, node.aabbMin, node.aabbMax, tMax))
-        {
-            continue;
-        }
-
         if (node.triangleCount > 0)
         {
             for (uint i = 0; i < node.triangleCount; ++i)
@@ -36,10 +37,43 @@ bool TraverseAnyHit(float3 origin, float3 direction, float tMax)
                 }
             }
         }
-        else if (stackPtr + 2 <= BVH_STACK_SIZE)
+        else
         {
-            stack[stackPtr++] = int(node.leftFirst);
-            stack[stackPtr++] = int(node.leftFirst) + 1;
+            const int leftIndex = int(node.leftFirst);
+            const int rightIndex = leftIndex + 1;
+            const BvhNode leftNode = PassSrg::m_nodes[leftIndex];
+            const BvhNode rightNode = PassSrg::m_nodes[rightIndex];
+            float leftTNear;
+            float rightTNear;
+            const bool leftHit = IntersectRayAabb(
+                origin, invDir, leftNode.aabbMin, leftNode.aabbMax, tMax, leftTNear);
+            const bool rightHit = IntersectRayAabb(
+                origin, invDir, rightNode.aabbMin, rightNode.aabbMax, tMax, rightTNear);
+
+            if (leftHit && rightHit)
+            {
+                if (stackPtr + 2 <= BVH_STACK_SIZE)
+                {
+                    if (leftTNear <= rightTNear)
+                    {
+                        stack[stackPtr++] = rightIndex;
+                        stack[stackPtr++] = leftIndex;
+                    }
+                    else
+                    {
+                        stack[stackPtr++] = leftIndex;
+                        stack[stackPtr++] = rightIndex;
+                    }
+                }
+            }
+            else if (leftHit && stackPtr + 1 <= BVH_STACK_SIZE)
+            {
+                stack[stackPtr++] = leftIndex;
+            }
+            else if (rightHit && stackPtr + 1 <= BVH_STACK_SIZE)
+            {
+                stack[stackPtr++] = rightIndex;
+            }
         }
     }
     return false;
