@@ -22,12 +22,7 @@ namespace AZ
         // Slab test. Returns true if the ray (origin, invDir) enters the AABB before tMax (and exits
         // after 0). invDir may contain +/-inf for axis-aligned rays; the min/max ordering handles it.
         inline bool IntersectRayAabb(
-            const Vector3& origin,
-            const Vector3& invDir,
-            const Vector3& aabbMin,
-            const Vector3& aabbMax,
-            float tMax,
-            float& outTNear)
+            const Vector3& origin, const Vector3& invDir, const Vector3& aabbMin, const Vector3& aabbMax, float tMax)
         {
             float tNear = 0.0f;
             float tFar = tMax;
@@ -49,15 +44,7 @@ namespace AZ
                     return false;
                 }
             }
-            outTNear = tNear;
             return true;
-        }
-
-        inline bool IntersectRayAabb(
-            const Vector3& origin, const Vector3& invDir, const Vector3& aabbMin, const Vector3& aabbMax, float tMax)
-        {
-            float tNear;
-            return IntersectRayAabb(origin, invDir, aabbMin, aabbMax, tMax, tNear);
         }
 
         // Moller-Trumbore ray/triangle, two-sided. Writes t/u/v and returns true on a hit in (0, tMax].
@@ -239,32 +226,21 @@ namespace AZ
         }
 
         const Vector3 invDir = direction.GetReciprocal();
-        const BvhNodePacked& root = m_nodes[0];
-        const Vector3 rootMin(root.m_aabbMinX, root.m_aabbMinY, root.m_aabbMinZ);
-        const Vector3 rootMax(root.m_aabbMaxX, root.m_aabbMaxY, root.m_aabbMaxZ);
-        float rootTNear;
-        if (!IntersectRayAabb(origin, invDir, rootMin, rootMax, hit.m_t, rootTNear))
-        {
-            return hit;
-        }
 
         int32_t stack[StackSize];
-        float tNearStack[StackSize];
         int32_t stackPtr = 0;
-        stack[stackPtr] = 0;
-        tNearStack[stackPtr] = rootTNear;
-        ++stackPtr;
+        stack[stackPtr++] = 0;
 
         while (stackPtr > 0)
         {
-            --stackPtr;
-            const int32_t nodeIndex = stack[stackPtr];
-            if (tNearStack[stackPtr] > hit.m_t)
+            const BvhNodePacked& node = m_nodes[stack[--stackPtr]];
+            const Vector3 nodeMin(node.m_aabbMinX, node.m_aabbMinY, node.m_aabbMinZ);
+            const Vector3 nodeMax(node.m_aabbMaxX, node.m_aabbMaxY, node.m_aabbMaxZ);
+            if (!IntersectRayAabb(origin, invDir, nodeMin, nodeMax, hit.m_t))
             {
                 continue;
             }
 
-            const BvhNodePacked& node = m_nodes[nodeIndex];
             if (node.m_triangleCount > 0)
             {
                 for (uint32_t i = 0; i < node.m_triangleCount; ++i)
@@ -281,51 +257,10 @@ namespace AZ
                     }
                 }
             }
-            else
+            else if (stackPtr + 2 <= StackSize)
             {
-                const int32_t leftIndex = node.m_leftFirst;
-                const int32_t rightIndex = leftIndex + 1;
-                const BvhNodePacked& leftNode = m_nodes[leftIndex];
-                const BvhNodePacked& rightNode = m_nodes[rightIndex];
-                const Vector3 leftMin(leftNode.m_aabbMinX, leftNode.m_aabbMinY, leftNode.m_aabbMinZ);
-                const Vector3 leftMax(leftNode.m_aabbMaxX, leftNode.m_aabbMaxY, leftNode.m_aabbMaxZ);
-                const Vector3 rightMin(rightNode.m_aabbMinX, rightNode.m_aabbMinY, rightNode.m_aabbMinZ);
-                const Vector3 rightMax(rightNode.m_aabbMaxX, rightNode.m_aabbMaxY, rightNode.m_aabbMaxZ);
-                float leftTNear;
-                float rightTNear;
-                const bool leftHit = IntersectRayAabb(origin, invDir, leftMin, leftMax, hit.m_t, leftTNear);
-                const bool rightHit = IntersectRayAabb(origin, invDir, rightMin, rightMax, hit.m_t, rightTNear);
-
-                if (leftHit && rightHit)
-                {
-                    if (stackPtr + 2 <= StackSize)
-                    {
-                        if (leftTNear <= rightTNear)
-                        {
-                            stack[stackPtr] = rightIndex;
-                            tNearStack[stackPtr++] = rightTNear;
-                            stack[stackPtr] = leftIndex;
-                            tNearStack[stackPtr++] = leftTNear;
-                        }
-                        else
-                        {
-                            stack[stackPtr] = leftIndex;
-                            tNearStack[stackPtr++] = leftTNear;
-                            stack[stackPtr] = rightIndex;
-                            tNearStack[stackPtr++] = rightTNear;
-                        }
-                    }
-                }
-                else if (leftHit && stackPtr + 1 <= StackSize)
-                {
-                    stack[stackPtr] = leftIndex;
-                    tNearStack[stackPtr++] = leftTNear;
-                }
-                else if (rightHit && stackPtr + 1 <= StackSize)
-                {
-                    stack[stackPtr] = rightIndex;
-                    tNearStack[stackPtr++] = rightTNear;
-                }
+                stack[stackPtr++] = node.m_leftFirst;
+                stack[stackPtr++] = node.m_leftFirst + 1;
             }
         }
 
@@ -341,13 +276,6 @@ namespace AZ
         }
 
         const Vector3 invDir = direction.GetReciprocal();
-        const BvhNodePacked& root = m_nodes[0];
-        const Vector3 rootMin(root.m_aabbMinX, root.m_aabbMinY, root.m_aabbMinZ);
-        const Vector3 rootMax(root.m_aabbMaxX, root.m_aabbMaxY, root.m_aabbMaxZ);
-        if (!IntersectRayAabb(origin, invDir, rootMin, rootMax, tMax))
-        {
-            return false;
-        }
 
         int32_t stack[StackSize];
         int32_t stackPtr = 0;
@@ -356,6 +284,13 @@ namespace AZ
         while (stackPtr > 0)
         {
             const BvhNodePacked& node = m_nodes[stack[--stackPtr]];
+            const Vector3 nodeMin(node.m_aabbMinX, node.m_aabbMinY, node.m_aabbMinZ);
+            const Vector3 nodeMax(node.m_aabbMaxX, node.m_aabbMaxY, node.m_aabbMaxZ);
+            if (!IntersectRayAabb(origin, invDir, nodeMin, nodeMax, tMax))
+            {
+                continue;
+            }
+
             if (node.m_triangleCount > 0)
             {
                 for (uint32_t i = 0; i < node.m_triangleCount; ++i)
@@ -367,45 +302,10 @@ namespace AZ
                     }
                 }
             }
-            else
+            else if (stackPtr + 2 <= StackSize)
             {
-                const int32_t leftIndex = node.m_leftFirst;
-                const int32_t rightIndex = leftIndex + 1;
-                const BvhNodePacked& leftNode = m_nodes[leftIndex];
-                const BvhNodePacked& rightNode = m_nodes[rightIndex];
-                const Vector3 leftMin(leftNode.m_aabbMinX, leftNode.m_aabbMinY, leftNode.m_aabbMinZ);
-                const Vector3 leftMax(leftNode.m_aabbMaxX, leftNode.m_aabbMaxY, leftNode.m_aabbMaxZ);
-                const Vector3 rightMin(rightNode.m_aabbMinX, rightNode.m_aabbMinY, rightNode.m_aabbMinZ);
-                const Vector3 rightMax(rightNode.m_aabbMaxX, rightNode.m_aabbMaxY, rightNode.m_aabbMaxZ);
-                float leftTNear;
-                float rightTNear;
-                const bool leftHit = IntersectRayAabb(origin, invDir, leftMin, leftMax, tMax, leftTNear);
-                const bool rightHit = IntersectRayAabb(origin, invDir, rightMin, rightMax, tMax, rightTNear);
-
-                if (leftHit && rightHit)
-                {
-                    if (stackPtr + 2 <= StackSize)
-                    {
-                        if (leftTNear <= rightTNear)
-                        {
-                            stack[stackPtr++] = rightIndex;
-                            stack[stackPtr++] = leftIndex;
-                        }
-                        else
-                        {
-                            stack[stackPtr++] = leftIndex;
-                            stack[stackPtr++] = rightIndex;
-                        }
-                    }
-                }
-                else if (leftHit && stackPtr + 1 <= StackSize)
-                {
-                    stack[stackPtr++] = leftIndex;
-                }
-                else if (rightHit && stackPtr + 1 <= StackSize)
-                {
-                    stack[stackPtr++] = rightIndex;
-                }
+                stack[stackPtr++] = node.m_leftFirst;
+                stack[stackPtr++] = node.m_leftFirst + 1;
             }
         }
 
