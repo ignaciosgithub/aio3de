@@ -35,11 +35,15 @@ namespace AZ::Render
         PortableGiUpdatePass(const RPI::PassDescriptor& descriptor);
         void BuildInternal() override;
         void FrameBeginInternal(FramePrepareParams params) override;
+        void SetupFrameGraphDependencies(RHI::FrameGraphInterface frameGraph) override;
+        void CompileResources(const RHI::FrameGraphCompileContext& context) override;
 
     private:
         void EnsureProbeBuffers(uint32_t gridSize);
 
         Data::Instance<RPI::Buffer> m_probeBuffers[2];
+        Data::Instance<RPI::Buffer> m_boundRead;
+        Data::Instance<RPI::Buffer> m_boundWrite;
         AZStd::array<uint32_t, 3> m_gridDims{ 0, 0, 0 };
         uint32_t m_gridCount = 0;
         uint32_t m_gridSize = 0;

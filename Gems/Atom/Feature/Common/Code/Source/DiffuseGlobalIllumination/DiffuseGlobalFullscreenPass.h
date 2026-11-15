@@ -8,6 +8,7 @@
 #pragma once
 
 #include <Atom/RHI.Reflect/ShaderInputNameIndex.h>
+#include <Atom/RPI.Public/Buffer/Buffer.h>
 #include <Atom/RPI.Public/Pass/FullscreenTrianglePass.h>
 
 namespace AZ::Render
@@ -25,9 +26,12 @@ namespace AZ::Render
 
     protected:
         DiffuseGlobalFullscreenPass(const RPI::PassDescriptor& descriptor);
+        bool IsEnabled() const override;
         void FrameBeginInternal(FramePrepareParams params) override;
+        void SetupFrameGraphDependencies(RHI::FrameGraphInterface frameGraph) override;
 
     private:
+        Data::Instance<RPI::Buffer> m_boundProbeBuffer;
         AZ::RHI::ShaderInputNameIndex m_probeBufferIndex = "m_probeBuffer";
         AZ::RHI::ShaderInputNameIndex m_gridOriginIndex = "m_probeGridOrigin";
         AZ::RHI::ShaderInputNameIndex m_probeSpacingIndex = "m_probeSpacing";

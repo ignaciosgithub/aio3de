@@ -9,6 +9,7 @@
 
 #include <RayTracing/RayTracedShadowsFeatureProcessor.h>
 
+#include <Atom/RHI/FrameGraphInterface.h>
 #include <Atom/RPI.Public/Buffer/BufferSystemInterface.h>
 #include <Atom/RPI.Public/Scene.h>
 #include <AzCore/Console/IConsole.h>
@@ -124,12 +125,14 @@ namespace AZ::Render
         }
 
         const uint32_t writeIndex = 1u - m_readIndex;
+        m_boundRead = nullptr;
+        m_boundWrite = nullptr;
         if (auto* srg = m_shaderResourceGroup.get())
         {
             if (m_probeBuffers[m_readIndex] && m_probeBuffers[writeIndex])
             {
-                srg->SetBufferView(m_probeReadIndex, m_probeBuffers[m_readIndex]->GetBufferView());
-                srg->SetBufferView(m_probeWriteIndex, m_probeBuffers[writeIndex]->GetBufferView());
+                m_boundRead = m_probeBuffers[m_readIndex];
+                m_boundWrite = m_probeBuffers[writeIndex];
             }
             srg->SetConstant(m_nodeCountIndex, featureProcessor ? featureProcessor->GetSharedBvhNodeCount() : 0u);
             srg->SetConstant(m_gridCountIndex, m_gridCount);
@@ -157,5 +160,55 @@ namespace AZ::Render
         }
         ++m_frameIndex;
         ComputePass::FrameBeginInternal(params);
+    }
+
+    void PortableGiUpdatePass::SetupFrameGraphDependencies(RHI::FrameGraphInterface frameGraph)
+    {
+        ComputePass::SetupFrameGraphDependencies(frameGraph);
+
+        const auto declareBuffer = [&frameGraph](const Data::Instance<RPI::Buffer>& buffer, RHI::ScopeAttachmentAccess access)
+        {
+            if (!buffer)
+            {
+                return;
+            }
+
+            const RHI::AttachmentId& attachmentId = buffer->GetAttachmentId();
+            auto attachmentDatabase = frameGraph.GetAttachmentDatabase();
+            if (!attachmentDatabase.IsAttachmentValid(attachmentId))
+            {
+                [[maybe_unused]] const RHI::ResultCode result = attachmentDatabase.ImportBuffer(attachmentId, buffer->GetRHIBuffer());
+                AZ_Assert(result == RHI::ResultCode::Success, "Failed to import Portable GI probe buffer with error %d", result);
+            }
+
+            RHI::BufferScopeAttachmentDescriptor descriptor;
+            descriptor.m_attachmentId = attachmentId;
+            descriptor.m_bufferViewDescriptor = buffer->GetBufferViewDescriptor();
+            descriptor.m_loadStoreAction.m_loadAction = RHI::AttachmentLoadAction::Load;
+
+            [[maybe_unused]] const RHI::ResultCode result =
+                frameGraph.UseShaderAttachment(descriptor, access, RHI::ScopeAttachmentStage::ComputeShader);
+            AZ_Assert(result == RHI::ResultCode::Success, "Failed to declare Portable GI probe buffer with error %d", result);
+        };
+
+        declareBuffer(m_boundRead, RHI::ScopeAttachmentAccess::Read);
+        declareBuffer(m_boundWrite, RHI::ScopeAttachmentAccess::ReadWrite);
+    }
+
+    void PortableGiUpdatePass::CompileResources(const RHI::FrameGraphCompileContext& context)
+    {
+        if (auto* srg = m_shaderResourceGroup.get())
+        {
+            if (m_boundRead)
+            {
+                srg->SetBufferView(m_probeReadIndex, m_boundRead->GetBufferView());
+            }
+            if (m_boundWrite)
+            {
+                srg->SetBufferView(m_probeWriteIndex, m_boundWrite->GetBufferView());
+            }
+        }
+
+        ComputePass::CompileResources(context);
     }
 } // namespace AZ::Render
