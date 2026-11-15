@@ -493,6 +493,12 @@ namespace BehaviorTree
 
     bool BehaviorTreeEditorWindow::WriteFile(const QString& path)
     {
+        if (!m_blackboardEditorError.empty())
+        {
+            QMessageBox::critical(this, "Save failed", QString::fromUtf8(m_blackboardEditorError.c_str()));
+            return false;
+        }
+
         QFile file(path);
         if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
         {
