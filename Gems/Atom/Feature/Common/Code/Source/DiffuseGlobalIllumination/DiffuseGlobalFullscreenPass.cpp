@@ -9,6 +9,8 @@
 
 #include <RayTracing/PortableGiUpdatePass.h>
 
+#include <Atom/RHI.Reflect/BufferDescriptor.h>
+#include <Atom/RHI/FrameGraphInterface.h>
 #include <Atom/RPI.Public/Pass/PassFilter.h>
 #include <Atom/RPI.Public/Pass/PassSystemInterface.h>
 #include <Atom/RPI.Public/Scene.h>
@@ -36,8 +38,14 @@ namespace AZ::Render
     {
     }
 
+    bool DiffuseGlobalFullscreenPass::IsEnabled() const
+    {
+        return static_cast<bool>(r_portableGi) || FullscreenTrianglePass::IsEnabled();
+    }
+
     void DiffuseGlobalFullscreenPass::FrameBeginInternal(FramePrepareParams params)
     {
+        m_boundProbeBuffer = nullptr;
         PortableGiUpdatePass* updatePass = nullptr;
         if (RPI::PassSystemInterface::Get() && GetScene())
         {
@@ -62,6 +70,7 @@ namespace AZ::Render
                 if (buffer)
                 {
                     srg->SetBufferView(m_probeBufferIndex, buffer->GetBufferView());
+                    m_boundProbeBuffer = buffer;
                 }
                 const AZ::Vector3 origin = updatePass->GetGridOrigin();
                 const AZStd::array<uint32_t, 3> dims = updatePass->GetGridDimensions();
@@ -73,5 +82,33 @@ namespace AZ::Render
             }
         }
         FullscreenTrianglePass::FrameBeginInternal(params);
+    }
+
+    void DiffuseGlobalFullscreenPass::SetupFrameGraphDependencies(RHI::FrameGraphInterface frameGraph)
+    {
+        FullscreenTrianglePass::SetupFrameGraphDependencies(frameGraph);
+
+        if (!m_boundProbeBuffer)
+        {
+            return;
+        }
+
+        const RHI::AttachmentId& attachmentId = m_boundProbeBuffer->GetAttachmentId();
+        auto attachmentDatabase = frameGraph.GetAttachmentDatabase();
+        if (!attachmentDatabase.IsAttachmentValid(attachmentId))
+        {
+            [[maybe_unused]] const RHI::ResultCode result =
+                attachmentDatabase.ImportBuffer(attachmentId, m_boundProbeBuffer->GetRHIBuffer());
+            AZ_Assert(result == RHI::ResultCode::Success, "Failed to import Portable GI probe buffer with error %d", result);
+        }
+
+        RHI::BufferScopeAttachmentDescriptor descriptor;
+        descriptor.m_attachmentId = attachmentId;
+        descriptor.m_bufferViewDescriptor = m_boundProbeBuffer->GetBufferViewDescriptor();
+        descriptor.m_loadStoreAction.m_loadAction = RHI::AttachmentLoadAction::Load;
+
+        [[maybe_unused]] const RHI::ResultCode result =
+            frameGraph.UseShaderAttachment(descriptor, RHI::ScopeAttachmentAccess::Read, RHI::ScopeAttachmentStage::FragmentShader);
+        AZ_Assert(result == RHI::ResultCode::Success, "Failed to declare Portable GI probe buffer with error %d", result);
     }
 } // namespace AZ::Render

@@ -25,12 +25,12 @@
                     "Name": "RenderResolution",
                     "SizeSource": {
                         "Source": {
-                            "Pass": "Pipeline",
+                            "Pass": "This",
                             "Attachment": "PipelineOutput"
                         }
                     },
                     "FormatSource": {
-                        "Pass": "Pipeline",
+                        "Pass": "This",
                         "Attachment": "PipelineOutput"
                     },
                     "ScaleWithRenderResolution": true,
@@ -43,7 +43,7 @@
                     "Name": "UIDepthStencil",
                     "SizeSource": {
                         "Source": {
-                            "Pass": "Pipeline",
+                            "Pass": "This",
                             "Attachment": "PipelineOutput"
                         }
                     },
@@ -129,7 +129,7 @@
                             "LocalSlot": "PipelineOutput",
                             "AttachmentRef": {
                                 "Pass": "PipelineGlobal",
-                                "Attachment": "RenderResolution"
+                                "Attachment": "PipelineOutput"
                             }
                         }
                     ]

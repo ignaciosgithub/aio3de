@@ -34,6 +34,12 @@ float3 FsrRcasLoadF(int2 pixel, uint2 size)
     return PassSrg::m_inputColor.SampleLevel(PassSrg::LinearClampSampler, uv, 0).rgb;
 }
 
+float FsrRcasRcpSafeF(float value)
+{
+    float safeMagnitude = max(abs(value), 1.0 / 32768.0);
+    return rcp(value < 0.0 ? -safeMagnitude : safeMagnitude);
+}
+
 float3 FsrRcasF(uint2 ip, uint2 size)
 {
     int2 sp = int2(ip);
@@ -64,17 +70,17 @@ float3 FsrRcasF(uint2 ip, uint2 size)
     float mx4G = max(max(b.g, d.g), max(f.g, h.g));
     float mx4B = max(max(b.b, d.b), max(f.b, h.b));
 
-    float hitMinR = min(mn4R, e.r) * rcp(4.0 * mx4R);
-    float hitMinG = min(mn4G, e.g) * rcp(4.0 * mx4G);
-    float hitMinB = min(mn4B, e.b) * rcp(4.0 * mx4B);
-    float hitMaxR = (1.0 - max(mx4R, e.r)) * rcp(4.0 * mn4R - 4.0);
-    float hitMaxG = (1.0 - max(mx4G, e.g)) * rcp(4.0 * mn4G - 4.0);
-    float hitMaxB = (1.0 - max(mx4B, e.b)) * rcp(4.0 * mn4B - 4.0);
+    float hitMinR = min(mn4R, e.r) * FsrRcasRcpSafeF(4.0 * mx4R);
+    float hitMinG = min(mn4G, e.g) * FsrRcasRcpSafeF(4.0 * mx4G);
+    float hitMinB = min(mn4B, e.b) * FsrRcasRcpSafeF(4.0 * mx4B);
+    float hitMaxR = (1.0 - max(mx4R, e.r)) * FsrRcasRcpSafeF(4.0 * mn4R - 4.0);
+    float hitMaxG = (1.0 - max(mx4G, e.g)) * FsrRcasRcpSafeF(4.0 * mn4G - 4.0);
+    float hitMaxB = (1.0 - max(mx4B, e.b)) * FsrRcasRcpSafeF(4.0 * mn4B - 4.0);
     float lobeR = max(-hitMinR, hitMaxR);
     float lobeG = max(-hitMinG, hitMaxG);
     float lobeB = max(-hitMinB, hitMaxB);
     float lobe = max(-0.1875, min(max(max(lobeR, lobeG), lobeB), 0.0)) * asfloat(PassSrg::m_con.x);
-    float rcpL = rcp(4.0 * lobe + 1.0);
+    float rcpL = FsrRcasRcpSafeF(4.0 * lobe + 1.0);
     return (lobe * (b + d + h + f) + e) * rcpL;
 }
 
