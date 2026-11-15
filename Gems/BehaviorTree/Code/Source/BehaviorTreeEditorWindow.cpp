@@ -963,7 +963,7 @@ namespace BehaviorTree
         QMenu menu(this);
         for (const NodeSchema& schema : NodeRegistry::GetAll())
         {
-            if (schema.m_category == NodeCategory::Decorator)
+            if (schema.m_category == NodeCategory::Decorator || schema.m_category == NodeCategory::Composite)
             {
                 QAction* action = menu.addAction(QString::fromUtf8(schema.m_name.c_str()));
                 connect(action, &QAction::triggered, this, [this, type = schema.m_name]() { WrapSelected(type); });
@@ -999,7 +999,8 @@ namespace BehaviorTree
     {
         QTreeWidgetItem* item = m_treeWidget->currentItem();
         const NodeSchema* schema = NodeRegistry::Find(type);
-        if (!item || !schema || schema->m_category != NodeCategory::Decorator)
+        if (!item || !schema ||
+            (schema->m_category != NodeCategory::Decorator && schema->m_category != NodeCategory::Composite))
         {
             return;
         }
