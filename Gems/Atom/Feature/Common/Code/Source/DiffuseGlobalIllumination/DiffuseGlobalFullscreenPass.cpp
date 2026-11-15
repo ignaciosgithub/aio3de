@@ -40,7 +40,7 @@ namespace AZ::Render
 
     bool DiffuseGlobalFullscreenPass::IsEnabled() const
     {
-        return static_cast<bool>(r_portableGi);
+        return static_cast<bool>(r_portableGi) || FullscreenTrianglePass::IsEnabled();
     }
 
     void DiffuseGlobalFullscreenPass::FrameBeginInternal(FramePrepareParams params)
