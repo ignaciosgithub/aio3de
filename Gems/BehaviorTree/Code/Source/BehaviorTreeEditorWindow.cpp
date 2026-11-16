@@ -55,6 +55,7 @@
 #include <AzCore/std/algorithm.h>
 #include <AzCore/std/sort.h>
 
+#include <cctype>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
@@ -64,6 +65,29 @@ namespace BehaviorTree
     namespace
     {
         using IndexPath = AZStd::vector<size_t>;
+
+        bool ParseVector3Text(const char* text, AZ::Vector3& out)
+        {
+            float components[3] = {};
+            const char* cursor = text;
+            for (int i = 0; i < 3; ++i)
+            {
+                while (isspace(static_cast<unsigned char>(*cursor))) { ++cursor; }
+                if (i > 0)
+                {
+                    if (*cursor != ',') { return false; }
+                    ++cursor;
+                }
+                char* end = nullptr;
+                components[i] = strtof(cursor, &end);
+                if (end == cursor) { return false; }
+                cursor = end;
+            }
+            while (isspace(static_cast<unsigned char>(*cursor))) { ++cursor; }
+            if (*cursor != '\0') { return false; }
+            out = AZ::Vector3(components[0], components[1], components[2]);
+            return true;
+        }
 
         QString PathString(const IndexPath& path)
         {
@@ -208,15 +232,12 @@ namespace BehaviorTree
                 return true;
             case BlackboardType::Vector3:
             {
-                float x = 0.0f;
-                float y = 0.0f;
-                float z = 0.0f;
-                char tail = '\0';
-                if (sscanf(text.c_str(), " %f , %f , %f %c", &x, &y, &z, &tail) != 3)
+                AZ::Vector3 parsed;
+                if (!ParseVector3Text(text.c_str(), parsed))
                 {
                     return false;
                 }
-                entry.m_value = AZ::Vector3(x, y, z);
+                entry.m_value = parsed;
                 return true;
             }
             case BlackboardType::EntityId:
@@ -793,12 +814,11 @@ namespace BehaviorTree
                 m_propertyLayout->addRow(QString::fromUtf8(parameterName.c_str()), editor);
                 connect(editor, &QLineEdit::editingFinished, this, [editor, updateParameter]()
                 {
-                    float x = 0.0f, y = 0.0f, z = 0.0f;
-                    char tail = '\0';
                     const QByteArray bytes = editor->text().toUtf8();
-                    if (sscanf(bytes.constData(), " %f , %f , %f %c", &x, &y, &z, &tail) == 3)
+                    AZ::Vector3 parsed;
+                    if (ParseVector3Text(bytes.constData(), parsed))
                     {
-                        updateParameter(AZ::Vector3(x, y, z));
+                        updateParameter(parsed);
                     }
                 });
             }
