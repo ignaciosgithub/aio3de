@@ -55,6 +55,7 @@
 #include <AzCore/std/algorithm.h>
 #include <AzCore/std/sort.h>
 
+#include <cctype>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
@@ -71,7 +72,7 @@ namespace BehaviorTree
             const char* cursor = text;
             for (int i = 0; i < 3; ++i)
             {
-                while (*cursor == ' ' || *cursor == '\t') { ++cursor; }
+                while (isspace(static_cast<unsigned char>(*cursor))) { ++cursor; }
                 if (i > 0)
                 {
                     if (*cursor != ',') { return false; }
@@ -82,7 +83,7 @@ namespace BehaviorTree
                 if (end == cursor) { return false; }
                 cursor = end;
             }
-            while (*cursor == ' ' || *cursor == '\t') { ++cursor; }
+            while (isspace(static_cast<unsigned char>(*cursor))) { ++cursor; }
             if (*cursor != '\0') { return false; }
             out = AZ::Vector3(components[0], components[1], components[2]);
             return true;
