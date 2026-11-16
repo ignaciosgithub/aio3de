@@ -248,9 +248,14 @@ namespace WorldPartition
                     }
                     for (AZ::Component* component : member->GetComponents())
                     {
-                        if (AZStd::string_view(component->RTTI_GetTypeName()) == "NetBindComponent")
+                        const AZStd::string_view componentTypeName(component->RTTI_GetTypeName());
+                        if (componentTypeName == "NetBindComponent")
                         {
                             eligible = false; reason = "networked"; break;
+                        }
+                        if (componentTypeName == "CameraComponent")
+                        {
+                            eligible = false; reason = "camera"; break;
                         }
                     }
                     if (!eligible) { break; }

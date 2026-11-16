@@ -64,7 +64,7 @@ namespace WorldPartition
             for (const StreamingSource& source : sources)
             {
                 const float loadRadius = source.m_loadRadius > 0.0f ? source.m_loadRadius : baseLoad;
-                const float unloadRadius = loadRadius * ratio;
+                const float unloadRadius = source.m_loadRadius > 0.0f ? loadRadius * ratio : baseUnload;
                 const float distance = DistanceToBounds(source.m_position, cells[index].m_bounds, settings.m_twoDimensional);
                 nearestDistance = AZStd::min(nearestDistance, distance);
                 withinLoad |= distance <= loadRadius;

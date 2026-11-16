@@ -31,7 +31,9 @@ namespace WorldPartition
         }
         AZ::ComponentTypeList GetRequiredSystemComponents() const override
         {
-            return { azrtti_typeid<WorldPartitionEditorSystemComponent>() };
+            return {
+                azrtti_typeid<WorldPartitionSystemComponent>(),
+                azrtti_typeid<WorldPartitionEditorSystemComponent>() };
         }
     };
 }

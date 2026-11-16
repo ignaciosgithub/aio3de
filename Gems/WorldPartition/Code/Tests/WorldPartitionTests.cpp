@@ -68,6 +68,13 @@ namespace WorldPartition
         EXPECT_EQ(outside.m_unload.front(), 0);
     }
 
+    TEST(WorldPartitionPlannerTests, KeepsLoadedCellWithinBaseUnloadRadiusWithZeroLoadRadius)
+    {
+        auto plan = PlanStreaming(
+            { { PointBounds(30.0f), true } }, { { AZ::Vector3::CreateZero(), 0.0f } }, { 0.0f, 50.0f, 2, true });
+        EXPECT_TRUE(plan.m_unload.empty());
+    }
+
     TEST(WorldPartitionPlannerTests, LoadsNearestCellsWithinBudget)
     {
         const AZStd::vector<CellStreamState> cells{

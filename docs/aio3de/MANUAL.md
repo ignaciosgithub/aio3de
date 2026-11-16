@@ -588,10 +588,11 @@ Use **World Partition Policy** on entities or subtree roots:
 - **AlwaysLoaded** prevents the entire transform subtree from being extracted.
 - **Streamed** opts a subtree into streaming when `Stream by default` is off.
 
-Subtrees with network binding, another partition/source component, missing
-transforms, partial nested prefab ownership, or entity-ID references crossing
-the subtree boundary remain in the level prefab. This avoids broken entity
-references and prefab ownership when cells are spawned independently.
+Subtrees with camera components, network binding, another partition/source
+component, missing transforms, partial nested prefab ownership, or entity-ID
+references crossing the subtree boundary remain in the level prefab. This
+avoids broken entity references and prefab ownership when cells are spawned
+independently.
 
 The partition component defaults to a 64 m cell size, 128 m load radius, 160 m
 unload radius, and two cell load requests per frame. In 2D mode the grid and

@@ -14,7 +14,7 @@
                             "WorldPartition":
                             {
                                 "$type": "WorldPartition::WorldPartitionPrefabProcessor",
-                                "$stack_before": "Prefab catchment"
+                                "$stack_after": "Editor info remover"
                             }
                         },
                         "GameObjectCreation":
@@ -22,7 +22,7 @@
                             "WorldPartition":
                             {
                                 "$type": "WorldPartition::WorldPartitionPrefabProcessor",
-                                "$stack_before": "Prefab catchment"
+                                "$stack_after": "Asset platform component remover"
                             }
                         }
                     }

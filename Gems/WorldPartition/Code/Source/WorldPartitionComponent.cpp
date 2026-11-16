@@ -111,10 +111,7 @@ namespace WorldPartition
         WorldPartitionStreamingSourceRequestBus::Broadcast(&WorldPartitionStreamingSourceRequests::GetStreamingSources, sources);
         if (!WorldPartitionStreamingSourceRequestBus::HasHandlers())
         {
-            AZ::EntityId activeCamera;
-            Camera::CameraSystemRequestBus::BroadcastResult(
-                activeCamera, &Camera::CameraSystemRequests::GetActiveCamera);
-            if (activeCamera.IsValid() && Camera::ActiveCameraRequestBus::HasHandlers())
+            if (Camera::ActiveCameraRequestBus::HasHandlers())
             {
                 AZ::Transform cameraTransform = AZ::Transform::CreateIdentity();
                 Camera::ActiveCameraRequestBus::BroadcastResult(

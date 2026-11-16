@@ -28,6 +28,26 @@ namespace UnitTest
 {
     using PrefabInstance = AzToolsFramework::Prefab::Instance;
 
+    namespace CameraStub
+    {
+        class CameraComponent : public AZ::Component
+        {
+        public:
+            AZ_COMPONENT(CameraComponent, "{D7D586E2-220D-41D6-9E0E-E249B18719AB}");
+
+            void Activate() override {}
+            void Deactivate() override {}
+
+            static void Reflect(AZ::ReflectContext* context)
+            {
+                if (auto* serialize = azrtti_cast<AZ::SerializeContext*>(context))
+                {
+                    serialize->Class<CameraComponent, AZ::Component>()->Version(1);
+                }
+            }
+        };
+    }
+
     class EntityReferenceTestComponent : public AZ::Component
     {
     public:
@@ -53,6 +73,7 @@ namespace UnitTest
             GetApplication()->RegisterComponentDescriptor(WorldPartition::WorldPartitionComponent::CreateDescriptor());
             GetApplication()->RegisterComponentDescriptor(WorldPartition::WorldPartitionPolicyComponent::CreateDescriptor());
             GetApplication()->RegisterComponentDescriptor(EntityReferenceTestComponent::CreateDescriptor());
+            GetApplication()->RegisterComponentDescriptor(CameraStub::CameraComponent::CreateDescriptor());
         }
 
         static AZ::Entity* AddEntity(
@@ -299,6 +320,45 @@ namespace UnitTest
 
         WorldPartitionPrefabProcessor{}.Process(context);
         EXPECT_TRUE(partition->m_cells.empty());
+    }
+
+    TEST_F(WorldPartitionPrefabProcessorTests, KeepsCameraComponentInLevel)
+    {
+        using namespace AzToolsFramework::Prefab::PrefabConversionUtils;
+        using namespace WorldPartition;
+        PrefabProcessorContext context(AZ::Uuid::CreateRandom());
+        AZStd::vector<AZ::Entity*> entities;
+        auto* container = aznew AZ::Entity("Container");
+        container->CreateComponent<AzFramework::TransformComponent>();
+        const AZ::EntityId containerId = container->GetId();
+        AddEntity(entities, containerId, "Partition", 0.0f, WorldPartitionPolicy::Default, true);
+        AZ::Entity* cameraEntity = AddEntity(entities, containerId, "Camera", 32.0f);
+        auto* cameraComponent = cameraEntity->CreateComponent<CameraStub::CameraComponent>();
+        ASSERT_NE(cameraComponent, nullptr);
+        EXPECT_STREQ(cameraComponent->RTTI_GetTypeName(), "CameraComponent");
+
+        auto level = CreatePrefabDocument("Camera", entities, container);
+        ASSERT_TRUE(level.has_value());
+        auto* partitionEntity = FindEntity(level->GetInstance(), "Partition");
+        ASSERT_NE(partitionEntity, nullptr);
+        auto* partition = partitionEntity->FindComponent<WorldPartitionComponent>();
+        ASSERT_NE(partition, nullptr);
+        ASSERT_TRUE(context.AddPrefab(AZStd::move(*level)));
+
+        WorldPartitionPrefabProcessor{}.Process(context);
+
+        EXPECT_TRUE(partition->m_cells.empty());
+        bool cameraRemains = false;
+        context.ListPrefabs([&](PrefabDocument& document)
+        {
+            if (document.GetName() == "Camera")
+            {
+                AZ::Entity* remainingCamera = FindEntity(document.GetInstance(), "Camera");
+                cameraRemains = remainingCamera &&
+                    remainingCamera->FindComponent<CameraStub::CameraComponent>() != nullptr;
+            }
+        });
+        EXPECT_TRUE(cameraRemains);
     }
 
     TEST_F(WorldPartitionPrefabProcessorTests, MovesNestedPrefabInstanceAsOneCellSubtree)
