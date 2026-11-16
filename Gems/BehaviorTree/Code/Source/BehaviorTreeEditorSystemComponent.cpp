@@ -9,6 +9,7 @@
 #include "BehaviorTreeEditorSystemComponent.h"
 
 #include "BehaviorTreeEditorWindow.h"
+#include "BehaviorTreePrefabProcessor.h"
 
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzToolsFramework/API/ViewPaneOptions.h>
@@ -18,6 +19,7 @@ namespace BehaviorTree
 {
     void BehaviorTreeEditorSystemComponent::Reflect(AZ::ReflectContext* context)
     {
+        BehaviorTreePrefabProcessor::Reflect(context);
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
             serializeContext->Class<BehaviorTreeEditorSystemComponent, AZ::Component>()->Version(1);

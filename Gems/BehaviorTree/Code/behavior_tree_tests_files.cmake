@@ -8,4 +8,5 @@
 
 set(FILES
     Tests/BehaviorTreeTests.cpp
+    Tests/BehaviorTreePathsTests.cpp
 )

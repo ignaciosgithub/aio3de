@@ -12,6 +12,8 @@ set(FILES
     Source/BehaviorTreeDefinition.h
     Source/BehaviorTreeParser.cpp
     Source/BehaviorTreeParser.h
+    Source/BehaviorTreePaths.cpp
+    Source/BehaviorTreePaths.h
     Source/BehaviorTreeWriter.cpp
     Source/BehaviorTreeWriter.h
     Source/BehaviorTreeNodes.cpp

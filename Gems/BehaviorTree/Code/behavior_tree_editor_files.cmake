@@ -11,6 +11,8 @@ set(FILES
     Source/BehaviorTreeEditorWindow.h
     Source/BehaviorTreeEditorSystemComponent.cpp
     Source/BehaviorTreeEditorSystemComponent.h
+    Source/BehaviorTreePrefabProcessor.cpp
+    Source/BehaviorTreePrefabProcessor.h
     Source/EditorBehaviorTreeComponent.cpp
     Source/EditorBehaviorTreeComponent.h
 )

@@ -9,14 +9,15 @@
 #include "BehaviorTreeComponent.h"
 
 #include "BehaviorTreeParser.h"
+#include "BehaviorTreePaths.h"
 
 #include <AzCore/Component/TransformBus.h>
 #include <AzCore/Console/ILogger.h>
+#include <AzCore/IO/FileIO.h>
 #include <AzCore/Math/MathUtils.h>
 #include <AzCore/RTTI/BehaviorContext.h>
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
-#include <AzCore/Utils/Utils.h>
 #include <AzFramework/Physics/CharacterBus.h>
 #include <VoxelNav/VoxelNavBus.h>
 
@@ -161,19 +162,49 @@ namespace BehaviorTree
 
     bool BehaviorTreeComponent::LoadTree()
     {
-        AZStd::string fullPath = m_treeFile;
-        if (!fullPath.empty() && fullPath[0] != '/' && fullPath.find(':') == AZStd::string::npos)
+        const AZStd::vector<AZStd::string> candidates = GetTreePathCandidates(m_treeFile);
+        AZ::IO::FileIOBase* fileIO = AZ::IO::FileIOBase::GetInstance();
+        AZStd::string treePath;
+        for (const AZStd::string& candidate : candidates)
         {
-            fullPath = AZStd::string::format("%s/%s", AZ::Utils::GetProjectPath().c_str(), m_treeFile.c_str());
+            if (fileIO && fileIO->Exists(candidate.c_str()))
+            {
+                treePath = candidate;
+                break;
+            }
         }
 
-        BehaviorTreeParser::ParseOutcome result = BehaviorTreeParser::LoadFromFile(fullPath);
+        if (treePath.empty())
+        {
+            AZStd::string pathsTried;
+            for (const AZStd::string& candidate : candidates)
+            {
+                if (!pathsTried.empty())
+                {
+                    pathsTried += ", ";
+                }
+                pathsTried += candidate;
+            }
+            if (pathsTried.empty())
+            {
+                pathsTried = "<none>";
+            }
+            if (!m_loadErrorLogged)
+            {
+                AZ_Error("BehaviorTree", false, "Entity %s could not load tree '%s': no candidate path exists. Paths tried: %s",
+                    GetEntityId().ToString().c_str(), m_treeFile.c_str(), pathsTried.c_str());
+                m_loadErrorLogged = true;
+            }
+            return false;
+        }
+
+        BehaviorTreeParser::ParseOutcome result = BehaviorTreeParser::LoadFromFile(treePath);
         if (!result.IsSuccess())
         {
             if (!m_loadErrorLogged)
             {
                 AZ_Error("BehaviorTree", false, "Entity %s could not load tree '%s': %s",
-                    GetEntityId().ToString().c_str(), fullPath.c_str(), result.GetError().c_str());
+                    GetEntityId().ToString().c_str(), treePath.c_str(), result.GetError().c_str());
                 m_loadErrorLogged = true;
             }
             return false;

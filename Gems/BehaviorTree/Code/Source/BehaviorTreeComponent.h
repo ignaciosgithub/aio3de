@@ -33,6 +33,7 @@ namespace BehaviorTree
         static void GetIncompatibleServices(AZ::ComponentDescriptor::DependencyArrayType& incompatible);
 
         void SetConfiguration(const AZStd::string& treeFile, float tickInterval, bool startActive, bool debugLogTransitions);
+        const AZStd::string& GetTreeFile() const { return m_treeFile; }
         void Activate() override;
         void Deactivate() override;
 
