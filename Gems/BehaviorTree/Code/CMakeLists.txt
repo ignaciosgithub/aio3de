@@ -128,3 +128,27 @@ if(PAL_TRAIT_BUILD_TESTS_SUPPORTED)
         NAME Gem::${gem_name}.Tests
     )
 endif()
+
+if(PAL_TRAIT_BUILD_HOST_TOOLS AND PAL_TRAIT_BUILD_TESTS_SUPPORTED)
+    ly_add_target(
+        NAME ${gem_name}.Editor.Tests ${PAL_TRAIT_TEST_TARGET_TYPE}
+        NAMESPACE Gem
+        FILES_CMAKE
+            behavior_tree_editor_tests_files.cmake
+        INCLUDE_DIRECTORIES
+            PRIVATE
+                Tests
+                Source
+        BUILD_DEPENDENCIES
+            PRIVATE
+                AZ::AzTest
+                AZ::AzTestShared
+                AZ::AzToolsFramework
+                AZ::AzToolsFrameworkTestCommon
+                Gem::${gem_name}.Editor.Static
+    )
+
+    ly_add_googletest(
+        NAME Gem::${gem_name}.Editor.Tests
+    )
+endif()

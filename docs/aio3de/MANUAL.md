@@ -1026,8 +1026,17 @@ or Script Canvas for custom actions and conditions; `BehaviorTreeRequestBus`
 provides blackboard access and runtime control. There is no C# hook, and the
 Editor is an outline rather than a node-graph canvas. MoveTo requires a
 VoxelNav volume. Without a Physics character controller, movement uses
-TransformBus without collision resolution. See `Gems/BehaviorTree/README.md`
-and its Guard example.
+TransformBus without collision resolution.
+
+For a relative tree path, runtime loading first checks the source under
+`@projectroot@`, then the lowercase product under `@products@`, followed by a
+case-preserving product path when it differs. This uses fresh source edits in
+the Editor and PIE, and the product cache or PAK in packaged games. Trees
+referenced by Behavior Tree components in level and prefab entities are
+automatically bundled as `NoLoad` dependencies. Trees selected only at runtime
+by script must be seeded during export with
+`o3de export-project ... --seedfile <path>`; wildcard patterns are supported.
+See `Gems/BehaviorTree/README.md` and its Guard example.
 
 ## 15. The example game: Arena Shooter
 

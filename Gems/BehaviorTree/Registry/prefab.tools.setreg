@@ -1,0 +1,25 @@
+{
+    "Amazon":
+    {
+        "Tools":
+        {
+            "Prefab":
+            {
+                "Processing":
+                {
+                    "Stack":
+                    {
+                        "GameObjectCreation":
+                        {
+                            "BehaviorTree":
+                            {
+                                "$type": "BehaviorTree::BehaviorTreePrefabProcessor",
+                                "$stack_after": "Asset platform component remover"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

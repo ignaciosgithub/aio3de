@@ -10,6 +10,25 @@ The **Behavior Tree Editor** is available from **Tools** and from the component'
 runtime parser, validates documents, shows the blackboard, and polls active
 runtime nodes and blackboard values during game mode.
 
+## Packaged games
+
+At runtime, a relative tree path is checked in this order: the project source
+under `@projectroot@`, the lowercase product path under `@products@`, then the
+case-preserving product path when it differs. This keeps fresh source edits
+visible in the Editor and PIE while allowing packaged games to load the copied
+JSON product from the cache or a PAK.
+
+Trees referenced by Behavior Tree components in levels and prefabs are
+automatically added as `NoLoad` dependencies and bundled with those prefabs.
+Trees selected only at runtime by script are not discoverable during prefab
+processing; seed them explicitly when exporting:
+
+```sh
+o3de export-project ... --seedfile <path>
+```
+
+The default export script accepts wildcard patterns for `--seedfile`.
+
 ## Node reference
 
 | Category | Node | Parameters | Behavior |
