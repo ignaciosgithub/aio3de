@@ -16,6 +16,26 @@
 
 namespace WorldPartition
 {
+    AZ::Aabb ExpandStreamBounds(const AZ::Aabb& current, const AZStd::vector<AZ::Aabb>& entityBounds)
+    {
+        AZ::Aabb expanded = current;
+        for (const AZ::Aabb& bounds : entityBounds)
+        {
+            if (bounds.IsValid())
+            {
+                if (expanded.IsValid())
+                {
+                    expanded.AddAabb(bounds);
+                }
+                else
+                {
+                    expanded = bounds;
+                }
+            }
+        }
+        return expanded;
+    }
+
     namespace
     {
         float DistanceToBounds(const AZ::Vector3& position, const AZ::Aabb& bounds, bool twoDimensional)

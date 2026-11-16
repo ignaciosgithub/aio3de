@@ -10,17 +10,24 @@
 
 #include <AzCore/Asset/AssetManager.h>
 #include <AzCore/Asset/AssetSerializer.h>
+#include <AzCore/Component/ComponentApplicationBus.h>
 #include <AzCore/Console/Console.h>
 #include <AzCore/Component/TransformBus.h>
+#include <AzCore/std/parallel/lock.h>
 #include <AzCore/std/algorithm.h>
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzFramework/Components/CameraBus.h>
+#include <AzFramework/Visibility/BoundsBus.h>
 #include <WorldPartition/WorldPartitionStreamingSourceBus.h>
+#include <AzCore/std/utility/move.h>
 
 namespace WorldPartition
 {
     namespace
     {
+        constexpr float BoundsRefreshInterval = 1.0f;
+        constexpr uint32_t MaxCellsPerBoundsRefresh = 4;
+
         AZStd::vector<WorldPartitionComponent*> s_activePartitions;
         AZ_CVAR(bool, wp_enabled, true, nullptr, AZ::ConsoleFunctorFlags::DontReplicate,
             "Enable world partition streaming; false requests all cells without a load budget.");
@@ -75,6 +82,18 @@ namespace WorldPartition
     {
         m_runtimeCells.clear();
         m_runtimeCells.resize(m_cells.size());
+        m_streamBounds.clear();
+        m_streamBounds.reserve(m_cells.size());
+        for (const WorldPartitionCell& cell : m_cells)
+        {
+            m_streamBounds.push_back(cell.m_bounds);
+        }
+        m_boundsRefreshTimer = 0.0f;
+        m_nextBoundsRefreshCell = 0;
+        {
+            AZStd::lock_guard<AZStd::mutex> lock(m_pendingSpawnResults->m_mutex);
+            m_pendingSpawnResults->m_results.clear();
+        }
         s_activePartitions.push_back(this);
         AZ::TickBus::Handler::BusConnect();
     }
@@ -87,6 +106,8 @@ namespace WorldPartition
             UnloadCell(index);
         }
         m_runtimeCells.clear();
+        AZStd::lock_guard<AZStd::mutex> lock(m_pendingSpawnResults->m_mutex);
+        m_pendingSpawnResults->m_results.clear();
     }
     uint32_t WorldPartitionComponent::GetLoadedCellCount() const
     {
@@ -105,8 +126,83 @@ namespace WorldPartition
         }
         return count;
     }
-    void WorldPartitionComponent::OnTick(float, AZ::ScriptTimePoint)
+    uint32_t WorldPartitionComponent::GetExpandedCellBoundsCount() const
     {
+        uint32_t count = 0;
+        for (size_t index = 0; index < m_cells.size() && index < m_streamBounds.size(); ++index)
+        {
+            count += m_streamBounds[index] != m_cells[index].m_bounds;
+        }
+        return count;
+    }
+    void WorldPartitionComponent::ProcessPendingSpawnResults()
+    {
+        AZStd::vector<PendingSpawnResult> pendingResults;
+        {
+            AZStd::lock_guard<AZStd::mutex> lock(m_pendingSpawnResults->m_mutex);
+            pendingResults.swap(m_pendingSpawnResults->m_results);
+        }
+
+        for (PendingSpawnResult& result : pendingResults)
+        {
+            if (result.m_cellIndex >= m_runtimeCells.size())
+            {
+                continue;
+            }
+            RuntimeCell& runtime = m_runtimeCells[result.m_cellIndex];
+            if (runtime.m_loaded && runtime.m_ticket.GetId() == result.m_ticketId)
+            {
+                runtime.m_entities = AZStd::move(result.m_entityIds);
+            }
+        }
+    }
+    void WorldPartitionComponent::RefreshLoadedCellBounds()
+    {
+        if (m_runtimeCells.empty() || m_streamBounds.size() != m_runtimeCells.size())
+        {
+            return;
+        }
+
+        uint32_t refreshedCells = 0;
+        size_t examinedCells = 0;
+        while (examinedCells < m_runtimeCells.size() && refreshedCells < MaxCellsPerBoundsRefresh)
+        {
+            const size_t index = m_nextBoundsRefreshCell;
+            m_nextBoundsRefreshCell = (m_nextBoundsRefreshCell + 1) % m_runtimeCells.size();
+            ++examinedCells;
+
+            RuntimeCell& runtime = m_runtimeCells[index];
+            if (!runtime.m_loaded)
+            {
+                continue;
+            }
+
+            AZStd::vector<AZ::Aabb> entityBounds;
+            entityBounds.reserve(runtime.m_entities.size());
+            for (const AZ::EntityId entityId : runtime.m_entities)
+            {
+                AZ::Entity* entity = nullptr;
+                AZ::ComponentApplicationBus::BroadcastResult(
+                    entity, &AZ::ComponentApplicationRequests::FindEntity, entityId);
+                if (entity && entity->GetState() == AZ::Entity::State::Active)
+                {
+                    entityBounds.push_back(AzFramework::CalculateEntityWorldBoundsUnion(entity));
+                }
+            }
+            m_streamBounds[index] = ExpandStreamBounds(m_streamBounds[index], entityBounds);
+            ++refreshedCells;
+        }
+    }
+    void WorldPartitionComponent::OnTick(float deltaTime, AZ::ScriptTimePoint)
+    {
+        ProcessPendingSpawnResults();
+        m_boundsRefreshTimer += deltaTime;
+        if (m_boundsRefreshTimer >= BoundsRefreshInterval)
+        {
+            m_boundsRefreshTimer = 0.0f;
+            RefreshLoadedCellBounds();
+        }
+
         AZStd::vector<StreamingSource> sources;
         WorldPartitionStreamingSourceRequestBus::Broadcast(&WorldPartitionStreamingSourceRequests::GetStreamingSources, sources);
         if (!WorldPartitionStreamingSourceRequestBus::HasHandlers())
@@ -140,7 +236,7 @@ namespace WorldPartition
         states.reserve(m_cells.size());
         for (size_t index = 0; index < m_cells.size(); ++index)
         {
-            states.push_back({ m_cells[index].m_bounds, m_runtimeCells[index].m_loaded });
+            states.push_back({ m_streamBounds[index], m_runtimeCells[index].m_loaded });
         }
         StreamingSettings settings{ m_loadRadius, AZStd::max(m_unloadRadius, m_loadRadius),
             m_maxCellLoadsPerFrame, m_twoDimensional };
@@ -180,7 +276,26 @@ namespace WorldPartition
             runtime.m_asset.Release();
             return;
         }
-        spawnableEntities->SpawnAllEntities(runtime.m_ticket);
+        const AZStd::shared_ptr<PendingSpawnResults> pendingSpawnResults = m_pendingSpawnResults;
+        AzFramework::SpawnAllEntitiesOptionalArgs optionalArgs;
+        optionalArgs.m_completionCallback = [pendingSpawnResults, index](
+            AzFramework::EntitySpawnTicket::Id ticketId, AzFramework::SpawnableConstEntityContainerView entities)
+        {
+            PendingSpawnResult result;
+            result.m_cellIndex = index;
+            result.m_ticketId = ticketId;
+            result.m_entityIds.reserve(entities.size());
+            for (const AZ::Entity* entity : entities)
+            {
+                if (entity)
+                {
+                    result.m_entityIds.push_back(entity->GetId());
+                }
+            }
+            AZStd::lock_guard<AZStd::mutex> lock(pendingSpawnResults->m_mutex);
+            pendingSpawnResults->m_results.push_back(AZStd::move(result));
+        };
+        spawnableEntities->SpawnAllEntities(runtime.m_ticket, AZStd::move(optionalArgs));
         runtime.m_loaded = true;
     }
 
@@ -200,6 +315,7 @@ namespace WorldPartition
             runtime.m_ticket = {};
         }
         runtime.m_asset.Release();
+        runtime.m_entities.clear();
         runtime.m_loaded = false;
     }
 }

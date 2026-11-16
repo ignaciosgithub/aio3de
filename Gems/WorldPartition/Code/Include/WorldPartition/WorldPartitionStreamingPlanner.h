@@ -41,6 +41,8 @@ namespace WorldPartition
         AZStd::vector<uint32_t> m_unload;
     };
 
+    AZ::Aabb ExpandStreamBounds(const AZ::Aabb& current, const AZStd::vector<AZ::Aabb>& entityBounds);
+
     StreamingPlan PlanStreaming(
         const AZStd::vector<CellStreamState>& cells,
         const AZStd::vector<StreamingSource>& sources,
