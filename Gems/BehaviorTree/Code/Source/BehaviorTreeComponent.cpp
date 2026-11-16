@@ -413,7 +413,7 @@ namespace BehaviorTree
         return result;
     }
 
-    void BehaviorTreeComponent::Log(const AZStd::string& message)
+    void BehaviorTreeComponent::Log([[maybe_unused]] const AZStd::string& message)
     {
         AZ_TracePrintf("BehaviorTree", "%s\n", message.c_str());
     }
