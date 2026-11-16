@@ -50,7 +50,7 @@ practical and demonstrable out of the box. On top of upstream O3DE it adds:
 | Area | Additions |
 | --- | --- |
 | Rendering | Hardware-agnostic ray-traced shadows (portable BVH + compute traversal, live-toggleable), GPU-driven frustum culling with indirect draws, SIMD batched CPU sphere culling, PSO pipeline-library disk caching |
-| Terrain | Error-driven automatic terrain LOD bounded by screen-space error, terrain as an automatic software occluder, height-aware streamable level chunks (LevelStreaming gem) |
+| Terrain | Error-driven automatic terrain LOD bounded by screen-space error, terrain as an automatic software occluder, height-aware streamable level chunks (LevelStreaming), prefab-backed entity cells (WorldPartition) |
 | Physics | Full XPBD soft body system (SoftBodyPhysics gem): CPU and GPU compute solvers, world/rigid/soft-soft collision, in-Editor component |
 | AI | AIBackbone gem: in-Editor AI Model Builder, ML stack installer, dataset recorder, ONNX import, portable weights export; NeuralBots gem: runtime MLP bot agent with human constraints |
 | Gameplay | ArenaShooter example game kit (input bindings + Lua gameplay scripts), ArenaShooterNet server-authoritative multiplayer, match flow (warm-up/live/win condition/map vote), multiple weapons with scroll-wheel switching, death animation + spatial audio wiring |
@@ -261,6 +261,7 @@ toggle gems), and on the CLI `scripts/o3de.sh hub gems -pp <project>
 | `AIBackbone` | code+tools | AI Model Builder, training, dataset recorder |
 | `SoftBodyPhysics` | code | Soft Body component (XPBD) |
 | `LevelStreaming` | code | streamable chunk grid component |
+| `WorldPartition` | code | prefab-backed grid streaming for level entities |
 | `OpenParticleSystem` | code | Particle component + Particle Editor |
 | `Multiplayer` | code | netcode foundation (dependency of ArenaShooterNet) |
 | `GameSettings` | code | persistent settings + Remappable Input component |
@@ -570,7 +571,44 @@ the chunk's true bounds, not to a flat cell.
 | Hysteresis | 0.1 | extra fraction beyond stream distance before streaming out (kills boundary flicker) |
 | Rebuild interval | 0.5 s | how often chunk membership is rebuilt (picks up moved/spawned objects) |
 
-### 7.3 Terrain occlusion
+### 7.3 World partition (WorldPartition gem)
+
+Enable **WorldPartition** in the project, reconfigure, and rebuild the Editor
+and game launcher. Add **World Partition** to the level entity. The prefab
+processor extracts eligible root subtrees into spawnable cell prefabs during
+asset processing; the level component keeps their asset IDs and streams cells
+around one or more **World Partition Streaming Source** entities. If there is
+no source component, the active camera is used. A source load radius of `0`
+uses the partition's radius.
+
+Use **World Partition Policy** on entities or subtree roots:
+
+- **Default** follows `Stream by default`; when enabled, eligible entities
+  stream unless marked AlwaysLoaded.
+- **AlwaysLoaded** prevents the entire transform subtree from being extracted.
+- **Streamed** opts a subtree into streaming when `Stream by default` is off.
+
+Subtrees with camera components, network binding, another partition/source
+component, missing transforms, partial nested prefab ownership, or entity-ID
+references crossing the subtree boundary remain in the level prefab. This
+avoids broken entity references and prefab ownership when cells are spawned
+independently.
+
+The partition component defaults to a 64 m cell size, 128 m load radius, 160 m
+unload radius, and two cell load requests per frame. In 2D mode the grid and
+distance use X/Y; O3DE's Z axis is retained for cell bounds. `wp_enabled 0`
+requests all cells without the load budget; `wp_enabled 1` restores normal
+streaming. `wp_stats` prints loaded/total cell and spawned entity counts per
+partition.
+
+Despawning a cell destroys its runtime entities and their transient state;
+state that must survive unloading should be stored externally. Play-in-Editor
+uses the same generated cell spawnables and dependency IDs as packaged builds.
+Coordinates use single-precision transforms (there is no double-precision
+world-coordinate support), and cell bounds are grid boxes rather than exact
+per-entity geometry.
+
+### 7.4 Terrain occlusion
 
 Terrain is fed into the software occlusion buffer as an **automatic,
 conservative occluder**: hills and ridges cull the entities behind them with

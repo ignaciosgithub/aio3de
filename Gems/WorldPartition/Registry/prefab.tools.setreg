@@ -1,0 +1,33 @@
+{
+    "Amazon":
+    {
+        "Tools":
+        {
+            "Prefab":
+            {
+                "Processing":
+                {
+                    "Stack":
+                    {
+                        "PlayInEditor":
+                        {
+                            "WorldPartition":
+                            {
+                                "$type": "WorldPartition::WorldPartitionPrefabProcessor",
+                                "$stack_after": "Editor info remover"
+                            }
+                        },
+                        "GameObjectCreation":
+                        {
+                            "WorldPartition":
+                            {
+                                "$type": "WorldPartition::WorldPartitionPrefabProcessor",
+                                "$stack_after": "Asset platform component remover"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
