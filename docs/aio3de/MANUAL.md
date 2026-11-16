@@ -599,14 +599,17 @@ unload radius, and two cell load requests per frame. In 2D mode the grid and
 distance use X/Y; O3DE's Z axis is retained for cell bounds. `wp_enabled 0`
 requests all cells without the load budget; `wp_enabled 1` restores normal
 streaming. `wp_stats` prints loaded/total cell and spawned entity counts per
-partition.
+partition, plus the number of cells whose bounds expanded beyond their grid
+boxes.
 
 Despawning a cell destroys its runtime entities and their transient state;
 state that must survive unloading should be stored externally. Play-in-Editor
 uses the same generated cell spawnables and dependency IDs as packaged builds.
 Coordinates use single-precision transforms (there is no double-precision
-world-coordinate support), and cell bounds are grid boxes rather than exact
-per-entity geometry.
+world-coordinate support). The first load uses each cell's grid box. After a
+cell loads, its bounds grow to cover its entities' real world bounds and are
+refreshed while loaded to capture asynchronous mesh bounds. Learned bounds are
+kept for later loads in the session.
 
 ### 7.4 Terrain occlusion
 

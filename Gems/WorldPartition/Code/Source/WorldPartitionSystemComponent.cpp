@@ -25,9 +25,9 @@ namespace WorldPartition
     {
         for (const WorldPartitionComponent* partition : WorldPartitionComponent::GetActivePartitions())
         {
-            AZ_Printf("WorldPartition", "entity=%s loaded=%u/%zu spawnedEntities=%u\n",
+            AZ_Printf("WorldPartition", "entity=%s loaded=%u/%zu expandedBounds=%u spawnedEntities=%u\n",
                 partition->GetEntity()->GetName().c_str(), partition->GetLoadedCellCount(),
-                partition->m_cells.size(), partition->GetSpawnedEntityCount());
+                partition->m_cells.size(), partition->GetExpandedCellBoundsCount(), partition->GetSpawnedEntityCount());
         }
     }
 }

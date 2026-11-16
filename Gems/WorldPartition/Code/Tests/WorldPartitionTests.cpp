@@ -123,6 +123,69 @@ namespace WorldPartition
             { { AZ::Vector3::CreateZero(), 0.0f } }, { 1.0f, 2.0f, 1, false });
         EXPECT_TRUE(plan.m_load.empty());
     }
+
+    TEST(WorldPartitionPlannerTests, ExpandedLoadedBoundsPreventUnloadOutsideGridBounds)
+    {
+        const AZ::Aabb gridBounds =
+            AZ::Aabb::CreateFromMinMax(AZ::Vector3(0.0f, 0.0f, 0.0f), AZ::Vector3(64.0f, 64.0f, 0.0f));
+        const AZ::Aabb entityBounds =
+            AZ::Aabb::CreateFromMinMax(AZ::Vector3(64.0f, 0.0f, 0.0f), AZ::Vector3(114.0f, 64.0f, 0.0f));
+        const AZ::Aabb streamBounds = ExpandStreamBounds(gridBounds, { entityBounds });
+        const AZStd::vector<StreamingSource> sources{ { AZ::Vector3(80.0f, 32.0f, 0.0f), 0.0f } };
+        const StreamingSettings settings{ 5.0f, 10.0f, 1, true };
+
+        const StreamingPlan gridPlan = PlanStreaming({ { gridBounds, true } }, sources, settings);
+        const StreamingPlan expandedPlan = PlanStreaming({ { streamBounds, true } }, sources, settings);
+
+        ASSERT_EQ(gridPlan.m_unload.size(), 1);
+        EXPECT_TRUE(expandedPlan.m_unload.empty());
+        EXPECT_FLOAT_EQ(streamBounds.GetMax().GetX(), 114.0f);
+    }
+
+    TEST(WorldPartitionPlannerTests, ExpandStreamBoundsIncludesLargerEntityBounds)
+    {
+        const AZ::Aabb current =
+            AZ::Aabb::CreateFromMinMax(AZ::Vector3::CreateZero(), AZ::Vector3(1.0f));
+        const AZ::Aabb larger =
+            AZ::Aabb::CreateFromMinMax(AZ::Vector3(-2.0f), AZ::Vector3(5.0f));
+
+        const AZ::Aabb expanded = ExpandStreamBounds(current, { larger });
+
+        EXPECT_EQ(expanded.GetMin(), larger.GetMin());
+        EXPECT_EQ(expanded.GetMax(), larger.GetMax());
+    }
+
+    TEST(WorldPartitionPlannerTests, ExpandStreamBoundsIgnoresInvalidEntityBounds)
+    {
+        const AZ::Aabb current =
+            AZ::Aabb::CreateFromMinMax(AZ::Vector3::CreateZero(), AZ::Vector3(1.0f));
+
+        const AZ::Aabb expanded = ExpandStreamBounds(current, { AZ::Aabb::CreateNull() });
+
+        EXPECT_EQ(expanded, current);
+    }
+
+    TEST(WorldPartitionPlannerTests, ExpandStreamBoundsNeverShrinks)
+    {
+        const AZ::Aabb current =
+            AZ::Aabb::CreateFromMinMax(AZ::Vector3::CreateZero(), AZ::Vector3(10.0f));
+        const AZ::Aabb smaller =
+            AZ::Aabb::CreateFromMinMax(AZ::Vector3(2.0f), AZ::Vector3(4.0f));
+
+        const AZ::Aabb expanded = ExpandStreamBounds(current, { smaller });
+
+        EXPECT_EQ(expanded, current);
+    }
+
+    TEST(WorldPartitionPlannerTests, ExpandStreamBoundsReturnsCurrentForEmptyBounds)
+    {
+        const AZ::Aabb current =
+            AZ::Aabb::CreateFromMinMax(AZ::Vector3::CreateZero(), AZ::Vector3(1.0f));
+
+        const AZ::Aabb expanded = ExpandStreamBounds(current, {});
+
+        EXPECT_EQ(expanded, current);
+    }
 }
 
 AZ_UNIT_TEST_HOOK(new UnitTest::WorldPartitionTestsEnvironment);
