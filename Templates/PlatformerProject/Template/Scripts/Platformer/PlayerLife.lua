@@ -36,11 +36,15 @@ function PlayerLife:BroadcastHealth()
         GameplayNotificationId(self.entityId, "LifeChanged", "float"), self.health)
 end
 
-function PlayerLife:OnEventBegin()
+function PlayerLife:OnEventBegin(value)
     if self.dead then
         return
     end
-    self.health = self.health - 1
+    local damage = value
+    if damage == nil or damage <= 0.0 then
+        damage = 1.0
+    end
+    self.health = math.max(0.0, self.health - damage)
     self:BroadcastHealth()
     if self.health <= 0 then
         self:Die("health")

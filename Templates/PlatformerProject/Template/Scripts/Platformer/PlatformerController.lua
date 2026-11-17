@@ -55,6 +55,7 @@ local function findGroundHit(entityId)
 
     local start = worldPosition(entityId) + Vector3(0.0, 0.0, 0.2)
     local request = SceneQueries.CreateRayCastRequest(start, Vector3(0.0, 0.0, -1.0), 0.5, "All")
+    request.ReportMultipleHits = true
     local hits = scene:QueryScene(request)
     for index = 1, hits.HitArray:Size() do
         local hit = hits.HitArray[index]
@@ -71,6 +72,7 @@ function PlatformerController:OnActivate()
     self.pitch = 0.0
     self.jumps = 0
     self.wantJump = false
+    self.pendingGroundJump = false
     self.lastPlatformName = nil
     self.lastPlatformPosition = nil
     self.stompTimer = 0.0
@@ -166,14 +168,31 @@ function PlatformerController:OnTick(deltaTime)
     end
 
     local grounded = CharacterGameplayRequestBus.Event.IsOnGround(self.entityId)
-    if grounded then
+    if grounded and not self.pendingGroundJump then
         self.jumps = 0
     end
+
+    local jumpVelocity = Vector3(0.0, 0.0, 0.0)
+    if self.pendingGroundJump then
+        if grounded then
+            jumpVelocity = Vector3(0.0, 0.0, self.Properties.JumpSpeed)
+        else
+            CharacterGameplayRequestBus.Event.SetFallingVelocity(
+                self.entityId, Vector3(0.0, 0.0, self.Properties.JumpSpeed))
+            self.pendingGroundJump = false
+        end
+    end
+
     if self.wantJump then
         self.wantJump = false
         if self.jumps < self.Properties.MaxJumps then
-            CharacterGameplayRequestBus.Event.SetFallingVelocity(
-                self.entityId, Vector3(0.0, 0.0, self.Properties.JumpSpeed))
+            if grounded then
+                self.pendingGroundJump = true
+                jumpVelocity = Vector3(0.0, 0.0, self.Properties.JumpSpeed)
+            else
+                CharacterGameplayRequestBus.Event.SetFallingVelocity(
+                    self.entityId, Vector3(0.0, 0.0, self.Properties.JumpSpeed))
+            end
             self.jumps = self.jumps + 1
         end
     end
@@ -201,7 +220,7 @@ function PlatformerController:OnTick(deltaTime)
         self.stompTimer = 0.25
     end
 
-    local velocity = move * self.Properties.MoveSpeed + carryVelocity
+    local velocity = move * self.Properties.MoveSpeed + carryVelocity + jumpVelocity
     CharacterControllerRequestBus.Event.AddVelocityForTick(self.entityId, velocity)
 end
 
