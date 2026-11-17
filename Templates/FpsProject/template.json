@@ -419,6 +419,14 @@
             "isTemplated": false
         },
         {
+            "file": "package.bat",
+            "isTemplated": true
+        },
+        {
+            "file": "package.sh",
+            "isTemplated": true
+        },
+        {
             "file": "export.bat",
             "isTemplated": true
         },
