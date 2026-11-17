@@ -19,7 +19,7 @@ namespace BehaviorTree
     {
     public:
         AZ_RTTI(
-            BehaviorTreePrefabProcessor, "{54010604-7256-4D5F-A02D-130EBF82B9ED}",
+            BehaviorTree::BehaviorTreePrefabProcessor, "{54010604-7256-4D5F-A02D-130EBF82B9ED}",
             AzToolsFramework::Prefab::PrefabConversionUtils::PrefabProcessor);
         AZ_CLASS_ALLOCATOR(BehaviorTreePrefabProcessor, AZ::SystemAllocator);
 

@@ -16,7 +16,7 @@ namespace WorldPartition
         : public AzToolsFramework::Prefab::PrefabConversionUtils::PrefabProcessor
     {
     public:
-        AZ_RTTI(WorldPartitionPrefabProcessor, "{C2B7210E-BDB4-45E0-96E3-0D4AB452A933}",
+        AZ_RTTI(WorldPartition::WorldPartitionPrefabProcessor, "{C2B7210E-BDB4-45E0-96E3-0D4AB452A933}",
             AzToolsFramework::Prefab::PrefabConversionUtils::PrefabProcessor);
         AZ_CLASS_ALLOCATOR(WorldPartitionPrefabProcessor, AZ::SystemAllocator);
         static void Reflect(AZ::ReflectContext* context);
