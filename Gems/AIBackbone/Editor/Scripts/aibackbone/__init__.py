@@ -11,15 +11,12 @@ __version__ = "0.1.0"
 
 def ml_available():
     """Returns (available: bool, message: str) describing whether the ML libraries are installed."""
-    missing = []
-    for lib in ("numpy", "torch", "onnx", "onnxruntime"):
-        try:
-            __import__(lib)
-        except ImportError:
-            missing.append(lib)
+    from .deps import missing_libs
+
+    missing = missing_libs()
     if missing:
         return False, (
             "Missing Python libraries: " + ", ".join(missing) +
-            ". Run install_ai_libs (in Gems/AIBackbone) and restart the Editor."
+            ". Install them with the in-tool installer or the install_ai_libs script."
         )
     return True, "OK"
