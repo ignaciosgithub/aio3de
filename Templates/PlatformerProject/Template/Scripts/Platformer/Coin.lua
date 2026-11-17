@@ -5,6 +5,8 @@
 -- SPDX-License-Identifier: Apache-2.0 OR MIT
 --
 
+local CollectedCoins = require("Scripts.Platformer.CollectedCoins")
+
 local Coin =
 {
     Properties =
@@ -13,8 +15,19 @@ local Coin =
     },
 }
 
+local function coinKey(entityId)
+    local position = TransformBus.Event.GetWorldTranslation(entityId)
+    return string.format("%.1f,%.1f,%.1f", position.x, position.y, position.z)
+end
+
 function Coin:OnActivate()
-    self.collected = false
+    self.positionKey = coinKey(self.entityId)
+    self.collected = CollectedCoins[self.positionKey] == true
+    if self.collected then
+        GameEntityContextRequestBus.Broadcast.DeactivateGameEntity(self.entityId)
+        return
+    end
+
     self.playerId = EntityId()
     self.playerBeaconCallback =
     {
@@ -40,6 +53,7 @@ function Coin:OnTick()
         return
     end
     self.collected = true
+    CollectedCoins[self.positionKey] = true
     GameplayNotificationBus.Event.OnEventBegin(
         GameplayNotificationId(self.playerId, "CoinCollected", "float"), 1.0)
     GameEntityContextRequestBus.Broadcast.DeactivateGameEntity(self.entityId)
