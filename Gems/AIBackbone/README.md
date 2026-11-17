@@ -7,18 +7,40 @@ environment.
 
 ## Setup
 
-1. Install the ML libraries into the engine's Python environment (one time):
+1. Open **Tools > AI Model Builder** in the Editor. If AI libraries are missing,
+   the installer banner can install them without leaving the tool. Choose a
+   PyTorch build (Auto detects NVIDIA and otherwise uses CPU; CPU, CUDA 11.8,
+   CUDA 12.6, CUDA 12.8, and Linux ROCm 6.3 are also available). Enable **Use
+   tested versions** to install the exact versions in
+   `requirements-ai-pinned.txt`; otherwise the installer uses current compatible
+   releases. Installing a library already imported by the Editor may require an
+   Editor restart.
+
+   The command-line scripts use the same installer:
 
    ```bat
-   REM Windows (from the engine root)
-   Gems\AIBackbone\install_ai_libs.bat          REM CPU PyTorch
-   Gems\AIBackbone\install_ai_libs.bat --cuda   REM CUDA PyTorch (NVIDIA, incl. RTX 50-series)
+   REM Windows
+   Gems\AIBackbone\install_ai_libs.bat --torch cpu --pinned
+   Gems\AIBackbone\install_ai_libs.bat --torch cu128
+   Gems\AIBackbone\install_ai_libs.bat --torch cu126 --torch-version 2.7.1
+   Gems\AIBackbone\install_ai_libs.bat --check
    ```
 
    ```bash
    # Linux/macOS
-   Gems/AIBackbone/install_ai_libs.sh [--cuda]
+   Gems/AIBackbone/install_ai_libs.sh --torch cpu --pinned
+   Gems/AIBackbone/install_ai_libs.sh --torch auto
+   Gems/AIBackbone/install_ai_libs.sh --torch cu126 --torch-version 2.7.1
+   Gems/AIBackbone/install_ai_libs.sh --check
    ```
+
+   `--torch-version X.Y[.Z]` selects an exact PyTorch version from the selected
+   wheel index and overrides the pinned PyTorch version. The UI also has an
+   editable version selector with recent versions verified for Python 3.10 on
+   CPU, CUDA 12.6, and CUDA 12.8. The legacy `--cuda` option remains an alias
+   for `--torch cu128`. Add `--all` to reinstall libraries that are already
+   present. `requirements-ai.txt` is the unpinned package list; the scripts
+   invoke the engine's Python 3.10.
 
 2. Enable the gem for your project (it depends on `EditorPythonBindings` and
    `QtForPython`, which are enabled by default):
