@@ -17,6 +17,7 @@ ly_install_directory(
         RemoteRepo
         DefaultProject
         FpsProject
+        PlatformerProject
         MinimalProject
         GemRepo
         DefaultComponent
