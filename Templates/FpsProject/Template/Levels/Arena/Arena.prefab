@@ -116,11 +116,11 @@
                     "$type": "EditorVisibilityComponent",
                     "Id": 16924331505170483494
                 },
-                "FpsSampleSpinnerComponent": {
+                "${Name}SpinnerComponent": {
                     "$type": "GenericComponentWrapper",
                     "Id": 16806508043595426946,
                     "m_template": {
-                        "$type": "FpsSampleSpinnerComponent"
+                        "$type": "${Name}SpinnerComponent"
                     }
                 },
                 "TransformComponent": {
@@ -206,11 +206,11 @@
                     "$type": "EditorVisibilityComponent",
                     "Id": 4672429309944664090
                 },
-                "FpsSampleSpinnerComponent": {
+                "${Name}SpinnerComponent": {
                     "$type": "GenericComponentWrapper",
                     "Id": 2816320717438281763,
                     "m_template": {
-                        "$type": "FpsSampleSpinnerComponent"
+                        "$type": "${Name}SpinnerComponent"
                     }
                 },
                 "TransformComponent": {
@@ -296,11 +296,11 @@
                     "$type": "EditorVisibilityComponent",
                     "Id": 17486702647319126534
                 },
-                "FpsSampleSpinnerComponent": {
+                "${Name}SpinnerComponent": {
                     "$type": "GenericComponentWrapper",
                     "Id": 6974331803519909456,
                     "m_template": {
-                        "$type": "FpsSampleSpinnerComponent"
+                        "$type": "${Name}SpinnerComponent"
                     }
                 },
                 "TransformComponent": {
@@ -8997,11 +8997,11 @@
                     "$type": "EditorVisibilityComponent",
                     "Id": 7505336342546126424
                 },
-                "FpsSampleSpinnerComponent": {
+                "${Name}SpinnerComponent": {
                     "$type": "GenericComponentWrapper",
                     "Id": 6577153757944714819,
                     "m_template": {
-                        "$type": "FpsSampleSpinnerComponent"
+                        "$type": "${Name}SpinnerComponent"
                     }
                 },
                 "TransformComponent": {

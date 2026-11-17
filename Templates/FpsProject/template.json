@@ -156,7 +156,7 @@
         },
         {
             "file": "Levels/Arena/Arena.prefab",
-            "isTemplated": false
+            "isTemplated": true
         },
         {
             "file": "Editor/Scripts/build_arena_level.py",
