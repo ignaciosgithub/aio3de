@@ -565,6 +565,7 @@ def main():
             "PhysX Character Controller", "PhysX Character Gameplay", "Input",
         ],
     )
+    set_property(player["components"][0], ["Height"], 1.8, required=True)
     input_asset = asset_id(["Gems/ArenaShooter/Assets/InputBindings/arenashooter.inputbindings",
                             "InputBindings/arenashooter.inputbindings"])
     if input_asset is None:
