@@ -419,7 +419,7 @@ def make_entity(name, position, scale=1.0, component_names=(), parent=None):
     editor.EditorEntityAPIBus(bus.Event, "SetName", entity_id, name)
     components.TransformBus(
         bus.Event,
-        "SetWorldTranslation",
+        "SetLocalTranslation",
         entity_id,
         math.Vector3(float(position[0]), float(position[1]), float(position[2])),
     )
@@ -571,7 +571,6 @@ def main():
         raise RuntimeError("Could not resolve ArenaShooter input bindings")
     set_property(player["components"][2], ["Input to event bindings"], input_asset, required=True)
     camera = make_entity("Player Camera", (0.0, 0.0, 1.6), parent=player["id"], component_names=["Camera"])
-    components.TransformBus(bus.Event, "SetLocalTranslation", camera["id"], math.Vector3(0.0, 0.0, 1.6))
     player_controller = add_lua(
         player,
         "PlayerController.lua",
