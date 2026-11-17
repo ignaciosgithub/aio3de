@@ -1,0 +1,15 @@
+{
+    "Type": "JsonSerialization",
+    "Version": 1,
+    "ClassName": "AZStd::vector<SeedInfo, allocator>",
+    "ClassData": [
+        {
+            "assetId": {
+                "guid": "{5F0BA291-BE7C-51FC-B5D1-7B294D93081A}",
+                "subId": 1488874441
+            },
+            "platformFlags": 255,
+            "pathHint": "levels/arena/arena.spawnable"
+        }
+    ]
+}
