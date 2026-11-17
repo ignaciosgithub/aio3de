@@ -426,4 +426,18 @@ namespace UnitTest
         });
         EXPECT_TRUE(nestedInstanceMoved);
     }
+
+    TEST_F(WorldPartitionPrefabProcessorTests, ReflectsQualifiedPrefabProcessorTypeName)
+    {
+        AZ::SerializeContext serializeContext;
+        WorldPartition::WorldPartitionPrefabProcessor::Reflect(&serializeContext);
+
+        const auto classIds =
+            serializeContext.FindClassId(AZ::Crc32("WorldPartition::WorldPartitionPrefabProcessor"));
+        EXPECT_NE(
+            std::find(
+                classIds.begin(), classIds.end(),
+                azrtti_typeid<WorldPartition::WorldPartitionPrefabProcessor>()),
+            classIds.end());
+    }
 }

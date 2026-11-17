@@ -10,6 +10,7 @@
 #include <BehaviorTreePrefabProcessor.h>
 
 #include <AzTest/AzTest.h>
+#include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/std/containers/vector.h>
 #include <AzCore/std/optional.h>
 #include <AzCore/std/utility/move.h>
@@ -21,6 +22,8 @@
 #include <AzToolsFramework/Prefab/Spawnable/PrefabDocument.h>
 #include <AzToolsFramework/Prefab/Spawnable/PrefabProcessorContext.h>
 #include <AzToolsFramework/UnitTest/AzToolsFrameworkTestHelpers.h>
+
+#include <algorithm>
 
 namespace UnitTest
 {
@@ -216,6 +219,20 @@ namespace UnitTest
 
         EXPECT_TRUE(context.GetRegisteredProductAssetDependencies().empty());
         EXPECT_TRUE(context.HasCompletedSuccessfully());
+    }
+
+    TEST_F(BehaviorTreePrefabProcessorTests, ReflectsQualifiedPrefabProcessorTypeName)
+    {
+        AZ::SerializeContext serializeContext;
+        BehaviorTree::BehaviorTreePrefabProcessor::Reflect(&serializeContext);
+
+        const auto classIds =
+            serializeContext.FindClassId(AZ::Crc32("BehaviorTree::BehaviorTreePrefabProcessor"));
+        EXPECT_NE(
+            std::find(
+                classIds.begin(), classIds.end(),
+                azrtti_typeid<BehaviorTree::BehaviorTreePrefabProcessor>()),
+            classIds.end());
     }
 } // namespace UnitTest
 
