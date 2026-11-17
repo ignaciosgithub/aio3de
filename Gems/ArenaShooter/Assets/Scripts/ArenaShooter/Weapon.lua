@@ -63,7 +63,7 @@ function Weapon:Fire()
     end
     local tm = TransformBus.Event.GetWorldTM(sourceEntity)
     local start = tm:GetTranslation()
-    local direction = -tm:GetBasisZ() -- cameras look down -Z
+    local direction = tm:GetBasisY() -- cameras look along +Y
 
     local physicsSystem = GetPhysicsSystem()
     local sceneHandle = physicsSystem:GetSceneHandle(DefaultPhysicsSceneName)
