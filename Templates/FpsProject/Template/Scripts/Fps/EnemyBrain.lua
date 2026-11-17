@@ -25,11 +25,18 @@ local function worldPosition(entityId)
 end
 
 function EnemyBrain:OnActivate()
+    self.dead = false
     self.visible = false
     self.distanceToTarget = math.huge
     self.shotTimer = 0.0
     self.actionHandler = BehaviorTreeActionNotificationBus.Connect(self, self.entityId)
     self.tickHandler = TickBus.Connect(self)
+    self.killedHandler = GameplayNotificationBus.Connect(
+        { OnEventBegin = function(_, value) self:OnKilled(value) end },
+        GameplayNotificationId(self.entityId, "Killed", "float"))
+    self.respawnedHandler = GameplayNotificationBus.Connect(
+        { OnEventBegin = function(_, value) self:OnRespawned(value) end },
+        GameplayNotificationId(self.entityId, "Respawned", "float"))
 
     local start = worldPosition(self.entityId)
     local patrolA = self.Properties.PatrolA
@@ -45,6 +52,25 @@ end
 function EnemyBrain:OnDeactivate()
     if self.tickHandler then self.tickHandler:Disconnect() end
     if self.actionHandler then self.actionHandler:Disconnect() end
+    if self.killedHandler then self.killedHandler:Disconnect() end
+    if self.respawnedHandler then self.respawnedHandler:Disconnect() end
+end
+
+function EnemyBrain:OnKilled()
+    self.dead = true
+    self.visible = false
+    self.distanceToTarget = math.huge
+    BehaviorTreeRequestBus.Event.SetBlackboardBool(self.entityId, "alert", false)
+    BehaviorTreeRequestBus.Event.SetPaused(self.entityId, true)
+end
+
+function EnemyBrain:OnRespawned()
+    self.dead = false
+    self.visible = false
+    self.distanceToTarget = math.huge
+    BehaviorTreeRequestBus.Event.SetBlackboardBool(self.entityId, "alert", false)
+    BehaviorTreeRequestBus.Event.SetPaused(self.entityId, false)
+    BehaviorTreeRequestBus.Event.Restart(self.entityId)
 end
 
 function EnemyBrain:CanSeePlayer()
@@ -79,6 +105,13 @@ function EnemyBrain:CanSeePlayer()
 end
 
 function EnemyBrain:OnTick(deltaTime)
+    if self.dead then
+        self.visible = false
+        self.distanceToTarget = math.huge
+        BehaviorTreeRequestBus.Event.SetBlackboardBool(self.entityId, "alert", false)
+        return
+    end
+
     self.visible = self:CanSeePlayer()
     BehaviorTreeRequestBus.Event.SetBlackboardBool(self.entityId, "alert", self.visible)
     BehaviorTreeRequestBus.Event.SetBlackboardEntityId(self.entityId, "target", self.Properties.Player)
@@ -89,13 +122,13 @@ end
 
 function EnemyBrain:OnCondition(condition)
     if condition == "InRange" then
-        return self.visible and self.distanceToTarget <= self.Properties.AttackRange
+        return not self.dead and self.visible and self.distanceToTarget <= self.Properties.AttackRange
     end
     return false
 end
 
 function EnemyBrain:OnActionTick(action, deltaTime)
-    if action ~= "Shoot" or not self.visible or self.distanceToTarget > self.Properties.AttackRange then
+    if self.dead or action ~= "Shoot" or not self.visible or self.distanceToTarget > self.Properties.AttackRange then
         return BehaviorTreeStatus.Failure
     end
 
