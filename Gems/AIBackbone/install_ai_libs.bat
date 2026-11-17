@@ -7,31 +7,18 @@ REM
 REM SPDX-License-Identifier: Apache-2.0 OR MIT
 REM 
 
-REM Installs the AI Backbone ML libraries (requirements-ai.txt) into the engine's
-REM Python environment. Run once (and again after editing requirements-ai.txt).
-REM
-REM Usage:
-REM   install_ai_libs.bat          - CPU PyTorch (works everywhere)
-REM   install_ai_libs.bat --cuda   - CUDA PyTorch (NVIDIA GPUs, cu128 wheels; supports RTX 50-series)
+REM Usage: install_ai_libs.bat [--torch BUILD] [--torch-version X.Y.Z] [--pinned] [--all] [--check]
+REM        --cuda is an alias for --torch cu128.
 
 SETLOCAL
 SET GEM_DIR=%~dp0
-SET ENGINE_PIP=%GEM_DIR%..\..\python\pip.cmd
+SET ENGINE_PYTHON=%GEM_DIR%..\..\python\python.cmd
 
-IF NOT EXIST "%ENGINE_PIP%" (
-    ECHO [AIBackbone] Could not find the engine pip wrapper at %ENGINE_PIP%
+IF NOT EXIST "%ENGINE_PYTHON%" (
+    ECHO [AIBackbone] Could not find the engine Python wrapper at %ENGINE_PYTHON%
     exit /B 1
 )
 
-IF "%~1"=="--cuda" (
-    ECHO [AIBackbone] Installing ML libraries with CUDA PyTorch...
-    CALL "%ENGINE_PIP%" install --index-url https://download.pytorch.org/whl/cu128 torch
-    IF ERRORLEVEL 1 exit /B 1
-)
-
-ECHO [AIBackbone] Installing ML libraries from requirements-ai.txt...
-CALL "%ENGINE_PIP%" install -r "%GEM_DIR%requirements-ai.txt"
-IF ERRORLEVEL 1 exit /B 1
-
-ECHO [AIBackbone] Done. Restart the Editor and open Tools -^> AI Model Builder.
-exit /B 0
+SET PYTHONPATH=%GEM_DIR%Editor\Scripts;%PYTHONPATH%
+CALL "%ENGINE_PYTHON%" -c "import runpy,sys; sys.path.insert(0,sys.argv.pop(1)); sys.argv[0]='aibackbone.deps'; runpy.run_module('aibackbone.deps',run_name='__main__')" "%GEM_DIR%Editor\Scripts" %*
+EXIT /B %ERRORLEVEL%

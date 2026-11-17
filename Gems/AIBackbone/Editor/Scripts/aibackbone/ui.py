@@ -14,9 +14,13 @@ SPDX-License-Identifier: Apache-2.0 OR MIT
 #    and outputs (names, dtypes, shapes).
 
 import os
+import queue
+import sys
+import threading
 
 from PySide6 import QtCore, QtWidgets
 
+from . import deps
 from . import ml_available
 from . import model_spec
 
@@ -27,6 +31,30 @@ except Exception:
     PROJECT_ROOT = os.getcwd()
 
 MODELS_DIR = os.path.join(PROJECT_ROOT, "AIModels")
+
+
+def _install_prompt(parent, status_widget):
+    missing = deps.missing_libs()
+    if not missing:
+        return True
+    answer = QtWidgets.QMessageBox.question(
+        parent, "AIBackbone libraries",
+        "Missing libraries: " + ", ".join(missing) + "\n\nInstall now?",
+        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+        QtWidgets.QMessageBox.Yes)
+    if answer == QtWidgets.QMessageBox.Yes:
+        widget = parent
+        while widget is not None and not hasattr(widget, "start_install"):
+            widget = widget.parentWidget()
+        if widget is not None:
+            widget.start_install()
+    elif status_widget is not None:
+        message = "Missing libraries: " + ", ".join(missing)
+        if hasattr(status_widget, "appendPlainText"):
+            status_widget.appendPlainText(message)
+        else:
+            status_widget.setText(message)
+    return False
 
 
 def _spec_files():
@@ -305,9 +333,9 @@ class TrainTab(QtWidgets.QWidget):
             self.dataset_edit.setText(path)
 
     def _start(self):
-        available, message = ml_available()
+        available, _ = ml_available()
         if not available:
-            self._log(message)
+            _install_prompt(self, self.log)
             return
         model_file = self.model_combo.currentText()
         dataset = self.dataset_edit.text().strip()
@@ -394,9 +422,9 @@ class ImportOnnxTab(QtWidgets.QWidget):
             self._inspect()
 
     def _inspect(self):
-        available, message = ml_available()
+        available, _ = ml_available()
         if not available:
-            self.status.setText(message)
+            _install_prompt(self, self.status)
             return
         path = self.path_edit.text().strip()
         if not path:
@@ -426,15 +454,134 @@ class AIModelBuilderDialog(QtWidgets.QDialog):
         self.setWindowTitle("AI Model Builder")
         layout = QtWidgets.QVBoxLayout(self)
 
-        available, message = ml_available()
-        if not available:
-            banner = QtWidgets.QLabel(message)
-            banner.setStyleSheet("color: orange;")
-            banner.setWordWrap(True)
-            layout.addWidget(banner)
+        self._settings = QtCore.QSettings("O3DE", "AIBackbone")
+        self._install_queue = None
+        self._install_thread = None
+        self._restart_required = False
+        self.install_banner = QtWidgets.QGroupBox("AI libraries")
+        install_layout = QtWidgets.QVBoxLayout(self.install_banner)
+        self.missing_label = QtWidgets.QLabel()
+        self.missing_label.setWordWrap(True)
+        install_layout.addWidget(self.missing_label)
+
+        options = QtWidgets.QHBoxLayout()
+        self.torch_build_combo = QtWidgets.QComboBox()
+        choices = [
+            ("Auto (detect GPU)", "auto"),
+            ("CPU", "cpu"),
+            ("CUDA 11.8", "cu118"),
+            ("CUDA 12.6", "cu126"),
+            ("CUDA 12.8", "cu128"),
+        ]
+        if "rocm6.3" in deps.TORCH_BUILDS:
+            choices.append(("ROCm 6.3", "rocm6.3"))
+        for label, value in choices:
+            self.torch_build_combo.addItem(label, value)
+        selected_build = self._settings.value("torch_build", "auto")
+        selected_index = self.torch_build_combo.findData(selected_build)
+        self.torch_build_combo.setCurrentIndex(max(0, selected_index))
+        options.addWidget(QtWidgets.QLabel("PyTorch build:"))
+        options.addWidget(self.torch_build_combo)
+        options.addWidget(QtWidgets.QLabel("Torch version:"))
+        self.torch_version_combo = QtWidgets.QComboBox()
+        self.torch_version_combo.setEditable(True)
+        self.torch_version_combo.addItem("")
+        self.torch_version_combo.addItems(("2.8.0", "2.7.1", "2.7.0"))
+        self.torch_version_combo.setCurrentText(
+            self._settings.value("torch_version", ""))
+        options.addWidget(self.torch_version_combo)
+        self.pinned_checkbox = QtWidgets.QCheckBox("Use tested versions")
+        self.pinned_checkbox.setChecked(self._settings.value("pinned", False, type=bool))
+        options.addWidget(self.pinned_checkbox)
+        self.install_button = QtWidgets.QPushButton("Install missing libraries")
+        self.install_button.clicked.connect(self.start_install)
+        options.addWidget(self.install_button)
+        install_layout.addLayout(options)
+
+        self.install_log = QtWidgets.QPlainTextEdit()
+        self.install_log.setReadOnly(True)
+        self.install_log.setMaximumHeight(140)
+        install_layout.addWidget(self.install_log)
+        self._install_timer = QtCore.QTimer(self)
+        self._install_timer.timeout.connect(self._poll_install)
+        self.torch_build_combo.currentIndexChanged.connect(self._save_settings)
+        self.torch_version_combo.currentTextChanged.connect(self._save_settings)
+        self.pinned_checkbox.toggled.connect(self._save_settings)
+
+        available, _ = ml_available()
+        self.install_banner.setVisible(not available)
+        self._update_missing_label()
+        layout.addWidget(self.install_banner)
 
         tabs = QtWidgets.QTabWidget()
         tabs.addTab(ModelsTab(), "Models")
         tabs.addTab(TrainTab(), "Train")
         tabs.addTab(ImportOnnxTab(), "Import ONNX")
         layout.addWidget(tabs)
+
+    def _save_settings(self, *unused):
+        self._settings.setValue("torch_build", self.torch_build_combo.currentData())
+        self._settings.setValue("torch_version", self.torch_version_combo.currentText().strip())
+        self._settings.setValue("pinned", self.pinned_checkbox.isChecked())
+
+    def _update_missing_label(self):
+        missing = deps.missing_libs()
+        if missing:
+            self.missing_label.setText("Missing Python libraries: " + ", ".join(missing))
+        else:
+            self.missing_label.setText("All required AI libraries are installed.")
+
+    def start_install(self):
+        if self._install_thread and self._install_thread.is_alive():
+            return
+        self._save_settings()
+        self._restart_required = any(name in sys.modules for name in ("torch", "numpy"))
+        self.install_log.clear()
+        self.install_button.setEnabled(False)
+        self.install_banner.setVisible(True)
+        self._install_queue = queue.Queue()
+        torch_build = self.torch_build_combo.currentData()
+        pinned = self.pinned_checkbox.isChecked()
+        torch_version = self.torch_version_combo.currentText().strip() or None
+
+        def run_install():
+            try:
+                result = deps.install(
+                    torch_build, pinned, torch_version=torch_version,
+                    log=lambda line: self._install_queue.put(("log", line)),
+                    only_missing=True)
+            except Exception as exc:
+                self._install_queue.put(("log", f"Install failed: {exc}"))
+                result = False, deps.missing_libs()
+            self._install_queue.put(("done", result))
+
+        self._install_thread = threading.Thread(target=run_install, daemon=True)
+        self._install_thread.start()
+        self._install_timer.start(100)
+
+    def _poll_install(self):
+        while True:
+            try:
+                kind, value = self._install_queue.get_nowait()
+            except queue.Empty:
+                return
+            if kind == "log":
+                self.install_log.appendPlainText(value)
+                continue
+
+            self._install_timer.stop()
+            self.install_button.setEnabled(True)
+            ok, missing_after = value
+            self._update_missing_label()
+            self.install_banner.setVisible(bool(missing_after))
+            if ok:
+                self.install_log.appendPlainText("All required AI libraries are installed.")
+                if self._restart_required:
+                    QtWidgets.QMessageBox.information(
+                        self, "Restart Editor",
+                        "torch or numpy was already imported in this Editor process. "
+                        "Restart the Editor before using the newly installed libraries.")
+            elif missing_after:
+                self.install_log.appendPlainText(
+                    "Still missing: " + ", ".join(missing_after))
+            return
