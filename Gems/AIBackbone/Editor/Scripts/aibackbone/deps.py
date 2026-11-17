@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0 OR MIT
 """Dependency detection and installation for AIBackbone."""
 
 import argparse
+import importlib.metadata
 import importlib.util
 import os
 from pathlib import Path
@@ -115,7 +116,13 @@ def build_commands(torch_build, pinned, only_missing=True, torch_version=None):
 
     packages = []
     for name in REQUIRED:
-        if name != "torch" and name in missing:
+        if name == "torch":
+            continue
+        if name == "numpy" and pinned:
+            packages.append(f"numpy=={versions[name]}")
+        elif name == "numpy" and only_missing and name not in missing:
+            packages.append(f"numpy=={importlib.metadata.version('numpy')}")
+        elif name in missing:
             packages.append(f"{name}=={versions[name]}" if pinned else name)
     if packages:
         commands.append([python, "-m", "pip", "install", *packages])

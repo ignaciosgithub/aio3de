@@ -59,6 +59,31 @@ def test_build_commands_uses_pinned_versions(monkeypatch, all_missing):
     ]
 
 
+def test_pinned_commands_include_numpy_when_already_installed(monkeypatch):
+    monkeypatch.setattr(deps, "engine_python", lambda: "python")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())
+
+    commands = deps.build_commands("cpu", pinned=True)
+
+    assert commands == [[
+        "python", "-m", "pip", "install", "numpy==1.24.4",
+    ]]
+
+
+def test_unpinned_only_missing_preserves_installed_numpy(monkeypatch):
+    monkeypatch.setattr(deps, "engine_python", lambda: "python")
+    monkeypatch.setattr(
+        importlib.util, "find_spec",
+        lambda name: object() if name == "numpy" else None)
+    monkeypatch.setattr(deps.importlib.metadata, "version", lambda name: "1.24.4")
+
+    commands = deps.build_commands("cpu", pinned=False, only_missing=True)
+
+    assert commands[1][4:] == [
+        "numpy==1.24.4", "onnx", "onnxscript", "onnxruntime",
+    ]
+
+
 def test_torch_version_is_used_with_selected_build_index(monkeypatch, all_missing):
     monkeypatch.setattr(deps, "engine_python", lambda: "python")
 
