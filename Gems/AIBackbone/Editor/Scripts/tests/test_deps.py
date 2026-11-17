@@ -141,3 +141,23 @@ def test_check_exit_status(monkeypatch, capsys, missing, expected):
 
     assert deps.main(["--check"]) == expected
     assert capsys.readouterr().out
+
+
+def test_cuda_alias_parses_with_check(monkeypatch, capsys):
+    monkeypatch.setattr(deps, "missing_libs", lambda: ())
+
+    assert deps.main(["--cuda", "--check"]) == 0
+    assert "All required AI libraries are available." in capsys.readouterr().out
+
+
+def test_cuda_alias_selects_cu128_for_install(monkeypatch):
+    install_args = {}
+
+    def fake_install(torch_build, pinned, **kwargs):
+        install_args.update(torch_build=torch_build, pinned=pinned, **kwargs)
+        return True, ()
+
+    monkeypatch.setattr(deps, "install", fake_install)
+
+    assert deps.main(["--cuda"]) == 0
+    assert install_args["torch_build"] == "cu128"

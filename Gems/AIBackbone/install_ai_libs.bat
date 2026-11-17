@@ -7,6 +7,9 @@ REM
 REM SPDX-License-Identifier: Apache-2.0 OR MIT
 REM 
 
+REM Usage: install_ai_libs.bat [--torch BUILD] [--torch-version X.Y.Z] [--pinned] [--all] [--check]
+REM        --cuda is an alias for --torch cu128.
+
 SETLOCAL
 SET GEM_DIR=%~dp0
 SET ENGINE_PYTHON=%GEM_DIR%..\..\python\python.cmd
@@ -17,10 +20,5 @@ IF NOT EXIST "%ENGINE_PYTHON%" (
 )
 
 SET PYTHONPATH=%GEM_DIR%Editor\Scripts;%PYTHONPATH%
-IF "%~1"=="--cuda" (
-    SHIFT
-    CALL "%ENGINE_PYTHON%" -c "import runpy,sys; sys.path.insert(0,sys.argv.pop(1)); sys.argv[0]='aibackbone.deps'; runpy.run_module('aibackbone.deps',run_name='__main__')" "%GEM_DIR%Editor\Scripts" --torch cu128 %*
-) ELSE (
-    CALL "%ENGINE_PYTHON%" -c "import runpy,sys; sys.path.insert(0,sys.argv.pop(1)); sys.argv[0]='aibackbone.deps'; runpy.run_module('aibackbone.deps',run_name='__main__')" "%GEM_DIR%Editor\Scripts" %*
-)
+CALL "%ENGINE_PYTHON%" -c "import runpy,sys; sys.path.insert(0,sys.argv.pop(1)); sys.argv[0]='aibackbone.deps'; runpy.run_module('aibackbone.deps',run_name='__main__')" "%GEM_DIR%Editor\Scripts" %*
 EXIT /B %ERRORLEVEL%

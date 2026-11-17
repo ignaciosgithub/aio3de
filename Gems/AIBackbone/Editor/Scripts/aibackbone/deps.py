@@ -185,6 +185,9 @@ def main(argv=None):
     builds = ["auto", *TORCH_BUILDS]
     parser = argparse.ArgumentParser(description="Install AIBackbone Python libraries.")
     parser.add_argument("--torch", choices=builds, default="auto", metavar="BUILD")
+    parser.add_argument(
+        "--cuda", action="store_const", dest="torch", const="cu128",
+        help="alias for --torch cu128")
     parser.add_argument("--torch-version", type=_arg_torch_version, metavar="X.Y.Z")
     parser.add_argument("--pinned", action="store_true", help="use tested exact package versions")
     parser.add_argument("--all", action="store_true", help="reinstall libraries already present")

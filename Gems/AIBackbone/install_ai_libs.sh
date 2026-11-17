@@ -7,6 +7,9 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 # 
 
+# Usage: install_ai_libs.sh [--torch BUILD] [--torch-version X.Y.Z] [--pinned] [--all] [--check]
+#        --cuda is an alias for --torch cu128.
+
 GEM_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENGINE_PYTHON="$GEM_DIR/../../python/python.sh"
 
@@ -15,14 +18,5 @@ if [ ! -f "$ENGINE_PYTHON" ]; then
     exit 1
 fi
 
-ARGS=()
-for arg in "$@"; do
-    if [ "$arg" = "--cuda" ]; then
-        ARGS+=(--torch cu128)
-    else
-        ARGS+=("$arg")
-    fi
-done
-
 export PYTHONPATH="$GEM_DIR/Editor/Scripts${PYTHONPATH:+:$PYTHONPATH}"
-exec "$ENGINE_PYTHON" -c 'import runpy,sys; sys.path.insert(0,sys.argv.pop(1)); sys.argv[0]="aibackbone.deps"; runpy.run_module("aibackbone.deps",run_name="__main__")' "$GEM_DIR/Editor/Scripts" "${ARGS[@]}"
+exec "$ENGINE_PYTHON" -c 'import runpy,sys; sys.path.insert(0,sys.argv.pop(1)); sys.argv[0]="aibackbone.deps"; runpy.run_module("aibackbone.deps",run_name="__main__")' "$GEM_DIR/Editor/Scripts" "$@"
