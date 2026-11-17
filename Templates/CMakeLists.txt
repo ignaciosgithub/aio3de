@@ -16,6 +16,7 @@ ly_install_directory(
         PythonToolGem
         RemoteRepo
         DefaultProject
+        FpsProject
         MinimalProject
         GemRepo
         DefaultComponent
