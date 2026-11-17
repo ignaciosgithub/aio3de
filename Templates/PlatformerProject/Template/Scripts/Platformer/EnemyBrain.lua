@@ -89,6 +89,7 @@ function EnemyBrain:CanSeePlayer(player)
         return false
     end
     local request = SceneQueries.CreateRayCastRequest(eyePosition, offset / distance, distance, "All")
+    request.ReportMultipleHits = true
     local hits = scene:QueryScene(request)
     for index = 1, hits.HitArray:Size() do
         local hit = hits.HitArray[index]

@@ -55,6 +55,7 @@ local function findGroundHit(entityId)
 
     local start = worldPosition(entityId) + Vector3(0.0, 0.0, 0.2)
     local request = SceneQueries.CreateRayCastRequest(start, Vector3(0.0, 0.0, -1.0), 0.5, "All")
+    request.ReportMultipleHits = true
     local hits = scene:QueryScene(request)
     for index = 1, hits.HitArray:Size() do
         local hit = hits.HitArray[index]
