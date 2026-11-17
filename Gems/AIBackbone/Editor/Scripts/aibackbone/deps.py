@@ -109,11 +109,15 @@ def build_commands(torch_build, pinned, only_missing=True, torch_version=None):
     if "torch" in missing:
         version = torch_version or (versions["torch"] if pinned else None)
         torch_spec = "torch==" + version if version else "torch"
+        torch_selection = [
+            python, "-m", "pip", "install", "--no-deps",
+            "--index-url", TORCH_BUILDS[selected], "--only-binary=:all:",
+        ]
+        if not only_missing:
+            torch_selection.append("--force-reinstall")
+        torch_selection.append(torch_spec)
         commands.extend([
-            [
-                python, "-m", "pip", "install", "--no-deps",
-                "--index-url", TORCH_BUILDS[selected], "--only-binary=:all:", torch_spec,
-            ],
+            torch_selection,
             [
                 python, "-m", "pip", "install", "--index-url", TORCH_BUILDS[selected],
                 "--extra-index-url", "https://pypi.org/simple",

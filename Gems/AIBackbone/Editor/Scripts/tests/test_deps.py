@@ -53,6 +53,18 @@ def test_build_commands_selects_torch_index(build, monkeypatch, all_missing):
     assert commands[2][4:] == ["numpy", "onnx", "onnxscript", "onnxruntime"]
 
 
+@pytest.mark.parametrize(("only_missing", "force_reinstall"), [(True, False), (False, True)])
+def test_force_reinstall_is_only_on_torch_selection_phase(
+        only_missing, force_reinstall, monkeypatch, all_missing):
+    monkeypatch.setattr(deps, "engine_python", lambda: "python")
+
+    commands = deps.build_commands(
+        "cpu", pinned=False, only_missing=only_missing)
+
+    assert ("--force-reinstall" in commands[0]) is force_reinstall
+    assert all("--force-reinstall" not in command for command in commands[1:])
+
+
 def test_build_commands_uses_pinned_versions(monkeypatch, all_missing):
     monkeypatch.setattr(deps, "engine_python", lambda: "python")
 
