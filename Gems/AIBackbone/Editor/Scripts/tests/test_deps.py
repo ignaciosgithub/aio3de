@@ -39,13 +39,18 @@ def test_build_commands_selects_torch_index(build, monkeypatch, all_missing):
 
     commands = deps.build_commands(build, pinned=False)
 
-    assert commands[0][:7] == [
+    assert commands[0] == [
+        "/engine/python/python.sh", "-m", "pip", "install", "--no-deps",
+        "--index-url", deps.TORCH_BUILDS[build], "--only-binary=:all:", "torch",
+    ]
+    assert "pypi.org" not in " ".join(commands[0])
+    assert commands[1] == [
         "/engine/python/python.sh", "-m", "pip", "install",
         "--index-url", deps.TORCH_BUILDS[build], "--extra-index-url",
+        "https://pypi.org/simple", "--only-binary=:all:", "torch",
     ]
-    assert commands[0][7] == "https://pypi.org/simple"
-    assert commands[0][8:10] == ["--only-binary=:all:", "torch"]
-    assert commands[1][4:] == ["numpy", "onnx", "onnxscript", "onnxruntime"]
+    assert commands[0][-1] == commands[1][-1]
+    assert commands[2][4:] == ["numpy", "onnx", "onnxscript", "onnxruntime"]
 
 
 def test_build_commands_uses_pinned_versions(monkeypatch, all_missing):
@@ -54,7 +59,8 @@ def test_build_commands_uses_pinned_versions(monkeypatch, all_missing):
     commands = deps.build_commands("cpu", pinned=True)
 
     assert commands[0][-1] == "torch==2.8.0"
-    assert commands[1][4:] == [
+    assert commands[1][-1] == "torch==2.8.0"
+    assert commands[2][4:] == [
         "numpy==1.24.4", "onnx==1.17.0", "onnxscript==0.2.2", "onnxruntime==1.20.1",
     ]
 
@@ -79,7 +85,7 @@ def test_unpinned_only_missing_preserves_installed_numpy(monkeypatch):
 
     commands = deps.build_commands("cpu", pinned=False, only_missing=True)
 
-    assert commands[1][4:] == [
+    assert commands[2][4:] == [
         "numpy==1.24.4", "onnx", "onnxscript", "onnxruntime",
     ]
 
@@ -186,3 +192,30 @@ def test_cuda_alias_selects_cu128_for_install(monkeypatch):
 
     assert deps.main(["--cuda"]) == 0
     assert install_args["torch_build"] == "cu128"
+
+
+def test_unavailable_torch_version_logs_message_in_selection_phase(monkeypatch):
+    class FailedProcess:
+        stdout = ["ERROR: No matching distribution found for torch==2.8.0\n"]
+
+        def wait(self):
+            return 1
+
+    commands = []
+    monkeypatch.setattr(deps, "engine_python", lambda: "python")
+    monkeypatch.setattr(deps, "missing_libs", lambda: ("torch",))
+    monkeypatch.setattr(deps.importlib.metadata, "version", lambda name: "1.24.4")
+    monkeypatch.setattr(
+        deps.subprocess, "Popen",
+        lambda command, **kwargs: (commands.append(command) or FailedProcess()))
+    messages = []
+
+    ok, missing = deps.install(
+        "cu118", False, log=messages.append, torch_version="2.8.0")
+
+    assert not ok
+    assert missing == ("torch",)
+    assert len(commands) == 1
+    assert "--no-deps" in commands[0]
+    assert any("PyTorch 2.8.0 is not available for build cu118" in line
+               for line in messages)

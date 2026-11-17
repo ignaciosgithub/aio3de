@@ -109,9 +109,16 @@ def build_commands(torch_build, pinned, only_missing=True, torch_version=None):
     if "torch" in missing:
         version = torch_version or (versions["torch"] if pinned else None)
         torch_spec = "torch==" + version if version else "torch"
-        commands.append([
-            python, "-m", "pip", "install", "--index-url", TORCH_BUILDS[selected],
-            "--extra-index-url", "https://pypi.org/simple", "--only-binary=:all:", torch_spec,
+        commands.extend([
+            [
+                python, "-m", "pip", "install", "--no-deps",
+                "--index-url", TORCH_BUILDS[selected], "--only-binary=:all:", torch_spec,
+            ],
+            [
+                python, "-m", "pip", "install", "--index-url", TORCH_BUILDS[selected],
+                "--extra-index-url", "https://pypi.org/simple",
+                "--only-binary=:all:", torch_spec,
+            ],
         ])
 
     packages = []
@@ -142,12 +149,13 @@ def install(torch_build, pinned, log=print, only_missing=True, torch_version=Non
             process = subprocess.Popen(
                 command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, bufsize=1)
-            torch_command = command[-1].split("==", 1)[0] == "torch"
+            torch_command = command[-1].startswith("torch")
+            torch_selection_phase = "--no-deps" in command
             availability_reported = False
             for line in process.stdout:
                 log(line.rstrip())
                 line_lower = line.lower()
-                if (torch_command and not availability_reported and
+                if (torch_command and torch_selection_phase and not availability_reported and
                         ("no matching distribution" in line_lower or
                          "could not find a version that satisfies" in line_lower) and
                         "torch" in line_lower):
