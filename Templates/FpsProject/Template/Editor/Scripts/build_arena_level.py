@@ -560,6 +560,31 @@ def main():
         set_mesh(block, "objects/_primitives/_box_1x1.fbx.azmodel", box_material)
 
     default_parent_entity_id = gameplay_parent["id"]
+    sun = make_entity("Sun", (0.0, 0.0, 0.0), component_names=["Directional Light"])
+    components.TransformBus(
+        bus.Event,
+        "SetLocalRotation",
+        sun["id"],
+        math.Vector3(-0.8726646, 0.0, 0.5235988),
+    )
+    set_property(sun["components"][0], ["Enable Shadow"], True, required=True)
+
+    skybox_asset = asset_id(["lightingpresets/highcontrast/goegap_4k_skyboxcm.exr.streamingimage"])
+    diffuse_ibl_asset = asset_id(
+        ["lightingpresets/highcontrast/goegap_4k_iblglobalcm_ibldiffuse.exr.streamingimage"]
+    )
+    specular_ibl_asset = asset_id(
+        ["lightingpresets/highcontrast/goegap_4k_iblglobalcm_iblspecular.exr.streamingimage"]
+    )
+    if skybox_asset is None or diffuse_ibl_asset is None or specular_ibl_asset is None:
+        raise RuntimeError("Could not resolve DefaultProject Arena lighting cubemaps")
+    sky = make_entity(
+        "Sky", (0.0, 0.0, 0.0), component_names=["HDRi Skybox", "Global Skylight (IBL)"]
+    )
+    set_property(sky["components"][0], ["Cubemap Texture", "CubemapAsset"], skybox_asset, required=True)
+    set_property(sky["components"][1], ["Diffuse Image", "diffuseImageAsset"], diffuse_ibl_asset, required=True)
+    set_property(sky["components"][1], ["Specular Image", "specularImageAsset"], specular_ibl_asset, required=True)
+
     player = make_entity(
         "Player", (0.0, -22.0, 1.0), component_names=[
             "PhysX Character Controller", "PhysX Character Gameplay", "Input",
