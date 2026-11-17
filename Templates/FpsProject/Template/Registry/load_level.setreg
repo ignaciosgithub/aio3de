@@ -2,7 +2,7 @@
    "O3DE": {
         "Autoexec": {
             "ConsoleCommands": {
-                "LoadLevel": "levels/arena/arena.spawnable"
+                "LoadLevel": "arena"
             }
         }
     }
