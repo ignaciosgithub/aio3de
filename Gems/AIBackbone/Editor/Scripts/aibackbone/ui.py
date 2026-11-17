@@ -43,9 +43,11 @@ def _install_prompt(parent, status_widget):
         QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
         QtWidgets.QMessageBox.Yes)
     if answer == QtWidgets.QMessageBox.Yes:
-        dialog = parent.window()
-        if hasattr(dialog, "start_install"):
-            dialog.start_install()
+        widget = parent
+        while widget is not None and not hasattr(widget, "start_install"):
+            widget = widget.parentWidget()
+        if widget is not None:
+            widget.start_install()
     elif status_widget is not None:
         message = "Missing libraries: " + ", ".join(missing)
         if hasattr(status_widget, "appendPlainText"):
