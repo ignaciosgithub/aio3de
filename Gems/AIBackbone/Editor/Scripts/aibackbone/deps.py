@@ -106,6 +106,11 @@ def build_commands(torch_build, pinned, only_missing=True, torch_version=None):
 
     commands = []
     python = engine_python()
+    torch_dependency_resolution = [
+        python, "-m", "pip", "install", "--index-url", TORCH_BUILDS[selected],
+        "--extra-index-url", "https://pypi.org/simple",
+        "--only-binary=:all:", "torch",
+    ]
     if "torch" in missing:
         version = torch_version or (versions["torch"] if pinned else None)
         torch_spec = "torch==" + version if version else "torch"
@@ -118,25 +123,26 @@ def build_commands(torch_build, pinned, only_missing=True, torch_version=None):
         torch_selection.append(torch_spec)
         commands.extend([
             torch_selection,
-            [
-                python, "-m", "pip", "install", "--index-url", TORCH_BUILDS[selected],
-                "--extra-index-url", "https://pypi.org/simple",
-                "--only-binary=:all:", torch_spec,
-            ],
+            [*torch_dependency_resolution[:-1], torch_spec],
         ])
 
+    install_other_packages = not only_missing or any(
+        name in missing for name in REQUIRED if name not in ("torch", "numpy"))
+    install_numpy = not only_missing or "numpy" in missing or install_other_packages
     packages = []
     for name in REQUIRED:
         if name == "torch":
             continue
-        if name == "numpy" and pinned:
+        if name == "numpy" and pinned and install_numpy:
             packages.append(f"numpy=={versions[name]}")
-        elif name == "numpy" and only_missing and name not in missing:
+        elif name == "numpy" and only_missing and name not in missing and install_other_packages:
             packages.append(f"numpy=={importlib.metadata.version('numpy')}")
         elif name in missing:
             packages.append(f"{name}=={versions[name]}" if pinned else name)
     if packages:
         commands.append([python, "-m", "pip", "install", *packages])
+    if "torch" not in missing and (commands or not only_missing):
+        commands.insert(0, torch_dependency_resolution)
     return commands
 
 

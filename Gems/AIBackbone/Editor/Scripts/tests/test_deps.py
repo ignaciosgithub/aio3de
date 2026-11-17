@@ -79,13 +79,16 @@ def test_build_commands_uses_pinned_versions(monkeypatch, all_missing):
 
 def test_pinned_commands_include_numpy_when_already_installed(monkeypatch):
     monkeypatch.setattr(deps, "engine_python", lambda: "python")
-    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(
+        importlib.util, "find_spec",
+        lambda name: object() if name == "numpy" else None)
 
     commands = deps.build_commands("cpu", pinned=True)
 
-    assert commands == [[
-        "python", "-m", "pip", "install", "numpy==1.24.4",
-    ]]
+    assert commands[-1][4:] == [
+        "numpy==1.24.4", "onnx==1.17.0",
+        "onnxscript==0.2.2", "onnxruntime==1.20.1",
+    ]
 
 
 def test_unpinned_only_missing_preserves_installed_numpy(monkeypatch):
@@ -126,7 +129,7 @@ def test_invalid_torch_version_is_rejected():
         deps.build_commands("cpu", pinned=False, torch_version="2.7.1+cpu")
 
 
-def test_only_missing_skips_torch_when_present(monkeypatch):
+def test_only_missing_adds_torch_dependency_repair_when_torch_is_present(monkeypatch):
     monkeypatch.setattr(deps, "engine_python", lambda: "python")
     monkeypatch.setattr(
         importlib.util, "find_spec",
@@ -134,9 +137,43 @@ def test_only_missing_skips_torch_when_present(monkeypatch):
 
     commands = deps.build_commands("cpu", pinned=False, only_missing=True)
 
-    assert len(commands) == 1
-    assert commands[0][4:] == ["numpy", "onnx", "onnxscript", "onnxruntime"]
-    assert all("torch" not in command[-1:] for command in commands)
+    assert commands[0] == [
+        "python", "-m", "pip", "install", "--index-url", deps.TORCH_BUILDS["cpu"],
+        "--extra-index-url", "https://pypi.org/simple", "--only-binary=:all:", "torch",
+    ]
+    assert "--no-deps" not in commands[0]
+    assert "--force-reinstall" not in commands[0]
+    assert commands[1][4:] == ["numpy", "onnx", "onnxscript", "onnxruntime"]
+    assert not any("--no-deps" in command for command in commands)
+
+
+def test_partial_torch_install_retry_resolves_dependencies(monkeypatch):
+    installed = set()
+    monkeypatch.setattr(deps, "engine_python", lambda: "python")
+    monkeypatch.setattr(
+        importlib.util, "find_spec",
+        lambda name: object() if name in installed else None)
+
+    initial_commands = deps.build_commands("cpu", pinned=False, only_missing=True)
+    assert "--no-deps" in initial_commands[0]
+    installed.add("torch")
+
+    retry_commands = deps.build_commands("cpu", pinned=False, only_missing=True)
+
+    assert retry_commands[0] == [
+        "python", "-m", "pip", "install", "--index-url", deps.TORCH_BUILDS["cpu"],
+        "--extra-index-url", "https://pypi.org/simple", "--only-binary=:all:", "torch",
+    ]
+    assert "--no-deps" not in retry_commands[0]
+    assert retry_commands[1][4:] == ["numpy", "onnx", "onnxscript", "onnxruntime"]
+
+
+@pytest.mark.parametrize("pinned", [False, True])
+def test_fully_satisfied_setup_has_no_commands(monkeypatch, pinned):
+    monkeypatch.setattr(deps, "engine_python", lambda: "python")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())
+
+    assert deps.build_commands("cpu", pinned=pinned, only_missing=True) == []
 
 
 def test_auto_selects_cuda_when_nvidia_smi_succeeds(monkeypatch):
