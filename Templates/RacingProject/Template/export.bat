@@ -43,17 +43,17 @@ IF "%~1" == "-h" (
     echo Usage: %0 EXPORT_PATH
     echo where:
     echo    EXPORT_PATH     The optional path to export the project package to.
-    echo                    Default: %O3DE_PROJECT_PATH%ProjectPackages
+    echo                    Default: %O3DE_PROJECT_PATH%\ProjectPackages
     echo
     exit /B 0
 ) ELSE IF "%~1" == "" (
-    set "OUTPUT_PATH=%O3DE_PROJECT_PATH%build\export"
+    set "OUTPUT_PATH=%O3DE_PROJECT_PATH%\build\export"
 ) ELSE (
     set "OUTPUT_PATH=%~1"
 )
 if "%OUTPUT_PATH:~-1%"=="\" set "OUTPUT_PATH=%OUTPUT_PATH:~0,-1%"
 
-set "TOOLS_BUILD_PATH=%O3DE_PROJECT_PATH%build\windows"
+set "TOOLS_BUILD_PATH=%O3DE_PROJECT_PATH%\build\windows"
 
 echo Using project path at %O3DE_PROJECT_PATH%
 IF NOT EXIST "%O3DE_PATH%\scripts\o3de.bat" (
