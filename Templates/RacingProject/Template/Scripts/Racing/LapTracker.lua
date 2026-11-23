@@ -25,8 +25,8 @@ function LapTracker:OnActivate()
     self.raceTime = 0.0
     self.lapTime = 0.0
     self.bestLap = math.huge
-    self.visitedQuarter2 = false
-    self.visitedQuarter3 = false
+    self.visitedA = false
+    self.visitedB = false
     self.lapArmed = false
     self.lastIndex = nil
     self.lastProgress = 0.0
@@ -42,8 +42,8 @@ function LapTracker:OnActivate()
                 self.started = true
                 self.raceTime = 0.0
                 self.lapTime = 0.0
-                self.visitedQuarter2 = false
-                self.visitedQuarter3 = false
+                self.visitedA = false
+                self.visitedB = false
                 self.lapArmed = false
                 self:SendLapChanged()
                 Debug.Log(string.format("RACING start car=%.0f", self.Properties.CarIndex))
@@ -127,8 +127,8 @@ function LapTracker:CompleteLap()
     end
     self.currentLap = completedLap + 1
     self.lapTime = 0.0
-    self.visitedQuarter2 = false
-    self.visitedQuarter3 = false
+    self.visitedA = false
+    self.visitedB = false
     self:SendLapChanged()
 end
 
@@ -144,21 +144,26 @@ function LapTracker:OnTick(deltaTime)
     local index = TrackMath.nearestIndex(position, self.lastIndex)
     local progress = TrackMath.progress(position, index)
     local count = #TrackData.points
-    if progress >= count * 0.5 then
-        self.visitedQuarter2 = true
+    local wrappedBackward = self.lastProgress < count * 0.2 and progress > count * 0.8
+    if wrappedBackward then
+        self.visitedA = false
+        self.visitedB = false
     end
-    if progress >= count * 0.75 then
-        self.visitedQuarter3 = true
+    if progress >= count * 0.25 and progress < count * 0.5 then
+        self.visitedA = true
     end
-    local wrapped = self.lastProgress > count * 0.8 and progress < count * 0.2
-    if wrapped and self.visitedQuarter2 and self.visitedQuarter3 then
-        if self.lapArmed then
-            self:CompleteLap()
-        else
+    if progress >= count * 0.5 and progress < count * 0.75 then
+        self.visitedB = true
+    end
+    local wrappedForward = self.lastProgress > count * 0.8 and progress < count * 0.2
+    if wrappedForward then
+        if not self.lapArmed then
             self.lapArmed = true
             self.lapTime = 0.0
-            self.visitedQuarter2 = false
-            self.visitedQuarter3 = false
+            self.visitedA = false
+            self.visitedB = false
+        elseif self.visitedA and self.visitedB then
+            self:CompleteLap()
         end
     end
 

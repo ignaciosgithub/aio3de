@@ -103,6 +103,19 @@ end
 function RaceManager:UpdatePositions()
     local order = { 1, 2, 3, 4 }
     table.sort(order, function(first, second)
+        local firstFinished = self.finished[first]
+        local secondFinished = self.finished[second]
+        if firstFinished ~= secondFinished then
+            return firstFinished
+        end
+        if firstFinished then
+            local firstTime = self.finishTimes[first] or math.huge
+            local secondTime = self.finishTimes[second] or math.huge
+            if firstTime == secondTime then
+                return first < second
+            end
+            return firstTime < secondTime
+        end
         if self.progress[first] == self.progress[second] then
             return first < second
         end
