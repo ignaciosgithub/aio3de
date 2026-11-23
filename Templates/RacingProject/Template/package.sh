@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
+#
 # Copyright (c) Contributors to the Open 3D Engine Project.
 # For complete copyright and license terms please see the LICENSE at the root of this distribution.
+#
 # SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+#
+
 O3DE_PATH="${EnginePath}"
 O3DE_PROJECT_PATH="${ProjectPath}"
 O3DE_PROJECT_SEEDLIST="${O3DE_PROJECT_PATH}/AssetBundling/SeedLists/Circuit.seed"
