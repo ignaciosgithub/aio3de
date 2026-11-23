@@ -73,8 +73,8 @@ function PlatformerController:OnActivate()
     self.jumps = 0
     self.wantJump = false
     self.pendingGroundJump = false
-    self.lastPlatformName = nil
-    self.lastPlatformPosition = nil
+    self.platformId = nil
+    self.platformPosition = nil
     self.stompTimer = 0.0
     self.playerBeaconTimer = 0.0
 
@@ -197,19 +197,22 @@ function PlatformerController:OnTick(deltaTime)
         end
     end
 
-    local carryVelocity = Vector3(0.0, 0.0, 0.0)
+    -- Move by platform displacement because per-tick velocities are dropped without a physics step.
     local hit = findGroundHit(self.entityId)
     if hit ~= nil and isMovingPlatform(hit.EntityId) then
-        local platformName = GameEntityContextRequestBus.Broadcast.GetEntityName(hit.EntityId)
         local platformPosition = worldPosition(hit.EntityId)
-        if self.lastPlatformName == platformName and self.lastPlatformPosition ~= nil and deltaTime > 0.0 then
-            carryVelocity = (platformPosition - self.lastPlatformPosition) / deltaTime
+        if self.platformId ~= nil and hit.EntityId == self.platformId then
+            local delta = platformPosition - self.platformPosition
+            if delta:GetLengthSq() > 0.0 then
+                TransformBus.Event.SetWorldTranslation(
+                    self.entityId, worldPosition(self.entityId) + delta)
+            end
         end
-        self.lastPlatformName = platformName
-        self.lastPlatformPosition = platformPosition
+        self.platformId = hit.EntityId
+        self.platformPosition = platformPosition
     else
-        self.lastPlatformName = nil
-        self.lastPlatformPosition = nil
+        self.platformId = nil
+        self.platformPosition = nil
     end
 
     self.stompTimer = math.max(0.0, self.stompTimer - deltaTime)
@@ -220,7 +223,7 @@ function PlatformerController:OnTick(deltaTime)
         self.stompTimer = 0.25
     end
 
-    local velocity = move * self.Properties.MoveSpeed + carryVelocity + jumpVelocity
+    local velocity = move * self.Properties.MoveSpeed + jumpVelocity
     CharacterControllerRequestBus.Event.AddVelocityForTick(self.entityId, velocity)
 end
 
