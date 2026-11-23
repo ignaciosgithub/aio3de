@@ -74,4 +74,4 @@ fi
 
 echo "Exporting project to $OUTPUT_PATH"
 
-"${O3DE_PATH}/scripts/o3de.sh" export-project -es ExportScripts/export_source_built_project.py --project-path "${O3DE_PROJECT_PATH}" --log-level INFO -out ${OUTPUT_PATH}
+"${O3DE_PATH}/scripts/o3de.sh" export-project -es ExportScripts/export_source_built_project.py --project-path "${O3DE_PROJECT_PATH}" --log-level INFO -out "${OUTPUT_PATH}"
