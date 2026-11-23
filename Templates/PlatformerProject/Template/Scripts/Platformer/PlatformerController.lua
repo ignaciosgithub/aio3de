@@ -75,8 +75,6 @@ function PlatformerController:OnActivate()
     self.pendingGroundJump = false
     self.platformId = nil
     self.platformPosition = nil
-    self.platformElapsed = 0.0
-    self.platformVelocity = Vector3(0.0, 0.0, 0.0)
     self.stompTimer = 0.0
     self.playerBeaconTimer = 0.0
 
@@ -199,30 +197,22 @@ function PlatformerController:OnTick(deltaTime)
         end
     end
 
-    local carryVelocity = Vector3(0.0, 0.0, 0.0)
+    -- Move by platform displacement because per-tick velocities are dropped without a physics step.
     local hit = findGroundHit(self.entityId)
     if hit ~= nil and isMovingPlatform(hit.EntityId) then
         local platformPosition = worldPosition(hit.EntityId)
         if self.platformId ~= nil and hit.EntityId == self.platformId then
-            self.platformElapsed = self.platformElapsed + deltaTime
             local delta = platformPosition - self.platformPosition
-            if delta:GetLengthSq() > 0.0 and self.platformElapsed > 0.0 then
-                self.platformVelocity = delta / self.platformElapsed
-                self.platformPosition = platformPosition
-                self.platformElapsed = 0.0
+            if delta:GetLengthSq() > 0.0 then
+                TransformBus.Event.SetWorldTranslation(
+                    self.entityId, worldPosition(self.entityId) + delta)
             end
-        else
-            self.platformId = hit.EntityId
-            self.platformPosition = platformPosition
-            self.platformElapsed = 0.0
-            self.platformVelocity = Vector3(0.0, 0.0, 0.0)
         end
-        carryVelocity = self.platformVelocity
+        self.platformId = hit.EntityId
+        self.platformPosition = platformPosition
     else
         self.platformId = nil
         self.platformPosition = nil
-        self.platformElapsed = 0.0
-        self.platformVelocity = Vector3(0.0, 0.0, 0.0)
     end
 
     self.stompTimer = math.max(0.0, self.stompTimer - deltaTime)
@@ -233,7 +223,7 @@ function PlatformerController:OnTick(deltaTime)
         self.stompTimer = 0.25
     end
 
-    local velocity = move * self.Properties.MoveSpeed + carryVelocity + jumpVelocity
+    local velocity = move * self.Properties.MoveSpeed + jumpVelocity
     CharacterControllerRequestBus.Event.AddVelocityForTick(self.entityId, velocity)
 end
 
