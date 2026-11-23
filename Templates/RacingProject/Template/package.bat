@@ -9,7 +9,7 @@ REM ----------------------------------------------------------------------------
 
 set "O3DE_PATH=${EnginePath}"
 set "O3DE_PROJECT_PATH=${ProjectPath}"
-if "%O3DE_PROJECT_PATH:~-1%"=="\" set "O3DE_PROJECT_PATH=%O3DE_PROJECT_PATH:~0,-1%"
+if "%O3DE_PROJECT_PATH:~-1%"=="\" (if "%O3DE_PROJECT_PATH:~-2%"==":\" (set "O3DE_PROJECT_PATH=%O3DE_PROJECT_PATH%.") else (set "O3DE_PROJECT_PATH=%O3DE_PROJECT_PATH:~0,-1%"))
 set "O3DE_PROJECT_SEEDLIST=%O3DE_PROJECT_PATH%\AssetBundling\SeedLists\Circuit.seed"
 set "OUTPUT_PATH=%O3DE_PROJECT_PATH%\ProjectPackages"
 

@@ -36,7 +36,7 @@ REM       this project. The engine path must reflect the path to the engine on t
 
 set "O3DE_PATH=${EnginePath}"
 set "O3DE_PROJECT_PATH=%~dp0"
-if "%O3DE_PROJECT_PATH:~-1%"=="\" set "O3DE_PROJECT_PATH=%O3DE_PROJECT_PATH:~0,-1%"
+if "%O3DE_PROJECT_PATH:~-1%"=="\" (if "%O3DE_PROJECT_PATH:~-2%"==":\" (set "O3DE_PROJECT_PATH=%O3DE_PROJECT_PATH%.") else (set "O3DE_PROJECT_PATH=%O3DE_PROJECT_PATH:~0,-1%"))
 
 IF "%~1" == "-h" (
     echo Usage: %0 EXPORT_PATH
@@ -50,7 +50,7 @@ IF "%~1" == "-h" (
 ) ELSE (
     set "OUTPUT_PATH=%~1"
 )
-if "%OUTPUT_PATH:~-1%"=="\" set "OUTPUT_PATH=%OUTPUT_PATH:~0,-1%"
+if "%OUTPUT_PATH:~-1%"=="\" (if "%OUTPUT_PATH:~-2%"==":\" (set "OUTPUT_PATH=%OUTPUT_PATH%.") else (set "OUTPUT_PATH=%OUTPUT_PATH:~0,-1%"))
 
 set "TOOLS_BUILD_PATH=%O3DE_PROJECT_PATH%\build\windows"
 
