@@ -629,11 +629,11 @@
                     "$type": "EditorVisibilityComponent",
                     "Id": 6561541953206838797
                 },
-                "RacingSampleSpinnerComponent": {
+                "${Name}SpinnerComponent": {
                     "$type": "GenericComponentWrapper",
                     "Id": 10527760691586354693,
                     "m_template": {
-                        "$type": "RacingSampleSpinnerComponent"
+                        "$type": "${Name}SpinnerComponent"
                     }
                 },
                 "TransformComponent": {
