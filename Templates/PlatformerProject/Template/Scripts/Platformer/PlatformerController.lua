@@ -73,8 +73,10 @@ function PlatformerController:OnActivate()
     self.jumps = 0
     self.wantJump = false
     self.pendingGroundJump = false
-    self.lastPlatformName = nil
-    self.lastPlatformPosition = nil
+    self.platformId = nil
+    self.platformPosition = nil
+    self.platformElapsed = 0.0
+    self.platformVelocity = Vector3(0.0, 0.0, 0.0)
     self.stompTimer = 0.0
     self.playerBeaconTimer = 0.0
 
@@ -200,16 +202,27 @@ function PlatformerController:OnTick(deltaTime)
     local carryVelocity = Vector3(0.0, 0.0, 0.0)
     local hit = findGroundHit(self.entityId)
     if hit ~= nil and isMovingPlatform(hit.EntityId) then
-        local platformName = GameEntityContextRequestBus.Broadcast.GetEntityName(hit.EntityId)
         local platformPosition = worldPosition(hit.EntityId)
-        if self.lastPlatformName == platformName and self.lastPlatformPosition ~= nil and deltaTime > 0.0 then
-            carryVelocity = (platformPosition - self.lastPlatformPosition) / deltaTime
+        if self.platformId ~= nil and hit.EntityId == self.platformId then
+            self.platformElapsed = self.platformElapsed + deltaTime
+            local delta = platformPosition - self.platformPosition
+            if delta:GetLengthSq() > 0.0 and self.platformElapsed > 0.0 then
+                self.platformVelocity = delta / self.platformElapsed
+                self.platformPosition = platformPosition
+                self.platformElapsed = 0.0
+            end
+        else
+            self.platformId = hit.EntityId
+            self.platformPosition = platformPosition
+            self.platformElapsed = 0.0
+            self.platformVelocity = Vector3(0.0, 0.0, 0.0)
         end
-        self.lastPlatformName = platformName
-        self.lastPlatformPosition = platformPosition
+        carryVelocity = self.platformVelocity
     else
-        self.lastPlatformName = nil
-        self.lastPlatformPosition = nil
+        self.platformId = nil
+        self.platformPosition = nil
+        self.platformElapsed = 0.0
+        self.platformVelocity = Vector3(0.0, 0.0, 0.0)
     end
 
     self.stompTimer = math.max(0.0, self.stompTimer - deltaTime)
