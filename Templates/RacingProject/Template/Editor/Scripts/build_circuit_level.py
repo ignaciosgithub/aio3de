@@ -512,6 +512,9 @@ def add_car(index, points, manager, camera, project_name):
 
     if player:
         set_player_input(car)
+        remappable_input = component(car["id"], "Remappable Input")
+        car["components"].append(remappable_input)
+        car["named_components"]["Remappable Input"] = remappable_input
         add_lua(car, "RacingHud.lua")
         add_lua(car, "SettingsMenu.lua", ["CameraEntity"], True)
     else:
@@ -778,6 +781,43 @@ def postprocess_prefab():
     }
     if not container_id:
         raise RuntimeError("Circuit prefab has no container entity")
+    player = entities_by_name.get("Car 0 (Player)")
+    remappable_input = None
+    if player:
+        def find_remappable(value):
+            if isinstance(value, dict):
+                if "RemappableInputComponent" in value.get("$type", ""):
+                    return value
+                for nested in value.values():
+                    found = find_remappable(nested)
+                    if found is not None:
+                        return found
+            elif isinstance(value, list):
+                for nested in value:
+                    found = find_remappable(nested)
+                    if found is not None:
+                        return found
+            return None
+
+        remappable_input = find_remappable(player.get("Components", {}))
+    if remappable_input is None:
+        raise RuntimeError("Player car has no serialized Remappable Input component")
+    remappable_input["Bindings"] = [
+        {
+            "EventName": "ResetCar",
+            "BindingKey": "bind_jump",
+            "DefaultChannel": "keyboard_key_edit_space",
+            "ScaleSetting": "",
+            "ScaleDefault": 1.0,
+        },
+        {
+            "EventName": "ResetCar",
+            "BindingKey": "",
+            "DefaultChannel": "gamepad_button_a",
+            "ScaleSetting": "",
+            "ScaleDefault": 1.0,
+        },
+    ]
 
     parent_updates = 0
     for record in parent_records:

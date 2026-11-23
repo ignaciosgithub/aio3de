@@ -211,6 +211,10 @@
             "isTemplated": false
         },
         {
+            "file": "Registry/autoexec.setreg",
+            "isTemplated": false
+        },
+        {
             "file": "Registry/load_level.setreg",
             "isTemplated": false
         },
@@ -412,10 +416,6 @@
         },
         {
             "file": "ShaderLib/viewsrg.srgi",
-            "isTemplated": false
-        },
-        {
-            "file": "autoexec.cfg",
             "isTemplated": false
         },
         {

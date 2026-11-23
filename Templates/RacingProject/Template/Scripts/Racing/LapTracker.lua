@@ -25,8 +25,8 @@ function LapTracker:OnActivate()
     self.raceTime = 0.0
     self.lapTime = 0.0
     self.bestLap = math.huge
-    self.visitedA = false
-    self.visitedB = false
+    self.nextGate = 1
+    self.behindLine = true
     self.lapArmed = false
     self.lastIndex = nil
     self.lastProgress = 0.0
@@ -42,8 +42,8 @@ function LapTracker:OnActivate()
                 self.started = true
                 self.raceTime = 0.0
                 self.lapTime = 0.0
-                self.visitedA = false
-                self.visitedB = false
+                self.nextGate = 1
+                self.behindLine = true
                 self.lapArmed = false
                 self:SendLapChanged()
                 Debug.Log(string.format("RACING start car=%.0f", self.Properties.CarIndex))
@@ -127,8 +127,7 @@ function LapTracker:CompleteLap()
     end
     self.currentLap = completedLap + 1
     self.lapTime = 0.0
-    self.visitedA = false
-    self.visitedB = false
+    self.nextGate = 1
     self:SendLapChanged()
 end
 
@@ -146,28 +145,30 @@ function LapTracker:OnTick(deltaTime)
     local count = #TrackData.points
     local wrappedBackward = self.lastProgress < count * 0.2 and progress > count * 0.8
     if wrappedBackward then
-        self.visitedA = false
-        self.visitedB = false
+        self.behindLine = true
     end
-    if progress >= count * 0.25 and progress < count * 0.5 then
-        self.visitedA = true
-    end
-    if progress >= count * 0.5 and progress < count * 0.75 then
-        self.visitedB = true
+    if self.nextGate <= 7 then
+        local gate = self.nextGate * count / 8
+        if self.lastProgress < gate
+            and gate <= progress
+            and progress - self.lastProgress < count * 0.25
+            and math.abs(TrackMath.lateralOffset(position, index)) <= TrackData.width then
+            self.nextGate = self.nextGate + 1
+        end
     end
     local wrappedForward = self.lastProgress > count * 0.8 and progress < count * 0.2
     if wrappedForward then
+        self.behindLine = false
         if not self.lapArmed then
             self.lapArmed = true
             self.lapTime = 0.0
-            self.visitedA = false
-            self.visitedB = false
-        elseif self.visitedA and self.visitedB then
+            self.nextGate = 1
+        elseif self.nextGate == 8 then
             self:CompleteLap()
         end
     end
 
-    self:SendProgress(self.completedLaps * count + progress)
+    self:SendProgress(self.completedLaps * count + progress - (self.behindLine and count or 0))
     self.lastIndex = index
     self.lastProgress = progress
 end

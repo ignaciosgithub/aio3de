@@ -107,7 +107,7 @@ function ArcadeCar:OnActivate()
         table.insert(
             self.handlers,
             InputEventNotificationBus.Connect(
-                resetCallback, InputEventNotificationId("Jump")
+                resetCallback, InputEventNotificationId("ResetCar")
             )
         )
     else
