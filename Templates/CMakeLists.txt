@@ -18,6 +18,7 @@ ly_install_directory(
         DefaultProject
         FpsProject
         PlatformerProject
+        RacingProject
         MinimalProject
         GemRepo
         DefaultComponent

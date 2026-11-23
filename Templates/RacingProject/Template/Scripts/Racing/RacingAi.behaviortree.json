@@ -1,0 +1,41 @@
+{
+    "version": 1,
+    "blackboard": {
+        "racing": { "type": "bool", "value": false }
+    },
+    "root": {
+        "type": "Selector",
+        "name": "Racing AI",
+        "reactive": true,
+        "children": [
+            {
+                "type": "Sequence",
+                "children": [
+                    { "type": "CheckBlackboard", "key": "racing", "op": "IsTrue" },
+                    {
+                        "type": "Selector",
+                        "reactive": true,
+                        "children": [
+                            {
+                                "type": "Sequence",
+                                "children": [
+                                    { "type": "Condition", "name": "NeedsRecovery" },
+                                    { "type": "Action", "name": "Recover" }
+                                ]
+                            },
+                            {
+                                "type": "Sequence",
+                                "children": [
+                                    { "type": "Condition", "name": "CarAhead" },
+                                    { "type": "Action", "name": "Overtake" }
+                                ]
+                            },
+                            { "type": "Action", "name": "FollowLine" }
+                        ]
+                    }
+                ]
+            },
+            { "type": "Action", "name": "Hold" }
+        ]
+    }
+}

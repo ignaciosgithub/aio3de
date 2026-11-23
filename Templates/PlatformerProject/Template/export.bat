@@ -34,26 +34,28 @@ REM
 REM Note: The location of the engine (O3DE_PATH) is hardcoded to the location of the engine that was used to generate
 REM       this project. The engine path must reflect the path to the engine on the local machine.
 
-set O3DE_PATH=${EnginePath}
-set O3DE_PROJECT_PATH=%~dp0
+set "O3DE_PATH=${EnginePath}"
+set "O3DE_PROJECT_PATH=%~dp0"
+if "%O3DE_PROJECT_PATH:~-1%"=="\" (if "%O3DE_PROJECT_PATH:~-2%"==":\" (set "O3DE_PROJECT_PATH=%O3DE_PROJECT_PATH%.") else (set "O3DE_PROJECT_PATH=%O3DE_PROJECT_PATH:~0,-1%"))
 
-IF "%1" == "-h" (
+IF "%~1" == "-h" (
     echo Usage: %0 EXPORT_PATH
     echo where:
     echo    EXPORT_PATH     The optional path to export the project package to.
-    echo                    Default: %O3DE_PROJECT_PATH%ProjectPackages
+    echo                    Default: %O3DE_PROJECT_PATH%\ProjectPackages
     echo
     exit /B 0
-) ELSE IF "%1" == "" (
-    set OUTPUT_PATH=%O3DE_PROJECT_PATH%build\export
+) ELSE IF "%~1" == "" (
+    set "OUTPUT_PATH=%O3DE_PROJECT_PATH%\build\export"
 ) ELSE (
-    set OUTPUT_PATH=%1
+    set "OUTPUT_PATH=%~1"
 )
+if "%OUTPUT_PATH:~-1%"=="\" (if "%OUTPUT_PATH:~-2%"==":\" (set "OUTPUT_PATH=%OUTPUT_PATH%.") else (set "OUTPUT_PATH=%OUTPUT_PATH:~0,-1%"))
 
-set TOOLS_BUILD_PATH=%O3DE_PROJECT_PATH%build\windows
+set "TOOLS_BUILD_PATH=%O3DE_PROJECT_PATH%\build\windows"
 
 echo Using project path at %O3DE_PROJECT_PATH%
-IF NOT EXIST %O3DE_PATH%\scripts\o3de.bat (
+IF NOT EXIST "%O3DE_PATH%\scripts\o3de.bat" (
     echo Engine path %O3DE_PATH% is invalid in this script. Make sure to install the engine to %O3DE_PATH% or update this script's 'O3DE_PATH' to point to the installed engine path on this system.
     exit /B 1
 )
@@ -61,4 +63,4 @@ IF NOT EXIST %O3DE_PATH%\scripts\o3de.bat (
 echo Using engine path at %O3DE_PATH%
 echo Exporting project to %OUTPUT_PATH%
 
-call %O3DE_PATH%\scripts\o3de.bat export-project -es ExportScripts\export_source_built_project.py --project-path %O3DE_PROJECT_PATH% --log-level INFO --tools-build-path %TOOLS_BUILD_PATH% -out %OUTPUT_PATH%
+call "%O3DE_PATH%\scripts\o3de.bat" export-project -es ExportScripts\export_source_built_project.py --project-path "%O3DE_PROJECT_PATH%" --log-level INFO --tools-build-path "%TOOLS_BUILD_PATH%" -out "%OUTPUT_PATH%"

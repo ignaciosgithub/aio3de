@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 #
 # Copyright (c) Contributors to the Open 3D Engine Project.
 # For complete copyright and license terms please see the LICENSE at the root of this distribution.
@@ -40,22 +41,22 @@ while [[ -h "$SOURCE" ]]; do
     DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
     SOURCE="$( readlink "$SOURCE" )"
     # If $SOURCE was a relative symlink (so no "/" as prefix, need to resolve it relative to the symlink base directory
-    [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+    [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
 done
 DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
 
-O3DE_PROJECT_PATH=$DIR
-echo Using project path at $O3DE_PROJECT_PATH
+O3DE_PROJECT_PATH="$DIR"
+echo "Using project path at $O3DE_PROJECT_PATH"
 
-O3DE_PATH=${EnginePath}
-if [ ! -f ${O3DE_PATH}/scripts/o3de.sh ]
+O3DE_PATH="${EnginePath}"
+if [ ! -f "${O3DE_PATH}/scripts/o3de.sh" ]
 then
-    echo Engine path $O3DE_PATH is invalid in this script. Make sure to install the engine to $O3DE_PATH or update this script''s $O3DE_PATH to point to the installed engine path on this system.
+    echo "Engine path $O3DE_PATH is invalid in this script. Make sure to install the engine to $O3DE_PATH or update this script''s $O3DE_PATH to point to the installed engine path on this system."
     exit 1
 fi
-echo Using engine path at $O3DE_PATH
+echo "Using engine path at $O3DE_PATH"
 
-if [[ $1 == "-h" ]]
+if [[ "${1:-}" == "-h" ]]
 then
     echo
     echo "Usage: $0 EXPORT_PATH"
@@ -64,22 +65,13 @@ then
     echo "                    Default: ${O3DE_PROJECT_PATH}/ProjectPackages"
     echo
     exit 0
-elif [[ $1 == "" ]]
+elif [[ -z "${1:-}" ]]
 then
-    OUTPUT_PATH=${O3DE_PROJECT_PATH}/build/export
+    OUTPUT_PATH="${O3DE_PROJECT_PATH}/build/export"
 else
-    OUTPUT_PATH=$1
+    OUTPUT_PATH="$1"
 fi
 
-echo Exporting project to $OUTPUT_PATH
+echo "Exporting project to $OUTPUT_PATH"
 
-# The default path where the tools are built is platform dependent
-if [[ "$OSTYPE" == *"darwin"* ]]; then
-    TOOLS_BUILD_PATH=${O3DE_PROJECT_PATH}/build/mac
-elif [[ "$OSTYPE" == "msys" ]]; then
-    TOOLS_BUILD_PATH=${O3DE_PROJECT_PATH}/build/windows
-else
-    TOOLS_BUILD_PATH=${O3DE_PROJECT_PATH}/build/linux
-fi
-
-${O3DE_PATH}/scripts/o3de.sh export-project -es ExportScripts/export_source_built_project.py --project-path ${O3DE_PROJECT_PATH} --log-level INFO -out ${OUTPUT_PATH}
+"${O3DE_PATH}/scripts/o3de.sh" export-project -es ExportScripts/export_source_built_project.py --project-path "${O3DE_PROJECT_PATH}" --log-level INFO -out "${OUTPUT_PATH}"

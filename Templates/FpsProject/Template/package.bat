@@ -7,9 +7,10 @@ REM SPDX-License-Identifier: Apache-2.0 OR MIT
 REM
 REM --------------------------------------------------------------------------------------------------
 
-set O3DE_PATH=${EnginePath}
-set O3DE_PROJECT_PATH=${ProjectPath}
-set O3DE_PROJECT_SEEDLIST=%O3DE_PROJECT_PATH%\AssetBundling\SeedLists\Arena.seed
-set OUTPUT_PATH=%O3DE_PROJECT_PATH%\ProjectPackages
+set "O3DE_PATH=${EnginePath}"
+set "O3DE_PROJECT_PATH=${ProjectPath}"
+if "%O3DE_PROJECT_PATH:~-1%"=="\" (if "%O3DE_PROJECT_PATH:~-2%"==":\" (set "O3DE_PROJECT_PATH=%O3DE_PROJECT_PATH%.") else (set "O3DE_PROJECT_PATH=%O3DE_PROJECT_PATH:~0,-1%"))
+set "O3DE_PROJECT_SEEDLIST=%O3DE_PROJECT_PATH%\AssetBundling\SeedLists\Arena.seed"
+set "OUTPUT_PATH=%O3DE_PROJECT_PATH%\ProjectPackages"
 
-%O3DE_PATH%\scripts\o3de.bat export-project -es ExportScripts\export_source_built_project.py --project-path %O3DE_PROJECT_PATH% --log-level INFO -assets --build-tools --config release --archive-output zip --seedlist %O3DE_PROJECT_SEEDLIST% -out %OUTPUT_PATH%
+"%O3DE_PATH%\scripts\o3de.bat" export-project -es ExportScripts\export_source_built_project.py --project-path "%O3DE_PROJECT_PATH%" --log-level INFO -assets --build-tools --config release --archive-output zip --seedlist "%O3DE_PROJECT_SEEDLIST%" -out "%OUTPUT_PATH%"

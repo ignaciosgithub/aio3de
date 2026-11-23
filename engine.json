@@ -137,6 +137,7 @@
         "Templates/DefaultProject",
         "Templates/FpsProject",
         "Templates/PlatformerProject",
+        "Templates/RacingProject",
         "Templates/GemRepo",
         "Templates/GraphicsGem",
         "Templates/MinimalProject",

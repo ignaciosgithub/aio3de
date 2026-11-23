@@ -32,7 +32,7 @@
                     "Rules": {
                         // Device rules are regular expressions
                         // Rule matching Pixel 3 - 6
-                        "DeviceModelLow": { "DeviceModel": "^Pixel [3-6]\D*$" }
+                        "DeviceModelLow": { "DeviceModel": "^Pixel [3-6][^0-9]*$" }
                     },
                     "Settings": {
                         // Device cvar quality overrides go here for this rule
@@ -46,7 +46,7 @@
                     "Rules": {
                         // Device rules are regular expressions, only one of these rules needs to match
                         // Rule matching Pixel 8
-                        "PixelModelsHigh": { "DeviceModel": "^Pixel 8\D*$" },
+                        "PixelModelsHigh": { "DeviceModel": "^Pixel 8[^0-9]*$" },
                         // Rule matching Galaxy S23 models
                         "GalaxyS23Models": { "DeviceModel": "^(SC-51D|SCG19|SM-S911.*)$" },
                         "GalaxyS23FEModels": { "DeviceModel": "^SM-S71.*$" },
