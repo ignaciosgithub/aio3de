@@ -619,6 +619,10 @@ function(ly_setup_cmake_install)
     set(indent "        ")
 
     get_external_subdirectories_in_use(external_subdirs)
+    get_property(project_paths GLOBAL PROPERTY O3DE_PROJECTS_PATHS)
+    foreach(project_path IN LISTS project_paths)
+        list(REMOVE_ITEM external_subdirs "${project_path}")
+    endforeach()
     foreach(external_subdir ${external_subdirs})
         # If an external subdirectory is not a subdirectory of the engine root, then
         # prepend "External" to its subdirectory root
