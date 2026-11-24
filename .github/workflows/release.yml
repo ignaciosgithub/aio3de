@@ -334,6 +334,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           NOTES="AIO3DE prebuilt SDK $RELEASE_TAG, based on O3DE 2.7.0.
 
           The SDK contains the Editor, Project Manager, asset tools, prebuilt engine libraries, and the FPS, Platformer, and Racing project templates. Projects build only their own code; a C++ compiler is still required for projects with C++.
@@ -346,6 +347,15 @@ jobs:
           Compatibility baseline: Linux binaries built on Ubuntu 22.04 (glibc >= 2.35); Windows binaries built with MSVC v143, x86_64.
 
           Windows Defender / SmartScreen: pre-alpha binaries are unsigned (code signing via Azure Trusted Signing arrives with the alpha releases). Right-click the downloaded zip -> Properties -> Unblock (or 'Unblock-File aio3de-sdk-*.zip') before extracting; if SmartScreen still appears, click More info -> Run anyway."
+          if existing_assets=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null); then
+            while IFS= read -r asset_name; do
+              case "$asset_name" in
+                aio3de-sdk-*|SHA256SUMS)
+                  gh release delete-asset "$RELEASE_TAG" "$asset_name" --repo "$GITHUB_REPOSITORY" -y
+                  ;;
+              esac
+            done <<< "$existing_assets"
+          fi
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --title "AIO3DE $RELEASE_TAG SDK (based on O3DE 2.7.0)" \
