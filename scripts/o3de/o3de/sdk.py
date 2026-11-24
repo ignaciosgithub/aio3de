@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 import zipfile
@@ -248,7 +249,7 @@ def _safe_member(root, name):
 
 
 def _extract(archive, partial, log):
-    partial.mkdir(parents=True)
+    partial.mkdir(parents=True, exist_ok=True)
     if archive.name.endswith('.zip'):
         with zipfile.ZipFile(archive) as source:
             for info in source.infolist():
@@ -278,11 +279,10 @@ def _extract(archive, partial, log):
 
     entries = list(partial.iterdir())
     if len(entries) == 1 and entries[0].is_dir():
-        flattened = pathlib.Path(str(partial) + '.flatten')
-        _remove(flattened)
-        entries[0].replace(flattened)
-        shutil.rmtree(partial)
-        flattened.replace(partial)
+        top_level = entries[0]
+        for child in list(top_level.iterdir()):
+            child.replace(partial / child.name)
+        top_level.rmdir()
     _log(log, f'Extracted SDK to {partial}')
 
 
@@ -323,7 +323,7 @@ def install(tag=None, install_dir=None, force=False, keep_download=False, no_reg
     if not plat:
         raise SdkError('no prebuilt SDK for this platform yet; build from source')
     requested_dir = pathlib.Path(install_dir).expanduser().absolute() if install_dir else None
-    if requested_dir and requested_dir.exists() and not force:
+    if requested_dir and (requested_dir.exists() or requested_dir.is_symlink()) and not force:
         raise SdkError(f'{requested_dir} already exists; use --force to replace it.')
     release = find_release(tag, plat)
     if not release:
@@ -339,7 +339,7 @@ def install(tag=None, install_dir=None, force=False, keep_download=False, no_reg
     install_dir = requested_dir or (
         pathlib.Path.home() / 'O3DE' / 'Engines' / f'aio3de-sdk-{tag}')
     install_dir = install_dir.absolute()
-    if install_dir.exists() and not force:
+    if (install_dir.exists() or install_dir.is_symlink()) and not force:
         raise SdkError(f'{install_dir} already exists; use --force to replace it.')
     downloads = pathlib.Path.home() / 'O3DE' / 'Downloads' / f'aio3de-sdk-{tag}'
     downloads.mkdir(parents=True, exist_ok=True)
@@ -351,16 +351,17 @@ def install(tag=None, install_dir=None, force=False, keep_download=False, no_reg
     else:
         _log(log, 'Warning: release has no SHA256SUMS; continuing without checksum verification.')
     archive = _download_archive(archive_name, assets, sums, downloads, log)
-    partial = pathlib.Path(str(install_dir) + '.partial')
-    _remove(partial)
+    install_dir.parent.mkdir(parents=True, exist_ok=True)
+    temporary = pathlib.Path(tempfile.mkdtemp(prefix='.aio3de-sdk-', dir=install_dir.parent))
     try:
-        _extract(archive, partial, log)
-        if install_dir.exists():
+        _extract(archive, temporary, log)
+        if install_dir.exists() or install_dir.is_symlink():
+            if not force:
+                raise SdkError(f'{install_dir} already exists; use --force to replace it.')
             _remove(install_dir)
-        install_dir.parent.mkdir(parents=True, exist_ok=True)
-        partial.replace(install_dir)
+        temporary.replace(install_dir)
     except Exception:
-        _remove(partial)
+        _remove(temporary)
         raise
     registered = True
     if not no_register:

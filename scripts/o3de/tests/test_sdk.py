@@ -190,12 +190,19 @@ def test_install_split_tar_zst_fake_api(tmp_path, monkeypatch):
         monkeypatch.setattr(pathlib.Path, 'home', lambda: home)
         monkeypatch.setattr(sdk, 'platform_key', lambda: 'linux-x86_64')
         install_dir = tmp_path / 'install'
+        sibling_dirs = [pathlib.Path(str(install_dir) + suffix)
+                        for suffix in ('.partial', '.partial.flatten')]
+        for sibling_dir in sibling_dirs:
+            sibling_dir.mkdir()
+            (sibling_dir / 'preserve-me').write_text('keep')
         sdk.install(tag, install_dir, log=lambda _m: None)
         assert (install_dir / 'scripts/registered').read_text() == 'registered'
         assert not (home / 'O3DE/Downloads' / f'aio3de-sdk-{tag}').exists()
+        assert all((directory / 'preserve-me').read_text() == 'keep' for directory in sibling_dirs)
         monkeypatch.setattr(sdk, '_register_engine', lambda _dir, _log: False)
         assert sdk.install(tag, install_dir, force=True, log=lambda _m: None) is False
         assert install_dir.exists()
         assert (home / 'O3DE/Downloads' / f'aio3de-sdk-{tag}').exists()
+        assert all((directory / 'preserve-me').read_text() == 'keep' for directory in sibling_dirs)
     finally:
         server.shutdown()
