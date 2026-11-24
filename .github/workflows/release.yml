@@ -8,7 +8,16 @@
 
 name: Prebuilt SDK Release
 
-# Builds and publishes complete O3DE SDK installs for Linux and Windows.
+# Builds and publishes the Editor, Project Manager, tools, libraries, and templates as SDK installs.
+#
+# Trigger:
+# - Push a tag like v0.00-pre-alpha, or
+# - Run manually with the desired tag name.
+#
+# Compatibility baseline (pre-alpha 0.00, based on O3DE 2.7.0):
+# - Linux builds on Ubuntu 22.04 => glibc 2.35 baseline.
+# - Windows builds with MSVC v143 targeting default x86_64.
+# - Profile config provides full tooling with asserts active and debug symbols stripped.
 
 on:
   push:
@@ -36,6 +45,7 @@ jobs:
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
     steps:
       - name: Free up disk space
+        # The default runner image has limited free space; the full SDK build needs far more.
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
           sudo docker image prune --all --force || true
@@ -48,11 +58,13 @@ jobs:
           show-progress: false
 
       - name: Git LFS pull (build-required files only)
+        # Full LFS checkout fails against this repo's endpoint; pull only the profile-build files.
         run: |
           git lfs install
           git lfs pull --include "*.ico,*.bmp"
 
       - name: Install build dependencies
+        # Use the repo's installer for the full X11/xcb toolchain and add the SDK packaging tools.
         run: |
           pushd ./scripts/build/build_node/Platform/Linux
           sudo ./install-ubuntu.sh
@@ -70,7 +82,7 @@ jobs:
           ccache_options: |
             cache_dir=${{ github.workspace }}/.ccache
             hash_dir=false
-            max_size=10G
+            max_size=5G
 
       - name: Restore ccache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -91,6 +103,7 @@ jobs:
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/aio3de-sdk" \
             -DLY_PARALLEL_LINK_JOBS=2
 
+      # Save ccache even on timeout so a rerun can resume the interrupted SDK build.
       - name: Build and install SDK
         id: build-sdk
         timeout-minutes: 310
@@ -136,9 +149,37 @@ jobs:
           show-progress: false
 
       - name: Git LFS pull (build-required files only)
+        # Keep the same minimal LFS pull used by the Linux profile SDK build.
         run: |
           git lfs install
           git lfs pull --include "*.ico,*.bmp"
+
+      - name: Setup DevDrive
+        uses: samypr100/setup-dev-drive@b9079d2711b01ed39de859c79c96484bfd80e078 # v3.4.1
+        with:
+          drive-size: 130GB
+          drive-format: NTFS
+          drive-path: "D:/dev_drive.vhdx"
+          workspace-copy: true
+          trusted-dev-drive: true
+
+      - name: Setup 3p, user, and build folders
+        # Keep build data and the .o3de user cache on the Dev Drive.
+        run: |
+          "3rdParty", "build", ".o3de" | % {New-Item "${{ env.DEV_DRIVE_WORKSPACE }}\$_" -ItemType 'Directory' -Force}
+          "temp" | % {New-Item "${{ env.DEV_DRIVE }}\$_" -ItemType 'Directory' -Force}
+          ".o3de" | % {New-Item -Path $env:USERPROFILE\$_ -ItemType SymbolicLink -Target ${{ env.DEV_DRIVE_WORKSPACE }}\$_ -Force}
+          "AutomatedTesting\Cache", "AutomatedTesting\user" | % {New-Item "${{ env.DEV_DRIVE_WORKSPACE }}\$_" -ItemType 'Directory' -Force}
+
+      - name: Move Page File to Workspace drive
+        # Configure the page file to use the Dev Drive for the duration of the run.
+        run: |
+          Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" `
+            -Name "PagingFiles" -Value "${{ env.DEV_DRIVE }}\temp\pagefile.sys 8192 8192"
+          echo "Page file moved to ${{ env.DEV_DRIVE }}\temp\pagefile.sys"
+
+      - name: Get drive info
+        run: Get-PSDrive
 
       - name: Setup ccache
         uses: chocobo1/setup-ccache-action@37c3347f8a7738e82aab7a06f276f7a12e3008fb # v1.5.3
@@ -150,42 +191,54 @@ jobs:
           store_cache: false
           restore_cache: false
           ccache_options: |
-            cache_dir=${{ github.workspace }}\.ccache
+            cache_dir=${{ env.DEV_DRIVE_WORKSPACE }}\.ccache
             hash_dir=false
             inode_cache=true
-            max_size=10G
-            temporary_dir=${{ runner.temp }}
+            max_size=5G
+            temporary_dir=${{ env.DEV_DRIVE }}\temp
 
       - name: Restore ccache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
-          path: .ccache
+          path: ${{ env.DEV_DRIVE_WORKSPACE }}\.ccache
           key: sdk-ccache-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: sdk-ccache-${{ runner.os }}-
 
       - name: Configure
+        working-directory: ${{ env.DEV_DRIVE_WORKSPACE }}
         run: |
-          cmake -B build/windows -S . -G "Visual Studio 17 2022" `
-            -DLY_3RDPARTY_PATH="$env:USERPROFILE/.o3de/3rdParty" `
+          cmake -B "${{ env.DEV_DRIVE_WORKSPACE }}\build\windows" -S "${{ env.DEV_DRIVE_WORKSPACE }}" -G "Visual Studio 17 2022" `
+            -DLY_3RDPARTY_PATH="${{ env.DEV_DRIVE_WORKSPACE }}\3rdParty" `
             -DLY_DISABLE_TEST_MODULES=ON `
             -DLY_STRIP_DEBUG_SYMBOLS=ON `
             -DO3DE_INSTALL_ENGINE_NAME=aio3de-sdk `
             -DLY_PROJECTS= `
-            -DCMAKE_INSTALL_PREFIX="$env:GITHUB_WORKSPACE/aio3de-sdk" `
+            -DCMAKE_INSTALL_PREFIX="${{ env.DEV_DRIVE_WORKSPACE }}\aio3de-sdk" `
             -DLY_PARALLEL_LINK_JOBS=2
 
+      # Persist ccache on any build result so a rerun can resume from the last completed objects.
       - name: Build and install SDK
         id: build-sdk
         timeout-minutes: 310
         continue-on-error: true
+        working-directory: ${{ env.DEV_DRIVE_WORKSPACE }}
         run: |
-          cmake --build build/windows --config profile --target install -- -m
+          $env:TEMP = "${{ env.DEV_DRIVE }}\temp"
+          $env:TMP = "${{ env.DEV_DRIVE }}\temp"
+          $cores = [Environment]::ProcessorCount
+          $ramGb = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB
+          $jobs = [Math]::Max(1, [Math]::Min($cores, [Math]::Floor($ramGb / 4)))
+          cmake --build "${{ env.DEV_DRIVE_WORKSPACE }}\build\windows" --config profile --target install -- /m:$jobs /p:CL_MPCount=1 /nologo
+
+      - name: Get drive info after SDK build
+        if: always()
+        run: Get-PSDrive
 
       - name: Save ccache
         if: always()
         uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
-          path: .ccache
+          path: ${{ env.DEV_DRIVE_WORKSPACE }}\.ccache
           key: sdk-ccache-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Fail if SDK build did not succeed
@@ -194,14 +247,15 @@ jobs:
           if ("${{ steps.build-sdk.outcome }}" -ne "success") { exit 1 }
 
       - name: Package SDK
+        working-directory: ${{ env.DEV_DRIVE_WORKSPACE }}
         run: |
-          7z a -tzip -mx=7 "aio3de-sdk-$env:RELEASE_TAG-windows-x86_64.zip" "$env:GITHUB_WORKSPACE\aio3de-sdk"
+          7z a -tzip -mx=7 "$env:DEV_DRIVE_WORKSPACE\aio3de-sdk-$env:RELEASE_TAG-windows-x86_64.zip" "aio3de-sdk"
 
       - name: Upload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-sdk
-          path: aio3de-sdk-*-windows-x86_64.zip
+          path: ${{ env.DEV_DRIVE_WORKSPACE }}\aio3de-sdk-*-windows-x86_64.zip
           retention-days: 3
 
   publish:

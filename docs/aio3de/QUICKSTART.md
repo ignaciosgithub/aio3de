@@ -41,6 +41,12 @@ From an engine checkout, install and register the newest compatible SDK with:
 scripts/o3de.sh hub sdk install
 ```
 
+Linux SDK archives use zstd compression. Install the extractor first if needed:
+
+```bash
+sudo apt install zstd
+```
+
 You can also install without cloning the repository by downloading the
 standalone, standard-library-only installer:
 
@@ -56,19 +62,34 @@ iwr https://raw.githubusercontent.com/ignaciosgithub/aio3de/development/scripts/
 py sdk.py install
 ```
 
-Create a project from an installed template, then configure and build only the
-project:
+The installer registers the SDK and prints its next-step commands. You can
+create a Racing project from the installed SDK's own script:
 
 ```bash
-scripts/o3de.sh create-project --project-path ~/O3DEProjects/MyRacing --template-name RacingProject
+~/O3DE/Engines/aio3de-sdk-<tag>/scripts/o3de.sh create-project --project-path ~/O3DEProjects/MyRacing --template-name RacingProject
 cd ~/O3DEProjects/MyRacing
 cmake -B build/linux -S . -G "Ninja Multi-Config"
 cmake --build build/linux --config profile --target MyRacing.GameLauncher Editor
 ```
 
+On Windows Command Prompt, use the installed SDK's batch script:
+
+```bat
+%USERPROFILE%\O3DE\Engines\aio3de-sdk-<tag>\scripts\o3de.bat create-project --project-path %USERPROFILE%\O3DEProjects\MyRacing --template-name RacingProject
+cd %USERPROFILE%\O3DEProjects\MyRacing
+cmake -B build\windows -S . -G "Visual Studio 17 2022"
+cmake --build build\windows --config profile --target MyRacing.GameLauncher Editor
+```
+
+The GUI alternative is Project Manager: `bin/Linux/profile/Default/o3de` on
+Linux or `bin\Windows\profile\Default\o3de.exe` on Windows. Choose **New Project**,
+select **FPS**, **Platformer**, or **Racing**, then click **Build**.
+
 Linux SDKs target Ubuntu 22.04 or newer (glibc ≥ 2.35). Windows pre-alpha
-binaries are unsigned: right-click the downloaded ZIP → Properties → **Unblock**
-before extracting; if SmartScreen still appears, click **More info → Run anyway**.
+binaries are unsigned. If you download a ZIP manually in a browser, right-click
+it → Properties → **Unblock** before extracting; this is not needed when the
+installer downloads the SDK. If SmartScreen still appears, click **More info →
+Run anyway**.
 
 > **Mental model:** the **engine** is the source tree you cloned. A **project**
 > is a separate folder that *points at* an engine. You register the engine once,

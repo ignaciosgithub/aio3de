@@ -210,7 +210,8 @@ def _download_archive(archive_name, assets, sums, downloads, log):
             raise SdkError(f'Incomplete download for {asset["name"]}.')
         _verify(path, asset['name'], sums, log)
         downloaded.append(path)
-    if len(downloaded) == 1 and downloaded[0].name == archive_name:
+    split_parts = not (len(downloaded) == 1 and downloaded[0].name == archive_name)
+    if not split_parts:
         archive = downloaded[0]
     else:
         archive = downloads / archive_name
@@ -221,6 +222,9 @@ def _download_archive(archive_name, assets, sums, downloads, log):
                     shutil.copyfileobj(source, output, 1024 * 1024)
         temporary.replace(archive)
     _verify(archive, archive_name, sums, log)
+    if split_parts:
+        for part in downloaded:
+            part.unlink(missing_ok=True)
     return archive
 
 
@@ -302,7 +306,16 @@ def _print_next_steps(install_dir, tag, log):
     manager = install_dir / 'bin' / platform_dir / 'profile' / 'Default' / executable
     _log(log, f'Project Manager: {manager}')
     script = install_dir / 'scripts' / ('o3de.bat' if os.name == 'nt' else 'o3de.sh')
-    _log(log, f'Create a Racing project: "{script}" create-project --project-path ~/O3DEProjects/RacingProject --template-name RacingProject')
+    project_path = pathlib.Path.home() / 'O3DEProjects' / 'RacingProject'
+    _log(log, f'Create a Racing project: "{script}" create-project --project-path "{project_path}" --template-name RacingProject')
+    if os.name == 'nt':
+        build_dir = 'build\\windows'
+        generator = 'Visual Studio 17 2022'
+    else:
+        build_dir = 'build/linux'
+        generator = 'Ninja Multi-Config'
+    _log(log, f'Configure from {project_path}: cmake -B {build_dir} -S . -G "{generator}"')
+    _log(log, f'Build: cmake --build {build_dir} --config profile --target RacingProject.GameLauncher Editor')
 
 
 def install(tag=None, install_dir=None, force=False, keep_download=False, no_register=False, log=None):
@@ -355,7 +368,7 @@ def install(tag=None, install_dir=None, force=False, keep_download=False, no_reg
     if not keep_download and registered:
         _remove(downloads)
     _print_next_steps(install_dir, tag, log)
-    return install_dir
+    return install_dir if registered else False
 
 
 def _format_size(size):
@@ -386,8 +399,8 @@ def _run_list(_args):
 
 
 def _run_install(args):
-    install(args.tag, args.install_dir, args.force, args.keep_download, args.no_register)
-    return 0
+    result = install(args.tag, args.install_dir, args.force, args.keep_download, args.no_register)
+    return 1 if result is False else 0
 
 
 def _handle_error(function, args):

@@ -63,6 +63,41 @@ def test_sha256_parse_verify_and_delete(tmp_path):
     assert not file.exists()
 
 
+def test_split_archive_removes_parts_after_verification(tmp_path, monkeypatch):
+    name = 'aio3de-sdk-v1-linux-x86_64.tar.zst'
+    chunks = {'part00': b'first', 'part01': b'second'}
+    paths = []
+
+    def fake_download(url, dest, _log=None):
+        part = pathlib.Path(url).name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(chunks[part])
+        paths.append(dest)
+        return dest
+
+    monkeypatch.setattr(sdk, 'download', fake_download)
+    assets = [{'name': part, 'browser_download_url': part} for part in chunks]
+    data = b''.join(chunks.values())
+    sums = {part: hashlib.sha256(content).hexdigest() for part, content in chunks.items()}
+    sums[name] = hashlib.sha256(data).hexdigest()
+    archive = sdk._download_archive(name, assets, sums, tmp_path, None)
+    assert archive.read_bytes() == data
+    assert all(not path.exists() for path in paths)
+
+
+def test_install_cli_returns_nonzero_on_registration_failure(monkeypatch):
+    monkeypatch.setattr(sdk, 'install', lambda *_args, **_kwargs: False)
+    assert sdk.main(['install', '--tag', 'v1']) == 1
+
+
+def test_next_steps_include_project_configure_and_build(tmp_path):
+    output = []
+    sdk._print_next_steps(tmp_path, 'v1', output.append)
+    assert any(f'{tmp_path}/scripts/o3de.sh" create-project' in line for line in output)
+    assert any('cmake -B build/linux -S . -G "Ninja Multi-Config"' in line for line in output)
+    assert any('RacingProject.GameLauncher Editor' in line for line in output)
+
+
 class Server(http.server.BaseHTTPRequestHandler):
     routes = {}
     ignore_range = False
@@ -158,7 +193,9 @@ def test_install_split_tar_zst_fake_api(tmp_path, monkeypatch):
         sdk.install(tag, install_dir, log=lambda _m: None)
         assert (install_dir / 'scripts/registered').read_text() == 'registered'
         assert not (home / 'O3DE/Downloads' / f'aio3de-sdk-{tag}').exists()
-        sdk.install(tag, install_dir, force=True, log=lambda _m: None)
-        assert (install_dir / 'scripts/registered').exists()
+        monkeypatch.setattr(sdk, '_register_engine', lambda _dir, _log: False)
+        assert sdk.install(tag, install_dir, force=True, log=lambda _m: None) is False
+        assert install_dir.exists()
+        assert (home / 'O3DE/Downloads' / f'aio3de-sdk-{tag}').exists()
     finally:
         server.shutdown()
