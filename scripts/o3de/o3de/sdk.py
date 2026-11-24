@@ -37,6 +37,8 @@ def _log(log, message):
         log(message)
     elif log is not None:
         print(message, file=log)
+    else:
+        print(message)
 
 
 def platform_key():
@@ -400,7 +402,7 @@ def _run_list(_args):
 
 
 def _run_install(args):
-    result = install(args.tag, args.install_dir, args.force, args.keep_download, args.no_register)
+    result = install(args.tag, args.install_dir, args.force, args.keep_download, args.no_register, log=print)
     return 1 if result is False else 0
 
 

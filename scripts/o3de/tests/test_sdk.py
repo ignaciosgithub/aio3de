@@ -159,7 +159,7 @@ def test_extract_zip_flatten_and_existing_install(tmp_path):
 
 
 @pytest.mark.skipif(os.name == 'nt' or not shutil.which('zstd'), reason='tar.zst round trip needs Linux zstd')
-def test_install_split_tar_zst_fake_api(tmp_path, monkeypatch):
+def test_install_split_tar_zst_fake_api(tmp_path, monkeypatch, capsys):
     source = tmp_path / 'aio3de-sdk'
     (source / 'scripts').mkdir(parents=True)
     stub = source / 'scripts/o3de.sh'
@@ -195,7 +195,10 @@ def test_install_split_tar_zst_fake_api(tmp_path, monkeypatch):
         for sibling_dir in sibling_dirs:
             sibling_dir.mkdir()
             (sibling_dir / 'preserve-me').write_text('keep')
-        sdk.install(tag, install_dir, log=lambda _m: None)
+        assert sdk.main(['install', '--tag', tag, '--install-dir', str(install_dir)]) == 0
+        output = capsys.readouterr().out
+        assert f'Project Manager: {install_dir}/bin/Linux/profile/Default/o3de' in output
+        assert f'"{install_dir}/scripts/o3de.sh" create-project' in output
         assert (install_dir / 'scripts/registered').read_text() == 'registered'
         assert not (home / 'O3DE/Downloads' / f'aio3de-sdk-{tag}').exists()
         assert all((directory / 'preserve-me').read_text() == 'keep' for directory in sibling_dirs)
