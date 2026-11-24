@@ -54,6 +54,12 @@ def test_build_register_engine_command(gui):
     assert command[1:] == ['register', '--this-engine']
 
 
+def test_build_install_sdk_command(gui):
+    command = gui.build_install_sdk_command()
+    assert command == [sys.executable, str(gui.ENGINE_ROOT / 'scripts' / 'o3de' / 'o3de' / 'sdk.py'),
+                       'install']
+
+
 @pytest.mark.parametrize("text, expected", [
     ("see https://aka.ms/vs/17/release/vc_redist.x64.exe and retry.",
      "https://aka.ms/vs/17/release/vc_redist.x64.exe"),

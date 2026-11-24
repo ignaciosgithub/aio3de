@@ -28,24 +28,47 @@ The whole flow is five steps:
 > create a project with an explicit **name** + location, so you never end up with
 > an accidental "Default Project". The CLI steps below do exactly the same thing.
 
-> **Skip the multi-hour build — prebuilt binaries:** each release on the
-> [Releases page](https://github.com/ignaciosgithub/aio3de/releases) ships a
-> prebuilt Editor + asset tools (profile config) for Windows and Linux
-> (pre-alpha 0.00, based on O3DE 2.7.0; Linux binaries need glibc ≥ 2.35, i.e.
-> Ubuntu 22.04 or newer). To use them: clone the repo **at the release tag**
-> (with Git LFS), extract the archive into `<engine>/build/<linux|windows>/bin/`
-> so you end up with `.../bin/profile/`, then continue from step 2 below — the
-> engine itself never needs compiling (project code gems still compile on
-> demand).
->
-> **Windows Defender / SmartScreen:** pre-alpha binaries are **unsigned** —
-> code signing (via Azure Trusted Signing) will only be introduced with the
-> **alpha** releases. Until then Windows will show "Windows protected your PC"
-> for unknown unsigned executables; that is a reputation warning, not a
-> detection. To run them: right-click the downloaded `.zip` → Properties →
-> **Unblock** (or in PowerShell `Unblock-File aio3de-*.zip`) **before**
-> extracting, so the extracted executables don't inherit the mark-of-the-web;
-> if SmartScreen still appears, click **More info → Run anyway**.
+## Prebuilt SDK (no engine compile)
+
+The prebuilt SDK contains the Editor, Project Manager, asset tools, prebuilt
+engine libraries, and the FPS, Platformer, and Racing templates. Projects build
+only their own code; a C++ compiler is still required because all three starter
+templates include C++ code.
+
+From an engine checkout, install and register the newest compatible SDK with:
+
+```bash
+scripts/o3de.sh hub sdk install
+```
+
+You can also install without cloning the repository by downloading the
+standalone, standard-library-only installer:
+
+```bash
+# Linux
+curl -fsSLO https://raw.githubusercontent.com/ignaciosgithub/aio3de/development/scripts/o3de/o3de/sdk.py
+python3 sdk.py install
+```
+
+```powershell
+# Windows PowerShell
+iwr https://raw.githubusercontent.com/ignaciosgithub/aio3de/development/scripts/o3de/o3de/sdk.py -OutFile sdk.py
+py sdk.py install
+```
+
+Create a project from an installed template, then configure and build only the
+project:
+
+```bash
+scripts/o3de.sh create-project --project-path ~/O3DEProjects/MyRacing --template-name RacingProject
+cd ~/O3DEProjects/MyRacing
+cmake -B build/linux -S . -G "Ninja Multi-Config"
+cmake --build build/linux --config profile --target MyRacing.GameLauncher Editor
+```
+
+Linux SDKs target Ubuntu 22.04 or newer (glibc ≥ 2.35). Windows pre-alpha
+binaries are unsigned: right-click the downloaded ZIP → Properties → **Unblock**
+before extracting; if SmartScreen still appears, click **More info → Run anyway**.
 
 > **Mental model:** the **engine** is the source tree you cloned. A **project**
 > is a separate folder that *points at* an engine. You register the engine once,

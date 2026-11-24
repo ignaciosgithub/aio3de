@@ -29,6 +29,8 @@ import shutil
 import subprocess
 import sys
 
+from . import sdk
+
 # NOTE: the o3de manifest/compatibility/utils modules pull in third-party packages (packaging,
 # resolvelib) that only exist inside the engine's bundled venv. The build-prerequisite "doctor"
 # checks below are deliberately stdlib-only so this module can be imported and run by a *system*
@@ -1562,6 +1564,9 @@ def add_parser_args(parser):
     gems_parser.add_argument('--disable', action='append', metavar='GEM_NAME',
                              help='Disable this gem in the project (repeatable).')
     gems_parser.set_defaults(func=_run_gems)
+
+    sdk_parser = subparsers.add_parser('sdk', help='Install or list prebuilt SDK releases.')
+    sdk.add_parser_args(sdk_parser)
 
     # When "o3de hub" is run with no sub-command, print help instead of failing silently.
     def _print_hub_help(_args):
