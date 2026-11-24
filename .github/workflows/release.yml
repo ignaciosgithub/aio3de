@@ -6,19 +6,18 @@
 #
 #
 
-name: Prebuilt Binary Release
+name: Prebuilt SDK Release
 
-# Builds the Editor + asset tools on Linux and Windows and publishes them as
-# GitHub Release assets, so users can skip the multi-hour first build.
+# Builds and publishes the Editor, Project Manager, tools, libraries, and templates as SDK installs.
 #
 # Trigger:
 # - Push a tag like v0.00-pre-alpha, or
-# - Run manually (workflow_dispatch) with the desired tag name.
+# - Run manually with the desired tag name.
 #
-# Compatibility first (pre-alpha 0.00, based on O3DE 2.7.0):
-# - Linux builds on ubuntu-22.04 => glibc 2.35 baseline, runs on any 2022+ distro.
-# - Windows builds with MSVC v143 targeting default (SSE2) x86_64.
-# - profile config: full tooling, reasonable performance, asserts still active.
+# Compatibility baseline (pre-alpha 0.00, based on O3DE 2.7.0):
+# - Linux builds on Ubuntu 22.04 => glibc 2.35 baseline.
+# - Windows builds with MSVC v143 targeting default x86_64.
+# - Profile config provides full tooling with asserts active and debug symbols stripped.
 
 on:
   push:
@@ -38,11 +37,15 @@ env:
   RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
 
 jobs:
-  build-linux:
+  sdk-linux:
     runs-on: ubuntu-22.04
+    timeout-minutes: 355
+    env:
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
     steps:
       - name: Free up disk space
-        # The default runner image has ~14 GB free; the engine build needs far more.
+        # The default runner image has limited free space; the full SDK build needs far more.
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
           sudo docker image prune --all --force || true
@@ -54,49 +57,108 @@ jobs:
           fetch-depth: 1
           show-progress: false
 
-      - name: Git LFS pull (build-required files only)
-        # Full 'lfs: true' checkout fails against this repo's LFS endpoint; mirror
-        # linux-build.yml and pull only what the profile build needs.
+      - name: Git LFS pull
+        # Avoid checkout's lfs: true so this flaky endpoint can be retried after checkout.
         run: |
           git lfs install
-          git lfs pull --include "*.ico,*.bmp"
+          for attempt in 1 2 3; do
+            if git lfs pull; then
+              exit 0
+            fi
+            if [[ "$attempt" -lt 3 ]]; then
+              echo "Git LFS pull failed; retrying ($attempt/3) in 10 seconds."
+              sleep 10
+            fi
+          done
+          exit 1
 
       - name: Install build dependencies
-        # Use the repo's own build-node installer (same as linux-build.yml) so the
-        # full dependency list (all X11/xcb dev packages, toolchain, etc.) is covered.
+        # Use the repo's installer for the full X11/xcb toolchain and add the SDK packaging tools.
         run: |
           pushd ./scripts/build/build_node/Platform/Linux
           sudo ./install-ubuntu.sh
           popd
           sudo apt-get install -y --no-install-recommends clang clang-tools ninja-build zstd
 
+      - name: Setup ccache
+        uses: chocobo1/setup-ccache-action@37c3347f8a7738e82aab7a06f276f7a12e3008fb # v1.5.3
+        continue-on-error: true
+        if: always()
+        with:
+          prepend_symlinks_to_path: false
+          store_cache: false
+          restore_cache: false
+          ccache_options: |
+            cache_dir=${{ github.workspace }}/.ccache
+            hash_dir=false
+            max_size=5G
+
+      - name: Restore ccache
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .ccache
+          key: sdk-ccache-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: sdk-ccache-${{ runner.os }}-
+
       - name: Configure
         run: |
           cmake -B build/linux -S . -G "Ninja Multi-Config" \
             -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
             -DLY_3RDPARTY_PATH="$HOME/.o3de/3rdParty" \
-            -DLY_DISABLE_TEST_MODULES=ON
+            -DLY_DISABLE_TEST_MODULES=ON \
+            -DLY_STRIP_DEBUG_SYMBOLS=ON \
+            -DO3DE_INSTALL_ENGINE_NAME=aio3de-sdk \
+            -DLY_PROJECTS= \
+            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/aio3de-sdk" \
+            -DLY_PARALLEL_LINK_JOBS=2
 
-      - name: Build Editor and asset tools (profile)
+      # Save ccache even on timeout so a rerun can resume the interrupted SDK build.
+      - name: Build and install SDK
+        id: build-sdk
+        timeout-minutes: 310
+        continue-on-error: true
         run: |
-          cmake --build build/linux --config profile \
-            --target Editor AssetProcessor AssetProcessorBatch AssetBuilder
+          cmake --build build/linux --config profile --target install
           df -h /
 
-      - name: Package binaries
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .ccache
+          key: sdk-ccache-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Fail if SDK build did not succeed
+        if: ${{ steps.build-sdk.outcome != 'success' }}
+        run: exit 1
+
+      - name: Verify SDK has no LFS pointers
         run: |
-          cd build/linux/bin
-          tar -I 'zstd -19 -T0' -cf "$GITHUB_WORKSPACE/aio3de-$RELEASE_TAG-linux-x86_64-profile.tar.zst" profile
+          pointer_files=$(grep -rlI --max-count=1 '^version https://git-lfs.github.com/spec/v1' aio3de-sdk | head -20 || true)
+          if [[ -n "$pointer_files" ]]; then
+            echo "Found LFS pointer files in the installed SDK:"
+            printf '%s\n' "$pointer_files"
+            exit 1
+          fi
+
+      - name: Package SDK
+        run: |
+          tar -I 'zstd -19 -T0' -cf "$GITHUB_WORKSPACE/aio3de-sdk-$RELEASE_TAG-linux-x86_64.tar.zst" \
+            -C "$GITHUB_WORKSPACE" aio3de-sdk
 
       - name: Upload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: linux-binaries
-          path: aio3de-*-linux-x86_64-profile.tar.zst
+          name: linux-sdk
+          path: aio3de-sdk-*-linux-x86_64.tar.zst
           retention-days: 3
 
-  build-windows:
+  sdk-windows:
     runs-on: windows-2022
+    timeout-minutes: 355
+    env:
+      CMAKE_C_COMPILER_LAUNCHER: C:\ProgramData\Chocolatey\bin\ccache.exe
+      CMAKE_CXX_COMPILER_LAUNCHER: C:\ProgramData\Chocolatey\bin\ccache.exe
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -104,36 +166,140 @@ jobs:
           fetch-depth: 1
           show-progress: false
 
-      - name: Git LFS pull (build-required files only)
+      - name: Git LFS pull
+        # Avoid checkout's lfs: true so this flaky endpoint can be retried after checkout.
         run: |
           git lfs install
-          git lfs pull --include "*.ico,*.bmp"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            git lfs pull
+            $pullExitCode = $LASTEXITCODE
+            if ($pullExitCode -eq 0) { break }
+            if ($attempt -lt 3) {
+              Write-Host "Git LFS pull failed; retrying ($attempt/3) in 10 seconds."
+              Start-Sleep -Seconds 10
+            }
+          }
+          if ($pullExitCode -ne 0) { exit $pullExitCode }
+
+      - name: Setup DevDrive
+        uses: samypr100/setup-dev-drive@b9079d2711b01ed39de859c79c96484bfd80e078 # v3.4.1
+        with:
+          drive-size: 130GB
+          drive-format: NTFS
+          drive-path: "D:/dev_drive.vhdx"
+          workspace-copy: true
+          trusted-dev-drive: true
+
+      - name: Setup 3p, user, and build folders
+        # Keep build data and the .o3de user cache on the Dev Drive.
+        run: |
+          "3rdParty", "build", ".o3de" | % {New-Item "${{ env.DEV_DRIVE_WORKSPACE }}\$_" -ItemType 'Directory' -Force}
+          "temp" | % {New-Item "${{ env.DEV_DRIVE }}\$_" -ItemType 'Directory' -Force}
+          ".o3de" | % {New-Item -Path $env:USERPROFILE\$_ -ItemType SymbolicLink -Target ${{ env.DEV_DRIVE_WORKSPACE }}\$_ -Force}
+          "AutomatedTesting\Cache", "AutomatedTesting\user" | % {New-Item "${{ env.DEV_DRIVE_WORKSPACE }}\$_" -ItemType 'Directory' -Force}
+
+      - name: Move Page File to Workspace drive
+        # Configure the page file to use the Dev Drive for the duration of the run.
+        run: |
+          Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" `
+            -Name "PagingFiles" -Value "${{ env.DEV_DRIVE }}\temp\pagefile.sys 8192 8192"
+          echo "Page file moved to ${{ env.DEV_DRIVE }}\temp\pagefile.sys"
+
+      - name: Get drive info
+        run: Get-PSDrive
+
+      - name: Setup ccache
+        uses: chocobo1/setup-ccache-action@37c3347f8a7738e82aab7a06f276f7a12e3008fb # v1.5.3
+        continue-on-error: true
+        if: always()
+        with:
+          windows_compile_environment: msvc
+          prepend_symlinks_to_path: false
+          store_cache: false
+          restore_cache: false
+          ccache_options: |
+            cache_dir=${{ env.DEV_DRIVE_WORKSPACE }}\.ccache
+            hash_dir=false
+            inode_cache=true
+            max_size=5G
+            temporary_dir=${{ env.DEV_DRIVE }}\temp
+
+      - name: Restore ccache
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ env.DEV_DRIVE_WORKSPACE }}\.ccache
+          key: sdk-ccache-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: sdk-ccache-${{ runner.os }}-
 
       - name: Configure
+        working-directory: ${{ env.DEV_DRIVE_WORKSPACE }}
         run: |
-          cmake -B build/windows -S . -G "Visual Studio 17 2022" `
-            -DLY_3RDPARTY_PATH="$env:USERPROFILE/.o3de/3rdParty" `
-            -DLY_DISABLE_TEST_MODULES=ON
+          cmake -B "${{ env.DEV_DRIVE_WORKSPACE }}\build\windows" -S "${{ env.DEV_DRIVE_WORKSPACE }}" -G "Visual Studio 17 2022" `
+            -DLY_3RDPARTY_PATH="${{ env.DEV_DRIVE_WORKSPACE }}\3rdParty" `
+            -DLY_DISABLE_TEST_MODULES=ON `
+            -DLY_STRIP_DEBUG_SYMBOLS=ON `
+            -DO3DE_INSTALL_ENGINE_NAME=aio3de-sdk `
+            -DLY_PROJECTS= `
+            -DCMAKE_INSTALL_PREFIX="${{ env.DEV_DRIVE_WORKSPACE }}\aio3de-sdk" `
+            -DLY_PARALLEL_LINK_JOBS=2
 
-      - name: Build Editor and asset tools (profile)
+      # Persist ccache on any build result so a rerun can resume from the last completed objects.
+      - name: Build and install SDK
+        id: build-sdk
+        timeout-minutes: 310
+        continue-on-error: true
+        working-directory: ${{ env.DEV_DRIVE_WORKSPACE }}
         run: |
-          cmake --build build/windows --config profile `
-            --target Editor AssetProcessor AssetProcessorBatch AssetBuilder -- -m
+          $env:TEMP = "${{ env.DEV_DRIVE }}\temp"
+          $env:TMP = "${{ env.DEV_DRIVE }}\temp"
+          $cores = [Environment]::ProcessorCount
+          $ramGb = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB
+          $jobs = [Math]::Max(1, [Math]::Min($cores, [Math]::Floor($ramGb / 4)))
+          cmake --build "${{ env.DEV_DRIVE_WORKSPACE }}\build\windows" --config profile --target install -- /m:$jobs /p:CL_MPCount=1 /nologo
 
-      - name: Package binaries
+      - name: Get drive info after SDK build
+        if: always()
+        run: Get-PSDrive
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ env.DEV_DRIVE_WORKSPACE }}\.ccache
+          key: sdk-ccache-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Fail if SDK build did not succeed
+        if: ${{ steps.build-sdk.outcome != 'success' }}
         run: |
-          Compress-Archive -Path build/windows/bin/profile `
-            -DestinationPath "aio3de-$env:RELEASE_TAG-windows-x86_64-profile.zip"
+          if ("${{ steps.build-sdk.outcome }}" -ne "success") { exit 1 }
+
+      - name: Verify SDK has no LFS pointers
+        working-directory: ${{ env.DEV_DRIVE_WORKSPACE }}
+        run: |
+          $pointerFiles = Get-ChildItem -Path aio3de-sdk -Recurse -File |
+            Where-Object { $_.Length -lt 1024 } |
+            ForEach-Object { Select-String -Path $_.FullName -Pattern '^version https://git-lfs.github.com/spec/v1' -List }
+          if ($pointerFiles) {
+            Write-Host "Found LFS pointer files in the installed SDK:"
+            $pointerFiles | Select-Object -First 20 | ForEach-Object { Write-Host $_.Path }
+            throw "The SDK contains Git LFS pointer files."
+          }
+
+      - name: Package SDK
+        working-directory: ${{ env.DEV_DRIVE_WORKSPACE }}
+        run: |
+          7z a -tzip -mx=7 "$env:DEV_DRIVE_WORKSPACE\aio3de-sdk-$env:RELEASE_TAG-windows-x86_64.zip" "aio3de-sdk"
 
       - name: Upload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: windows-binaries
-          path: aio3de-*-windows-x86_64-profile.zip
+          name: windows-sdk
+          path: ${{ env.DEV_DRIVE_WORKSPACE }}\aio3de-sdk-*-windows-x86_64.zip
           retention-days: 3
 
   publish:
-    needs: [build-linux, build-windows]
+    needs: [sdk-linux, sdk-windows]
     runs-on: ubuntu-22.04
     steps:
       - name: Download artifacts
@@ -141,25 +307,59 @@ jobs:
         with:
           merge-multiple: true
 
+      - name: Hash and split release archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          : > SHA256SUMS
+          archives=(aio3de-sdk-*.tar.zst aio3de-sdk-*.zip)
+          if ((${#archives[@]} == 0)); then
+            echo "No SDK archives were downloaded" >&2
+            exit 1
+          fi
+          for archive in "${archives[@]}"; do
+            sha256sum "$archive" >> SHA256SUMS
+            size=$(stat -c '%s' "$archive")
+            if (( size > 1900 * 1024 * 1024 )); then
+              split -b 1900M -d -a 2 "$archive" "$archive.part"
+              rm "$archive"
+            fi
+          done
+          for part in aio3de-sdk-*.part??; do
+            sha256sum "$part" >> SHA256SUMS
+          done
+
       - name: Create or update release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="AIO3DE pre-alpha $RELEASE_TAG - prebuilt Editor + asset tools (profile config), based on O3DE 2.7.0.
+          set -euo pipefail
+          NOTES="AIO3DE prebuilt SDK $RELEASE_TAG, based on O3DE 2.7.0.
+
+          The SDK contains the Editor, Project Manager, asset tools, prebuilt engine libraries, and the FPS, Platformer, and Racing project templates. Projects build only their own code; a C++ compiler is still required for projects with C++.
+
+          Install with \`o3de hub sdk install\` from a source checkout, or use the standalone installer:
+          Linux: \`curl -fsSLO https://raw.githubusercontent.com/ignaciosgithub/aio3de/development/scripts/o3de/o3de/sdk.py && python3 sdk.py install\`
+          Windows PowerShell: \`iwr https://raw.githubusercontent.com/ignaciosgithub/aio3de/development/scripts/o3de/o3de/sdk.py -OutFile sdk.py; py sdk.py install\`
+          The installer registers the SDK and prints the Project Manager and create-project commands.
 
           Compatibility baseline: Linux binaries built on Ubuntu 22.04 (glibc >= 2.35); Windows binaries built with MSVC v143, x86_64.
 
-          How to use:
-          1. Clone this repository at tag $RELEASE_TAG (with git-lfs) - the binaries need the engine's assets, Registry and Python tooling.
-          2. Extract the archive for your platform into <engine>/build/<linux|windows>/bin/ so you get <engine>/build/<platform>/bin/profile/.
-          3. Run scripts/o3de.sh hub (Linux) or scripts\\o3de.bat hub (Windows) - the Hub installs remaining runtime dependencies and registers the engine.
-          4. Create a project and use 'Open Editor' - no engine compile needed (project code gems still compile on demand).
-
-          Windows Defender / SmartScreen: pre-alpha binaries are unsigned (code signing via Azure Trusted Signing arrives with the alpha releases). Right-click the downloaded zip -> Properties -> Unblock (or 'Unblock-File aio3de-*.zip') before extracting; if SmartScreen still appears, click More info -> Run anyway."
+          Windows Defender / SmartScreen: pre-alpha binaries are unsigned (code signing via Azure Trusted Signing arrives with the alpha releases). Right-click the downloaded zip -> Properties -> Unblock (or 'Unblock-File aio3de-sdk-*.zip') before extracting; if SmartScreen still appears, click More info -> Run anyway."
+          if existing_assets=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null); then
+            while IFS= read -r asset_name; do
+              case "$asset_name" in
+                aio3de-sdk-*|SHA256SUMS)
+                  gh release delete-asset "$RELEASE_TAG" "$asset_name" --repo "$GITHUB_REPOSITORY" -y
+                  ;;
+              esac
+            done <<< "$existing_assets"
+          fi
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "AIO3DE $RELEASE_TAG (based on O3DE 2.7.0)" \
+            --title "AIO3DE $RELEASE_TAG SDK (based on O3DE 2.7.0)" \
             --prerelease \
             --notes "$NOTES" \
-            aio3de-* \
-          || gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber aio3de-*
+            aio3de-sdk-* SHA256SUMS \
+          || gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber aio3de-sdk-* SHA256SUMS

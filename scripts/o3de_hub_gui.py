@@ -83,6 +83,10 @@ def build_register_engine_command(engine_root: pathlib.Path) -> list:
     return [str(o3de_launcher(engine_root)), 'register', '--this-engine']
 
 
+def build_install_sdk_command() -> list:
+    return [sys.executable, str(ENGINE_ROOT / 'scripts' / 'o3de' / 'o3de' / 'sdk.py'), 'install']
+
+
 def first_url(text: str) -> str or None:
     match = _URL_RE.search(text or '')
     return match.group(0).rstrip('.)') if match else None
@@ -344,6 +348,9 @@ class HubGui:
         self.register_button = self.ttk.Button(buttons, text='Register this engine',
                                                command=self._register_engine)
         self.register_button.pack(side='left', padx=8)
+        self.install_sdk_button = self.ttk.Button(buttons, text='Install prebuilt SDK',
+                                                  command=self._install_sdk)
+        self.install_sdk_button.pack(side='left', padx=8)
 
         self.ttk.Label(parent,
                        text='The project is created under <location>/<name>. The name field is the '
@@ -372,6 +379,9 @@ class HubGui:
 
     def _register_engine(self):
         self._run_command(build_register_engine_command(ENGINE_ROOT), 'Registering this engine')
+
+    def _install_sdk(self):
+        self._run_command(build_install_sdk_command(), 'Installing prebuilt SDK')
 
     # ---- Build & Run tab -----------------------------------------------------------------------
     def _build_build_tab(self, parent):
