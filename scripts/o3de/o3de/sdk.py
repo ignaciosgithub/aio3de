@@ -355,6 +355,10 @@ def install(tag=None, install_dir=None, force=False, keep_download=False, no_reg
     archive = _download_archive(archive_name, assets, sums, downloads, log)
     install_dir.parent.mkdir(parents=True, exist_ok=True)
     temporary = pathlib.Path(tempfile.mkdtemp(prefix='.aio3de-sdk-', dir=install_dir.parent))
+    if os.name != 'nt':
+        current_umask = os.umask(0)
+        os.umask(current_umask)
+        temporary.chmod(0o777 & ~current_umask)
     try:
         _extract(archive, temporary, log)
         if install_dir.exists() or install_dir.is_symlink():

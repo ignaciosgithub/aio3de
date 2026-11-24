@@ -178,6 +178,30 @@ def test_keyboard_interrupt_removes_extraction_staging(tmp_path, monkeypatch):
     assert not list(tmp_path.glob('.aio3de-sdk-*'))
 
 
+@pytest.mark.skipif(os.name == 'nt', reason='POSIX install directory permissions')
+def test_install_directory_mode_respects_umask(tmp_path, monkeypatch):
+    archive = tmp_path / 'archive'
+    archive.write_bytes(b'archive')
+    install_dir = tmp_path / 'install'
+    monkeypatch.setattr(pathlib.Path, 'home', lambda: tmp_path / 'home')
+    monkeypatch.setattr(sdk, 'platform_key', lambda: 'linux-x86_64')
+    monkeypatch.setattr(sdk, 'find_release', lambda _tag, _plat: {'tag_name': 'v1'})
+    monkeypatch.setattr(sdk, 'select_sdk_assets',
+                        lambda _release, _plat: ('aio3de-sdk-v1-linux-x86_64.tar.zst', [], None))
+    monkeypatch.setattr(sdk, '_download_archive', lambda *_args, **_kwargs: archive)
+
+    def extract(_archive, staging, _log):
+        (staging / 'payload').write_text('installed')
+
+    monkeypatch.setattr(sdk, '_extract', extract)
+    previous_umask = os.umask(0o022)
+    try:
+        sdk.install('v1', install_dir=install_dir, no_register=True, log=lambda _message: None)
+    finally:
+        os.umask(previous_umask)
+    assert install_dir.stat().st_mode & 0o777 == 0o755
+
+
 @pytest.mark.skipif(os.name == 'nt' or not shutil.which('zstd'), reason='tar.zst round trip needs Linux zstd')
 def test_install_split_tar_zst_fake_api(tmp_path, monkeypatch, capsys):
     source = tmp_path / 'aio3de-sdk'
