@@ -158,6 +158,26 @@ def test_extract_zip_flatten_and_existing_install(tmp_path):
     assert install.exists()
 
 
+def test_keyboard_interrupt_removes_extraction_staging(tmp_path, monkeypatch):
+    archive = tmp_path / 'archive'
+    archive.write_bytes(b'archive')
+    install_dir = tmp_path / 'install'
+    monkeypatch.setattr(pathlib.Path, 'home', lambda: tmp_path / 'home')
+    monkeypatch.setattr(sdk, 'platform_key', lambda: 'linux-x86_64')
+    monkeypatch.setattr(sdk, 'find_release', lambda _tag, _plat: {'tag_name': 'v1'})
+    monkeypatch.setattr(sdk, 'select_sdk_assets',
+                        lambda _release, _plat: ('aio3de-sdk-v1-linux-x86_64.tar.zst', [], None))
+    monkeypatch.setattr(sdk, '_download_archive', lambda *_args, **_kwargs: archive)
+
+    def interrupt_extract(*_args, **_kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(sdk, '_extract', interrupt_extract)
+    with pytest.raises(KeyboardInterrupt):
+        sdk.install('v1', install_dir=install_dir, no_register=True)
+    assert not list(tmp_path.glob('.aio3de-sdk-*'))
+
+
 @pytest.mark.skipif(os.name == 'nt' or not shutil.which('zstd'), reason='tar.zst round trip needs Linux zstd')
 def test_install_split_tar_zst_fake_api(tmp_path, monkeypatch, capsys):
     source = tmp_path / 'aio3de-sdk'

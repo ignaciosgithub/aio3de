@@ -362,7 +362,7 @@ def install(tag=None, install_dir=None, force=False, keep_download=False, no_reg
                 raise SdkError(f'{install_dir} already exists; use --force to replace it.')
             _remove(install_dir)
         temporary.replace(install_dir)
-    except Exception:
+    except BaseException:
         _remove(temporary)
         raise
     registered = True
